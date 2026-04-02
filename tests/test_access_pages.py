@@ -39,6 +39,46 @@ def test_home_redirects_unauthenticated_users(app_env):
     assert response.headers["location"] == "/login"
 
 
+def test_instance_theme_color_is_used_for_home(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+
+    _, admin_cookie = register_and_cookie(main, db, "overview-admin@example.com", "Overview Admin")
+    main.update_admin_settings(
+        main.AdminSettingsUpdate(
+            registration_enabled=True,
+            default_board_color="#2563eb",
+            new_accounts_active_by_default=True,
+            instance_theme_color="#0f766e",
+        ),
+        main.Request(request_with_cookie(path="/api/admin/settings", cookie=admin_cookie)),
+        db,
+    )
+
+    response = main.home(main.Request(request_with_cookie(cookie=admin_cookie)), db)
+    assert response.context["page_theme_color"] == "#0f766e"
+
+
+def test_instance_theme_color_is_used_for_admin(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+
+    _, admin_cookie = register_and_cookie(main, db, "instance-admin@example.com", "Instance Admin")
+    main.update_admin_settings(
+        main.AdminSettingsUpdate(
+            registration_enabled=True,
+            default_board_color="#2563eb",
+            new_accounts_active_by_default=True,
+            instance_theme_color="#7c3aed",
+        ),
+        main.Request(request_with_cookie(path="/api/admin/settings", cookie=admin_cookie)),
+        db,
+    )
+
+    response = main.admin_page(main.Request(request_with_cookie(path="/admin", cookie=admin_cookie)), db)
+    assert response.context["page_theme_color"] == "#7c3aed"
+
+
 def test_get_boards_is_scoped_to_current_user(app_env):
     main = app_env["main"]
     db = app_env["db"]
@@ -189,7 +229,7 @@ def test_boards_for_nav_includes_membership_role(app_env):
         {
             "id": shared_board["id"],
             "name": "Shared Hub",
-            "color": None,
+            "color": "#2563eb",
             "role": "viewer",
             "is_shared": True,
         }

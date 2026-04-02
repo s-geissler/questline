@@ -44,6 +44,7 @@ def test_register_sets_session_and_returns_current_user(app_env):
         "email": "user@example.com",
         "display_name": "Quest User",
         "role": "admin",
+        "is_active": True,
     }
 
     cookie_header = response.headers.get("set-cookie")
@@ -156,3 +157,137 @@ def test_auth_pages_redirect_authenticated_users(app_env):
     assert isinstance(register_page, RedirectResponse)
     assert register_page.status_code == 303
     assert register_page.headers["location"] == "/"
+
+
+def test_profile_update_changes_display_name_and_password(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+    response = main.Response()
+    main.auth_register(
+        main.RegisterRequest(
+            email="profile@example.com",
+            password="supersecret",
+            display_name="Profile User",
+        ),
+        response,
+        db,
+    )
+    session_token = response.headers.get("set-cookie").split(";", 1)[0]
+    request = request_with_cookie(session_token)
+
+    updated = main.auth_update_profile(
+        main.ProfileUpdate(display_name="Renamed User", password="newsecret1"),
+        request,
+        db,
+    )
+    assert updated["display_name"] == "Renamed User"
+    assert main.auth_me(request, db)["display_name"] == "Renamed User"
+
+    try:
+        main.auth_login(
+            main.LoginRequest(email="profile@example.com", password="supersecret"),
+            main.Response(),
+            db,
+        )
+        assert False, "Expected old password to fail after profile update"
+    except main.HTTPException as exc:
+        assert exc.status_code == 401
+
+    relogin = main.auth_login(
+        main.LoginRequest(email="profile@example.com", password="newsecret1"),
+        main.Response(),
+        db,
+    )
+    assert relogin["display_name"] == "Renamed User"
+
+
+def test_profile_update_requires_valid_display_name(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+    response = main.Response()
+    main.auth_register(
+        main.RegisterRequest(
+            email="invalid-profile@example.com",
+            password="supersecret",
+            display_name="Profile User",
+        ),
+        response,
+        db,
+    )
+    session_token = response.headers.get("set-cookie").split(";", 1)[0]
+
+    try:
+        main.auth_update_profile(
+            main.ProfileUpdate(display_name="   ", password=None),
+            request_with_cookie(session_token),
+            db,
+        )
+        assert False, "Expected blank display name to be rejected"
+    except main.HTTPException as exc:
+        assert exc.status_code == 400
+
+
+def test_inactive_new_accounts_require_admin_activation(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+
+    admin_response = main.Response()
+    admin = main.auth_register(
+        main.RegisterRequest(
+            email="activation-admin@example.com",
+            password="supersecret",
+            display_name="Admin",
+        ),
+        admin_response,
+        db,
+    )
+    admin_cookie = admin_response.headers.get("set-cookie").split(";", 1)[0]
+
+    main.update_admin_settings(
+        main.AdminSettingsUpdate(
+            registration_enabled=True,
+            default_board_color="#2563eb",
+            new_accounts_active_by_default=False,
+            instance_theme_color="#1d4ed8",
+        ),
+        request_with_cookie(admin_cookie),
+        db,
+    )
+
+    response = main.Response()
+    registered = main.auth_register(
+        main.RegisterRequest(
+            email="inactive@example.com",
+            password="supersecret",
+            display_name="Inactive User",
+        ),
+        response,
+        db,
+    )
+    assert registered["is_active"] is False
+    assert response.headers.get("set-cookie") is None
+
+    try:
+        main.auth_login(
+            main.LoginRequest(email="inactive@example.com", password="supersecret"),
+            main.Response(),
+            db,
+        )
+        assert False, "Expected inactive login to be blocked"
+    except main.HTTPException as exc:
+        assert exc.status_code == 403
+
+    activated = main.update_admin_user(
+        registered["id"],
+        main.AdminUserUpdate(is_active=True),
+        request_with_cookie(admin_cookie),
+        db,
+    )
+    assert activated["is_active"] is True
+
+    relogin = main.auth_login(
+        main.LoginRequest(email="inactive@example.com", password="supersecret"),
+        main.Response(),
+        db,
+    )
+    assert relogin["is_active"] is True

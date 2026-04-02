@@ -124,6 +124,16 @@
           <label class="flex items-center gap-1.5 text-sm text-gray-500 cursor-pointer">
             <input
               type="checkbox"
+              :checked="tt.show_checklist_on_card"
+              @change="toggleTypeChecklistOnCard(tt)"
+              :disabled="!canEdit"
+              class="h-4 w-4 rounded accent-blue-500"
+            >
+            Checklist on card
+          </label>
+          <label class="flex items-center gap-1.5 text-sm text-gray-500 cursor-pointer">
+            <input
+              type="checkbox"
               :checked="tt.is_epic"
                 @change="toggleEpic(tt)"
                 :disabled="!canEdit"
@@ -497,6 +507,7 @@ function taskTypesPage() {
           is_epic: this.newType.is_epic,
           board_id: this.boardId,
           show_description_on_card: false,
+          show_checklist_on_card: false,
         }),
       });
       const tt = await res.json();
@@ -560,6 +571,17 @@ function taskTypesPage() {
       });
       const updated = await res.json();
       tt.show_description_on_card = updated.show_description_on_card;
+    },
+
+    async toggleTypeChecklistOnCard(tt) {
+      if (!this.canEdit) return;
+      const res = await fetch(`/api/task-types/${tt.id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({show_checklist_on_card: !tt.show_checklist_on_card}),
+      });
+      const updated = await res.json();
+      tt.show_checklist_on_card = updated.show_checklist_on_card;
     },
 
     async setSpawnStage(tt, value) {

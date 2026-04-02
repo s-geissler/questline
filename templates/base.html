@@ -261,17 +261,46 @@
     <a href="/board/{{ board.id }}/automations" class="px-3 py-1.5 rounded hover:bg-black/20 text-sm font-medium transition-colors">Automations</a>
     {% endif %}
 
-    <div class="ml-auto flex items-center gap-2">
+    <div x-data='userMenu({{ {"display_name": current_user.display_name, "email": current_user.email, "role": current_user.role} | tojson if current_user else "null" }})' class="ml-auto flex items-center gap-2">
       {% if current_user and current_user.role == 'admin' %}
       <a href="/admin" class="px-3 py-1.5 rounded hover:bg-black/20 text-sm font-medium transition-colors">Admin</a>
       {% endif %}
       {% if current_user %}
-      <span class="text-sm text-white/80">{{ current_user.display_name }}</span>
-      <button
-        type="button"
-        onclick="fetch('/api/auth/logout', {method: 'POST'}).then(() => window.location.href = '/login')"
-        class="px-3 py-1.5 rounded hover:bg-black/20 text-sm font-medium transition-colors"
-      >Logout</button>
+      <div class="relative">
+        <button
+          type="button"
+          @click="menuOpen = !menuOpen"
+          @click.outside="menuOpen = false"
+          class="px-3 py-1.5 rounded hover:bg-black/20 text-sm font-medium transition-colors flex items-center gap-1.5"
+        >
+          <span x-text="profile.display_name"></span>
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-white/70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path stroke-linecap="round" d="M5 7h14M5 12h14M5 17h14"/>
+          </svg>
+        </button>
+        <div
+          x-show="menuOpen"
+          x-cloak
+          x-transition:enter="transition ease-out duration-100"
+          x-transition:enter-start="opacity-0 scale-95"
+          x-transition:enter-end="opacity-100 scale-100"
+          x-transition:leave="transition ease-in duration-75"
+          x-transition:leave-start="opacity-100 scale-100"
+          x-transition:leave-end="opacity-0 scale-95"
+          class="absolute right-0 top-full mt-1 bg-white text-gray-800 shadow-xl rounded-xl py-1 min-w-[180px] z-50"
+        >
+          <button
+            type="button"
+            @click="menuOpen = false; openProfile()"
+            class="w-full text-left px-3 py-2 hover:bg-gray-100 text-sm transition-colors"
+          >Profile</button>
+          <button
+            type="button"
+            @click="logout()"
+            class="w-full text-left px-3 py-2 hover:bg-gray-100 text-sm transition-colors"
+          >Logout</button>
+        </div>
+      </div>
       {% else %}
       <a href="/login" class="px-3 py-1.5 rounded hover:bg-black/20 text-sm font-medium transition-colors">Login</a>
       <a href="/register" class="px-3 py-1.5 rounded hover:bg-black/20 text-sm font-medium transition-colors">Register</a>
@@ -292,11 +321,104 @@
         </svg>
       </button>
       {% block nav_extra %}{% endblock %}
+
+      {% if current_user %}
+      <div
+        x-show="profileOpen"
+        x-cloak
+        class="fixed inset-0 z-[100] flex items-center justify-center p-4"
+      >
+        <div class="absolute inset-0 bg-black/50" @click="closeProfile()"></div>
+        <div class="relative w-full max-w-md bg-white rounded-2xl shadow-2xl p-6">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <h2 class="text-lg font-semibold text-gray-900">Profile</h2>
+              <p class="text-sm text-gray-500 mt-1">Update your display name or change your password.</p>
+            </div>
+            <button type="button" @click="closeProfile()" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+          </div>
+
+          <div class="mt-5 space-y-4">
+            <label class="block">
+              <span class="text-sm font-medium text-gray-700">Display name</span>
+              <input type="text" x-model="profile.display_name" class="mt-2 w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+            </label>
+
+            <label class="block">
+              <span class="text-sm font-medium text-gray-700">New password</span>
+              <input type="password" x-model="profile.password" class="mt-2 w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" placeholder="Leave blank to keep current password">
+              <p class="mt-1 text-xs text-gray-500">Minimum 8 characters.</p>
+            </label>
+          </div>
+
+          <p x-show="profileError" x-text="profileError" class="mt-4 text-sm text-red-500"></p>
+
+          <div class="mt-6 flex justify-end gap-2">
+            <button type="button" @click="closeProfile()" class="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+            <button type="button" @click="saveProfile()" :disabled="savingProfile" class="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60">
+              <span x-text="savingProfile ? 'Saving...' : 'Save'"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+      {% endif %}
     </div>
   </nav>
 
   <script>
-    applyBoardColor({{ (board.color if board and board.color else None) | tojson }});
+    applyBoardColor({{ (page_theme_color if page_theme_color is defined else (board.color if board and board.color else None)) | tojson }});
+
+    function userMenu(currentUser) {
+      return {
+        menuOpen: false,
+        profileOpen: false,
+        savingProfile: false,
+        profileError: '',
+        profile: {
+          display_name: currentUser?.display_name || '',
+          password: '',
+        },
+
+        openProfile() {
+          this.profile.display_name = currentUser?.display_name || this.profile.display_name;
+          this.profile.password = '';
+          this.profileError = '';
+          this.profileOpen = true;
+        },
+
+        closeProfile() {
+          this.profileOpen = false;
+          this.profile.password = '';
+          this.profileError = '';
+        },
+
+        async saveProfile() {
+          this.profileError = '';
+          this.savingProfile = true;
+          const res = await fetch('/api/auth/profile', {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(this.profile),
+          });
+          this.savingProfile = false;
+          if (!res.ok) {
+            const data = await res.json();
+            this.profileError = data.detail || 'Unable to save profile';
+            return;
+          }
+          const updated = await res.json();
+          currentUser.display_name = updated.display_name;
+          this.profile.display_name = updated.display_name;
+          this.profile.password = '';
+          this.profileOpen = false;
+        },
+
+        async logout() {
+          await fetch('/api/auth/logout', {method: 'POST'});
+          window.location.href = '/login';
+        },
+      };
+    }
   </script>
 
   {% block content %}{% endblock %}

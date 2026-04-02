@@ -140,3 +140,145 @@ def test_last_admin_cannot_demote_self(app_env):
         assert False, "Expected last admin downgrade to be denied"
     except main.HTTPException as exc:
         assert exc.status_code == 400
+
+
+def test_admin_can_update_instance_settings_and_board_defaults(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+
+    admin, admin_cookie = register_and_cookie(main, db, "admin6@example.com", "Admin")
+
+    settings = main.get_admin_settings(
+        main.Request(request_with_cookie(path="/api/admin/settings", cookie=admin_cookie)),
+        db,
+    )
+    assert settings["registration_enabled"] is True
+    assert settings["default_board_color"]
+    assert settings["new_accounts_active_by_default"] is True
+    assert settings["instance_theme_color"] == "#1d4ed8"
+
+    updated = main.update_admin_settings(
+        main.AdminSettingsUpdate(
+            registration_enabled=False,
+            default_board_color="#10b981",
+            new_accounts_active_by_default=False,
+            instance_theme_color="#0f766e",
+        ),
+        main.Request(request_with_cookie(path="/api/admin/settings", cookie=admin_cookie)),
+        db,
+    )
+    assert updated["registration_enabled"] is False
+    assert updated["default_board_color"] == "#10b981"
+    assert updated["new_accounts_active_by_default"] is False
+    assert updated["instance_theme_color"] == "#0f766e"
+
+    board = main.create_board(
+        main.BoardCreate(name="Green Hub"),
+        db,
+        main.Request(request_with_cookie(path="/api/boards", cookie=admin_cookie)),
+    )
+    assert board["color"] == "#10b981"
+    assert admin["role"] == "admin"
+
+
+def test_registration_can_be_disabled_after_first_user(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+
+    _, admin_cookie = register_and_cookie(main, db, "admin7@example.com", "Admin")
+
+    main.update_admin_settings(
+        main.AdminSettingsUpdate(
+            registration_enabled=False,
+            default_board_color="#2563eb",
+            new_accounts_active_by_default=True,
+            instance_theme_color="#1d4ed8",
+        ),
+        main.Request(request_with_cookie(path="/api/admin/settings", cookie=admin_cookie)),
+        db,
+    )
+
+    try:
+        main.auth_register(
+            main.RegisterRequest(
+                email="blocked@example.com",
+                password="supersecret",
+                display_name="Blocked",
+            ),
+            main.Response(),
+            db,
+        )
+        assert False, "Expected registration to be disabled"
+    except main.HTTPException as exc:
+        assert exc.status_code == 403
+
+
+def test_admin_settings_require_admin(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+
+    _, admin_cookie = register_and_cookie(main, db, "admin8@example.com", "Admin")
+    _, user_cookie = register_and_cookie(main, db, "user8@example.com", "User")
+
+    settings = main.get_admin_settings(
+        main.Request(request_with_cookie(path="/api/admin/settings", cookie=admin_cookie)),
+        db,
+    )
+    assert settings["registration_enabled"] is True
+
+    try:
+        main.get_admin_settings(
+            main.Request(request_with_cookie(path="/api/admin/settings", cookie=user_cookie)),
+            db,
+        )
+        assert False, "Expected non-admin settings access to be denied"
+    except main.HTTPException as exc:
+        assert exc.status_code == 403
+
+
+def test_admin_can_activate_and_deactivate_accounts(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+
+    _, admin_cookie = register_and_cookie(main, db, "admin9@example.com", "Admin")
+    user, user_cookie = register_and_cookie(main, db, "user9@example.com", "User")
+
+    deactivated = main.update_admin_user(
+        user["id"],
+        main.AdminUserUpdate(is_active=False),
+        main.Request(request_with_cookie(path=f"/api/admin/users/{user['id']}", cookie=admin_cookie)),
+        db,
+    )
+    assert deactivated["is_active"] is False
+
+    try:
+        main.auth_me(main.Request(request_with_cookie(path="/api/auth/me", cookie=user_cookie)), db)
+        assert False, "Expected deactivated session to be blocked"
+    except main.HTTPException as exc:
+        assert exc.status_code == 401
+
+    reactivated = main.update_admin_user(
+        user["id"],
+        main.AdminUserUpdate(is_active=True),
+        main.Request(request_with_cookie(path=f"/api/admin/users/{user['id']}", cookie=admin_cookie)),
+        db,
+    )
+    assert reactivated["is_active"] is True
+
+
+def test_admin_cannot_deactivate_self(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+
+    admin, admin_cookie = register_and_cookie(main, db, "admin10@example.com", "Admin")
+
+    try:
+        main.update_admin_user(
+            admin["id"],
+            main.AdminUserUpdate(is_active=False),
+            main.Request(request_with_cookie(path=f"/api/admin/users/{admin['id']}", cookie=admin_cookie)),
+            db,
+        )
+        assert False, "Expected self-deactivation to be denied"
+    except main.HTTPException as exc:
+        assert exc.status_code == 400

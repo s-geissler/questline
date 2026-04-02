@@ -148,7 +148,13 @@ def get_optional_current_user(request: Request, db: Session) -> Optional[models.
         .filter(models.UserSession.token_hash == _hash_session_token(token))
         .first()
     )
-    return session.user if session else None
+    if not session or not session.user:
+        return None
+    if not session.user.is_active:
+        db.delete(session)
+        db.commit()
+        return None
+    return session.user
 
 
 def require_current_user(request: Request, db: Session) -> models.User:
@@ -262,6 +268,7 @@ def user_to_dict(user: models.User) -> dict:
         "email": user.email,
         "display_name": user.display_name,
         "role": user.role,
+        "is_active": user.is_active,
     }
 
 

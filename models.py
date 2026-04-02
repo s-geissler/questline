@@ -78,16 +78,28 @@ class SavedFilter(Base):
     board = relationship("Board", back_populates="saved_filters")
 
 
+class InstanceSetting(Base):
+    __tablename__ = "instance_settings"
+    __table_args__ = (
+        Index("ix_instance_settings_key", "key"),
+    )
+    id = Column(Integer, primary_key=True)
+    key = Column(String, nullable=False, unique=True)
+    value = Column(Text, nullable=True)
+
+
 class User(Base):
     __tablename__ = "users"
     __table_args__ = (
         Index("ix_users_role", "role"),
+        Index("ix_users_is_active", "is_active"),
     )
     id = Column(Integer, primary_key=True)
     email = Column(String, nullable=False, unique=True)
     password_hash = Column(String, nullable=False)
     display_name = Column(String, nullable=False)
     role = Column(String, nullable=False, default="user")
+    is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, server_default=func.now())
     sessions = relationship(
         "UserSession",
@@ -141,6 +153,7 @@ class TaskType(Base):
     color = Column(String, nullable=True)
     is_epic = Column(Boolean, default=False)
     show_description_on_card = Column(Boolean, default=False)
+    show_checklist_on_card = Column(Boolean, default=False)
     board_id = Column(Integer, ForeignKey("boards.id"), nullable=True)
     spawn_stage_id = Column("spawn_list_id", Integer, ForeignKey("lists.id", ondelete="SET NULL"), nullable=True)
     board = relationship("Board", back_populates="task_types")
@@ -185,6 +198,7 @@ class Task(Base):
     due_date = Column(String, nullable=True)
     parent_task_id = Column(Integer, ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True)
     show_description_on_card = Column(Boolean, nullable=True)
+    show_checklist_on_card = Column(Boolean, nullable=True)
     stage_id = Column("list_id", Integer, ForeignKey("lists.id"), nullable=False)
     task_type_id = Column(Integer, ForeignKey("task_types.id"), nullable=True)
     color = Column(String, nullable=True)

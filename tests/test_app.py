@@ -320,6 +320,36 @@ def test_description_on_card_uses_type_default_and_task_override(app_env):
     assert overridden["show_description_on_card"] is False
 
 
+def test_checklist_on_card_uses_type_default_and_task_override(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+    board = create_board(main, db)
+    backlog = create_stage(main, db, board["id"], "Backlog")
+    task_type = main.create_task_type(
+        main.TaskTypeCreate(
+            name="Checklist Feature",
+            board_id=board["id"],
+            show_checklist_on_card=True,
+        ),
+        db,
+    )
+    task = create_task(main, db, backlog["id"], "Card checklist", task_type_id=task_type["id"])
+
+    main.add_checklist_item(task["id"], main.ChecklistItemCreate(title="Visible item"), db)
+    fetched = main.get_task(task["id"], db)
+    assert fetched["effective_show_checklist_on_card"] is True
+    assert fetched["show_checklist_on_card"] is None
+    assert fetched["task_type"]["show_checklist_on_card"] is True
+
+    overridden = main.update_task(
+        task["id"],
+        main.TaskUpdate(show_checklist_on_card=False),
+        db,
+    )
+    assert overridden["effective_show_checklist_on_card"] is False
+    assert overridden["show_checklist_on_card"] is False
+
+
 def test_clear_completed_stage_removes_completed_quests_and_spawned_children(app_env):
     main = app_env["main"]
     db = app_env["db"]

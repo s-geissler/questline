@@ -71,12 +71,14 @@ def _run_column_migrations():
         ("boards",           "color",   "VARCHAR"),
         ("task_types",       "color",   "VARCHAR"),
         ("task_types",       "show_description_on_card", "BOOLEAN"),
+        ("task_types",       "show_checklist_on_card", "BOOLEAN"),
         ("lists",            "is_log", "BOOLEAN"),
         ("lists",            "filter_id", "INTEGER REFERENCES saved_filters(id)"),
         ("tasks",            "color",   "VARCHAR"),
         ("tasks",            "due_date", "VARCHAR"),
         ("tasks",            "parent_task_id", "INTEGER REFERENCES tasks(id)"),
         ("tasks",            "show_description_on_card", "BOOLEAN"),
+        ("tasks",            "show_checklist_on_card", "BOOLEAN"),
         ("automations",      "action_task_type_id", "INTEGER REFERENCES task_types(id)"),
         ("automations",      "action_color", "VARCHAR"),
         ("automations",      "action_days_offset", "INTEGER"),
@@ -84,6 +86,7 @@ def _run_column_migrations():
         ("custom_field_defs", "color",   "VARCHAR"),
         ("board_memberships", "role", "VARCHAR"),
         ("users", "role", "VARCHAR"),
+        ("users", "is_active", "BOOLEAN"),
     ]
     with engine.connect() as conn:
         for table, col, col_type in migrations:
@@ -121,6 +124,7 @@ def _run_index_migrations():
         ("ix_automations_board_enabled_trigger", "CREATE INDEX IF NOT EXISTS ix_automations_board_enabled_trigger ON automations(board_id, enabled, trigger_type)"),
         ("ix_automations_trigger_stage_id", "CREATE INDEX IF NOT EXISTS ix_automations_trigger_stage_id ON automations(trigger_list_id)"),
         ("ix_automations_action_stage_id", "CREATE INDEX IF NOT EXISTS ix_automations_action_stage_id ON automations(action_list_id)"),
+        ("ix_users_is_active", "CREATE INDEX IF NOT EXISTS ix_users_is_active ON users(is_active)"),
     ]
     with engine.connect() as conn:
         for _, sql in indexes:
@@ -185,6 +189,7 @@ def _migrate_admin_role():
     db = SessionLocal()
     try:
         db.query(models.User).filter(models.User.role.is_(None)).update({"role": "user"})
+        db.query(models.User).filter(models.User.is_active.is_(None)).update({"is_active": True})
         admin_count = db.query(models.User).filter(models.User.role == "admin").count()
         if admin_count == 0:
             first_user = db.query(models.User).order_by(models.User.id).first()
@@ -208,6 +213,12 @@ templates = Jinja2Templates(directory="templates")
 SESSION_COOKIE = "questline_session"
 PASSWORD_HASH_ITERATIONS = 120_000
 BOARD_ROLE_ORDER = {"viewer": 1, "editor": 2, "owner": 3}
+INSTANCE_SETTINGS_DEFAULTS = {
+    "registration_enabled": "true",
+    "default_board_color": "#2563eb",
+    "new_accounts_active_by_default": "true",
+    "instance_theme_color": "#1d4ed8",
+}
 
 
 @app.middleware("http")
@@ -259,6 +270,7 @@ class TaskUpdate(BaseModel):
     task_type_id: Optional[int] = None
     color: Optional[str] = None
     show_description_on_card: Optional[bool] = None
+    show_checklist_on_card: Optional[bool] = None
     done: Optional[bool] = None
     custom_fields: Optional[dict] = None
 
@@ -276,6 +288,7 @@ class TaskTypeCreate(BaseModel):
     board_id: int
     color: Optional[str] = None
     show_description_on_card: bool = False
+    show_checklist_on_card: bool = False
 
 class TaskTypeUpdate(BaseModel):
     name: Optional[str] = None
@@ -283,6 +296,7 @@ class TaskTypeUpdate(BaseModel):
     spawn_stage_id: Optional[int] = None
     color: Optional[str] = None
     show_description_on_card: Optional[bool] = None
+    show_checklist_on_card: Optional[bool] = None
 
 class CustomFieldCreate(BaseModel):
     name: str
@@ -341,6 +355,11 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class ProfileUpdate(BaseModel):
+    display_name: str
+    password: Optional[str] = None
+
+
 class BoardMemberCreate(BaseModel):
     email: str
     role: str = "viewer"
@@ -351,7 +370,15 @@ class BoardMemberUpdate(BaseModel):
 
 
 class AdminUserUpdate(BaseModel):
-    role: str
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class AdminSettingsUpdate(BaseModel):
+    registration_enabled: bool
+    default_board_color: Optional[str] = None
+    new_accounts_active_by_default: bool
+    instance_theme_color: Optional[str] = None
 
 
 def _validate_custom_fields_for_task(
@@ -388,6 +415,7 @@ def home(request: Request, db: Session = Depends(get_db)):
     current_user = get_optional_current_user(request, db)
     if not current_user:
         return login_redirect_response()
+    instance_settings = get_instance_settings(db)
     return templates.TemplateResponse(
         request,
         "home.html",
@@ -395,6 +423,7 @@ def home(request: Request, db: Session = Depends(get_db)):
             "board": None,
             "boards": [],
             "current_user": current_user,
+            "page_theme_color": instance_settings["instance_theme_color"],
         },
     )
 
@@ -491,6 +520,7 @@ def admin_page(request: Request, db: Session = Depends(get_db)):
         return login_redirect_response()
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin access denied")
+    instance_settings = get_instance_settings(db)
     return templates.TemplateResponse(
         request,
         "admin.html",
@@ -498,6 +528,7 @@ def admin_page(request: Request, db: Session = Depends(get_db)):
             "board": None,
             "boards": _boards_for_nav(db, current_user),
             "current_user": current_user,
+            "page_theme_color": instance_settings["instance_theme_color"],
         },
     )
 
@@ -505,6 +536,39 @@ def admin_page(request: Request, db: Session = Depends(get_db)):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def get_instance_settings(db: Session) -> dict:
+    values = dict(INSTANCE_SETTINGS_DEFAULTS)
+    rows = db.query(models.InstanceSetting).all()
+    for row in rows:
+        values[row.key] = row.value
+    if not values.get("instance_theme_color") and values.get("overview_theme_color"):
+        values["instance_theme_color"] = values["overview_theme_color"]
+    return {
+        "registration_enabled": str(values.get("registration_enabled", "true")).lower() == "true",
+        "default_board_color": (values.get("default_board_color") or INSTANCE_SETTINGS_DEFAULTS["default_board_color"]).strip(),
+        "new_accounts_active_by_default": str(values.get("new_accounts_active_by_default", "true")).lower() == "true",
+        "instance_theme_color": (values.get("instance_theme_color") or INSTANCE_SETTINGS_DEFAULTS["instance_theme_color"]).strip(),
+    }
+
+
+def set_instance_settings(db: Session, updates: dict) -> dict:
+    for key, value in updates.items():
+        row = db.query(models.InstanceSetting).filter(models.InstanceSetting.key == key).first()
+        if not row:
+            row = models.InstanceSetting(key=key)
+            db.add(row)
+        row.value = value
+    db.commit()
+    return get_instance_settings(db)
+
+
+def _validated_hex_color(value: Optional[str], fallback: str, detail: str) -> str:
+    color = (value or "").strip() or fallback
+    if not color.startswith("#") or len(color) not in {4, 7}:
+        raise HTTPException(status_code=400, detail=detail)
+    return color
+
 
 def task_to_dict(task: models.Task) -> dict:
     custom_values = {str(cfv.field_def_id): cfv.value for cfv in task.custom_field_values}
@@ -525,6 +589,7 @@ def task_to_dict(task: models.Task) -> dict:
             "color": task.task_type.color,
             "is_epic": task.task_type.is_epic,
             "show_description_on_card": task.task_type.show_description_on_card,
+            "show_checklist_on_card": task.task_type.show_checklist_on_card,
             "custom_fields": [field_to_dict(f) for f in task.task_type.custom_fields],
         }
     display_color = task.color or (task.task_type.color if task.task_type else None)
@@ -532,6 +597,11 @@ def task_to_dict(task: models.Task) -> dict:
         task.show_description_on_card
         if task.show_description_on_card is not None
         else (task.task_type.show_description_on_card if task.task_type else False)
+    )
+    effective_show_checklist_on_card = (
+        task.show_checklist_on_card
+        if task.show_checklist_on_card is not None
+        else (task.task_type.show_checklist_on_card if task.task_type else False)
     )
     parent_task = None
     if task.parent_task:
@@ -551,6 +621,8 @@ def task_to_dict(task: models.Task) -> dict:
         "parent_task": parent_task,
         "show_description_on_card": task.show_description_on_card,
         "effective_show_description_on_card": effective_show_description_on_card,
+        "show_checklist_on_card": task.show_checklist_on_card,
+        "effective_show_checklist_on_card": effective_show_checklist_on_card,
         "stage_id": task.stage_id,
         "task_type": task_type,
         "task_type_id": task.task_type_id,
@@ -665,19 +737,25 @@ def auth_register(data: RegisterRequest, response: Response, db: Session = Depen
     existing = db.query(models.User).filter(models.User.email == email).first()
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
-    user_role = "admin" if db.query(models.User).count() == 0 else "user"
+    existing_user_count = db.query(models.User).count()
+    if existing_user_count > 0 and not get_instance_settings(db)["registration_enabled"]:
+        raise HTTPException(status_code=403, detail="Registration is currently disabled")
+    user_role = "admin" if existing_user_count == 0 else "user"
+    is_active = True if existing_user_count == 0 else get_instance_settings(db)["new_accounts_active_by_default"]
     user = models.User(
         email=email,
         password_hash=hash_password(password),
         display_name=display_name,
         role=user_role,
+        is_active=is_active,
     )
     db.add(user)
     db.commit()
     db.refresh(user)
     claim_legacy_boards_for_first_user(user, db)
-    token = create_user_session(user, db)
-    _set_session_cookie(response, token)
+    if user.is_active:
+        token = create_user_session(user, db)
+        _set_session_cookie(response, token)
     return user_to_dict(user)
 
 
@@ -687,6 +765,8 @@ def auth_login(data: LoginRequest, response: Response, db: Session = Depends(get
     user = db.query(models.User).filter(models.User.email == email).first()
     if not user or not verify_password(data.password or "", user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="Account is awaiting activation")
     token = create_user_session(user, db)
     _set_session_cookie(response, token)
     return user_to_dict(user)
@@ -702,6 +782,22 @@ def auth_logout(request: Request, response: Response, db: Session = Depends(get_
         db.commit()
     _clear_session_cookie(response)
     return {"ok": True}
+
+
+@app.put("/api/auth/profile")
+def auth_update_profile(data: ProfileUpdate, request: Request, db: Session = Depends(get_db)):
+    user = require_current_user(request, db)
+    display_name = (data.display_name or "").strip()
+    if not display_name:
+        raise HTTPException(status_code=400, detail="Display name is required")
+    user.display_name = display_name
+    if data.password is not None and data.password != "":
+        if len(data.password) < 8:
+            raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+        user.password_hash = hash_password(data.password)
+    db.commit()
+    db.refresh(user)
+    return user_to_dict(user)
 
 
 # ---------------------------------------------------------------------------
@@ -740,10 +836,11 @@ def get_boards(request: Request = None, db: Session = Depends(get_db)):
 @app.post("/api/boards")
 def create_board(data: BoardCreate, db: Session = Depends(get_db), request: Request = None):
     owner_user = require_current_user(request, db) if request is not None else None
+    instance_settings = get_instance_settings(db)
     pos = db.query(models.Board).count()
     board = models.Board(
         name=data.name,
-        color=data.color or None,
+        color=data.color or instance_settings["default_board_color"] or None,
         position=pos,
         owner_user_id=owner_user.id if owner_user else None,
     )
@@ -773,25 +870,63 @@ def get_admin_users(request: Request, db: Session = Depends(get_db)):
             "email": user.email,
             "display_name": user.display_name,
             "role": user.role,
+            "is_active": user.is_active,
             "board_count": db.query(models.BoardMembership).filter(models.BoardMembership.user_id == user.id).count(),
         }
         for user in users
     ]
 
 
+@app.get("/api/admin/settings")
+def get_admin_settings(request: Request, db: Session = Depends(get_db)):
+    require_admin(request, db)
+    return get_instance_settings(db)
+
+
+@app.put("/api/admin/settings")
+def update_admin_settings(data: AdminSettingsUpdate, request: Request, db: Session = Depends(get_db)):
+    require_admin(request, db)
+    default_board_color = _validated_hex_color(
+        data.default_board_color,
+        INSTANCE_SETTINGS_DEFAULTS["default_board_color"],
+        "Default board color must be a valid hex color",
+    )
+    instance_theme_color = _validated_hex_color(
+        data.instance_theme_color,
+        INSTANCE_SETTINGS_DEFAULTS["instance_theme_color"],
+        "Instance theme color must be a valid hex color",
+    )
+    return set_instance_settings(
+        db,
+        {
+            "registration_enabled": "true" if data.registration_enabled else "false",
+            "default_board_color": default_board_color,
+            "new_accounts_active_by_default": "true" if data.new_accounts_active_by_default else "false",
+            "instance_theme_color": instance_theme_color,
+        },
+    )
+
+
 @app.put("/api/admin/users/{user_id}")
 def update_admin_user(user_id: int, data: AdminUserUpdate, request: Request, db: Session = Depends(get_db)):
     current_user = require_admin(request, db)
-    if data.role not in {"user", "admin"}:
-        raise HTTPException(status_code=400, detail="Invalid admin role")
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    if user.role == "admin" and data.role != "admin":
+    if data.role is not None and data.role not in {"user", "admin"}:
+        raise HTTPException(status_code=400, detail="Invalid admin role")
+    target_role = data.role if data.role is not None else user.role
+    if user.role == "admin" and target_role != "admin":
         admin_count = db.query(models.User).filter(models.User.role == "admin").count()
         if admin_count <= 1:
             raise HTTPException(status_code=400, detail="Questline must have at least one admin")
-    user.role = data.role
+    user.role = target_role
+    if data.is_active is not None:
+        if user.id == current_user.id and data.is_active is False:
+            raise HTTPException(status_code=400, detail="You cannot deactivate your own account")
+        user.is_active = data.is_active
+        if data.is_active is False:
+            db.query(models.UserSession).filter(models.UserSession.user_id == user.id).delete()
     db.commit()
     return user_to_dict(user)
 
@@ -1208,6 +1343,8 @@ def update_task(task_id: int, data: TaskUpdate, db: Session = Depends(get_db), r
         task.color = data.color or None
     if "show_description_on_card" in data.model_fields_set:
         task.show_description_on_card = data.show_description_on_card
+    if "show_checklist_on_card" in data.model_fields_set:
+        task.show_checklist_on_card = data.show_checklist_on_card
     if data.done is not None:
         task.done = data.done
 
@@ -1460,6 +1597,7 @@ def task_type_to_dict(tt: models.TaskType) -> dict:
         "color": tt.color,
         "is_epic": tt.is_epic,
         "show_description_on_card": tt.show_description_on_card,
+        "show_checklist_on_card": tt.show_checklist_on_card,
         "spawn_stage_id": tt.spawn_stage_id,
         "custom_fields": [field_to_dict(f) for f in tt.custom_fields],
     }
@@ -1479,6 +1617,7 @@ def create_task_type(data: TaskTypeCreate, db: Session = Depends(get_db), reques
         board_id=data.board_id,
         color=data.color or None,
         show_description_on_card=data.show_description_on_card,
+        show_checklist_on_card=data.show_checklist_on_card,
     )
     db.add(tt)
     db.commit()
@@ -1513,6 +1652,8 @@ def update_task_type(type_id: int, data: TaskTypeUpdate, db: Session = Depends(g
         tt.color = data.color or None
     if "show_description_on_card" in data.model_fields_set:
         tt.show_description_on_card = data.show_description_on_card
+    if "show_checklist_on_card" in data.model_fields_set:
+        tt.show_checklist_on_card = data.show_checklist_on_card
     db.commit()
     db.refresh(tt)
     return task_type_to_dict(tt)
