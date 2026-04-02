@@ -43,6 +43,7 @@ def test_register_sets_session_and_returns_current_user(app_env):
         "id": 1,
         "email": "user@example.com",
         "display_name": "Quest User",
+        "role": "admin",
     }
 
     cookie_header = response.headers.get("set-cookie")

@@ -11,12 +11,14 @@ import models
 
 SESSION_COOKIE = "questline_session"
 PASSWORD_HASH_ITERATIONS = 120_000
-BOARD_ROLE_ORDER = {"viewer": 1, "editor": 2, "owner": 3}
+BOARD_ROLE_ORDER = {"viewer": 1, "editor": 2, "owner": 3, "admin": 4}
 
 
 def get_accessible_boards(user: Optional[models.User], db: Session):
     if not user:
         return []
+    if user.role == "admin":
+        return db.query(models.Board).order_by(models.Board.position).all()
     return (
         db.query(models.Board)
         .join(models.BoardMembership, models.BoardMembership.board_id == models.Board.id)
@@ -168,6 +170,8 @@ def get_board_membership(board_id: int, user: models.User, db: Session) -> Optio
 
 
 def get_board_role(board_id: int, user: models.User, db: Session) -> Optional[str]:
+    if user.role == "admin":
+        return "admin"
     membership = get_board_membership(board_id, user, db)
     return membership.role if membership else None
 
@@ -257,6 +261,7 @@ def user_to_dict(user: models.User) -> dict:
         "id": user.id,
         "email": user.email,
         "display_name": user.display_name,
+        "role": user.role,
     }
 
 
@@ -266,4 +271,12 @@ def board_membership_to_dict(membership: models.BoardMembership) -> dict:
         "email": membership.user.email,
         "display_name": membership.user.display_name,
         "role": membership.role,
+        "account_role": membership.user.role,
     }
+
+
+def require_admin(request: Request, db: Session) -> models.User:
+    user = require_current_user(request, db)
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access denied")
+    return user

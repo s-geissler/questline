@@ -46,17 +46,19 @@
             <span
               x-show="board.role"
               class="text-[11px] px-1.5 py-0.5 rounded-full text-white font-medium border flex-shrink-0"
-              :class="board.role === 'owner'
-                ? 'bg-white/20 border-white/25'
+              :class="board.role === 'admin'
+                ? 'bg-fuchsia-400/25 border-fuchsia-200/30'
+                : (board.role === 'owner'
+                  ? 'bg-white/20 border-white/25'
                 : (board.role === 'editor'
                   ? 'bg-amber-400/25 border-amber-200/30'
-                  : 'bg-emerald-400/25 border-emerald-200/30')"
+                  : 'bg-emerald-400/25 border-emerald-200/30'))"
               x-text="board.role.charAt(0).toUpperCase() + board.role.slice(1)"
             ></span>
           </div>
         </a>
         <!-- Footer: owner actions -->
-        <div class="px-3 py-2 border-t" x-show="board.role === 'owner'">
+        <div class="px-3 py-2 border-t" x-show="board.role === 'owner' || board.role === 'admin'">
           <template x-if="board.editing">
             <input
               :id="'rename-' + board.id"

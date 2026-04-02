@@ -80,10 +80,14 @@ class SavedFilter(Base):
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        Index("ix_users_role", "role"),
+    )
     id = Column(Integer, primary_key=True)
     email = Column(String, nullable=False, unique=True)
     password_hash = Column(String, nullable=False)
     display_name = Column(String, nullable=False)
+    role = Column(String, nullable=False, default="user")
     created_at = Column(DateTime, server_default=func.now())
     sessions = relationship(
         "UserSession",

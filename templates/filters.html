@@ -75,11 +75,13 @@
             <span
               x-show="board.role"
               class="text-[11px] px-1.5 py-0.5 rounded-full"
-              :class="board.role === 'owner'
-                ? 'bg-blue-100 text-blue-700'
+              :class="board.role === 'admin'
+                ? 'bg-fuchsia-100 text-fuchsia-700'
+                : (board.role === 'owner'
+                  ? 'bg-blue-100 text-blue-700'
                 : (board.role === 'editor'
                   ? 'bg-amber-100 text-amber-700'
-                  : 'bg-emerald-100 text-emerald-700')"
+                  : 'bg-emerald-100 text-emerald-700'))"
               x-text="board.role.charAt(0).toUpperCase() + board.role.slice(1)"
             ></span>
           </label>
@@ -206,7 +208,7 @@ function filtersPage() {
     nextRuleUid: 1,
 
     get canEdit() {
-      return this.boardRole === 'owner' || this.boardRole === 'editor';
+      return this.boardRole === 'owner' || this.boardRole === 'editor' || this.boardRole === 'admin';
     },
 
     async init() {

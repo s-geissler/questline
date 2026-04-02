@@ -428,7 +428,7 @@ function taskTypesPage() {
     newType: {name: '', is_epic: false},
 
     get canEdit() {
-      return this.boardRole === 'owner' || this.boardRole === 'editor';
+      return this.boardRole === 'owner' || this.boardRole === 'editor' || this.boardRole === 'admin';
     },
 
     blankNewField() {

@@ -31,6 +31,7 @@ from authz import (
     _set_session_cookie,
     board_is_shared,
     board_membership_to_dict,
+    require_admin,
     claim_legacy_boards_for_first_user,
     create_user_session,
     ensure_board_membership,
@@ -82,6 +83,7 @@ def _run_column_migrations():
         ("custom_field_defs", "options", "TEXT"),
         ("custom_field_defs", "color",   "VARCHAR"),
         ("board_memberships", "role", "VARCHAR"),
+        ("users", "role", "VARCHAR"),
     ]
     with engine.connect() as conn:
         for table, col, col_type in migrations:
@@ -179,11 +181,26 @@ def _migrate_board_memberships():
         db.close()
 
 
+def _migrate_admin_role():
+    db = SessionLocal()
+    try:
+        db.query(models.User).filter(models.User.role.is_(None)).update({"role": "user"})
+        admin_count = db.query(models.User).filter(models.User.role == "admin").count()
+        if admin_count == 0:
+            first_user = db.query(models.User).order_by(models.User.id).first()
+            if first_user:
+                first_user.role = "admin"
+        db.commit()
+    finally:
+        db.close()
+
+
 models.Base.metadata.create_all(bind=engine)
 _run_column_migrations()
 _run_index_migrations()
 _migrate_orphan_data()
 _migrate_board_memberships()
+_migrate_admin_role()
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -333,6 +350,10 @@ class BoardMemberUpdate(BaseModel):
     role: str
 
 
+class AdminUserUpdate(BaseModel):
+    role: str
+
+
 def _validate_custom_fields_for_task(
     custom_fields: dict,
     effective_task_type_id: Optional[int],
@@ -461,6 +482,24 @@ def automations_page(request: Request, board_id: int, db: Session = Depends(get_
         "current_user": current_user,
         "board_role": board_role,
     })
+
+
+@app.get("/admin", response_class=HTMLResponse)
+def admin_page(request: Request, db: Session = Depends(get_db)):
+    current_user = get_optional_current_user(request, db)
+    if not current_user:
+        return login_redirect_response()
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access denied")
+    return templates.TemplateResponse(
+        request,
+        "admin.html",
+        {
+            "board": None,
+            "boards": _boards_for_nav(db, current_user),
+            "current_user": current_user,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -626,10 +665,12 @@ def auth_register(data: RegisterRequest, response: Response, db: Session = Depen
     existing = db.query(models.User).filter(models.User.email == email).first()
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
+    user_role = "admin" if db.query(models.User).count() == 0 else "user"
     user = models.User(
         email=email,
         password_hash=hash_password(password),
         display_name=display_name,
+        role=user_role,
     )
     db.add(user)
     db.commit()
@@ -720,6 +761,39 @@ def create_board(data: BoardCreate, db: Session = Depends(get_db), request: Requ
         "role": "owner" if owner_user else None,
         "is_shared": False,
     }
+
+
+@app.get("/api/admin/users")
+def get_admin_users(request: Request, db: Session = Depends(get_db)):
+    require_admin(request, db)
+    users = db.query(models.User).order_by(models.User.created_at, models.User.id).all()
+    return [
+        {
+            "id": user.id,
+            "email": user.email,
+            "display_name": user.display_name,
+            "role": user.role,
+            "board_count": db.query(models.BoardMembership).filter(models.BoardMembership.user_id == user.id).count(),
+        }
+        for user in users
+    ]
+
+
+@app.put("/api/admin/users/{user_id}")
+def update_admin_user(user_id: int, data: AdminUserUpdate, request: Request, db: Session = Depends(get_db)):
+    current_user = require_admin(request, db)
+    if data.role not in {"user", "admin"}:
+        raise HTTPException(status_code=400, detail="Invalid admin role")
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.role == "admin" and data.role != "admin":
+        admin_count = db.query(models.User).filter(models.User.role == "admin").count()
+        if admin_count <= 1:
+            raise HTTPException(status_code=400, detail="Questline must have at least one admin")
+    user.role = data.role
+    db.commit()
+    return user_to_dict(user)
 
 @app.put("/api/boards/{board_id}")
 def update_board(board_id: int, data: BoardUpdate, db: Session = Depends(get_db), request: Request = None):

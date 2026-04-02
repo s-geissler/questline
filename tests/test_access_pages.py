@@ -69,7 +69,7 @@ def test_get_boards_is_scoped_to_current_user(app_env):
     outsider_boards = main.get_boards(main.Request(request_with_cookie(cookie=outsider_cookie)), db)
 
     assert [board["name"] for board in owner_boards] == ["Owned Board", "Shared Board"]
-    assert [board["role"] for board in owner_boards] == ["owner", "owner"]
+    assert [board["role"] for board in owner_boards] == ["admin", "admin"]
     assert [board["is_shared"] for board in owner_boards] == [False, True]
     assert [board["name"] for board in viewer_boards] == ["Shared Board"]
     assert [board["role"] for board in viewer_boards] == ["viewer"]
@@ -178,8 +178,8 @@ def test_boards_for_nav_includes_membership_role(app_env):
     viewer_nav = main._boards_for_nav(db, viewer_row)
 
     assert {board["id"]: board["role"] for board in owner_nav} == {
-        owned_board["id"]: "owner",
-        shared_board["id"]: "owner",
+        owned_board["id"]: "admin",
+        shared_board["id"]: "admin",
     }
     assert {board["id"]: board["is_shared"] for board in owner_nav} == {
         owned_board["id"]: False,

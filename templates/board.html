@@ -756,11 +756,11 @@ function board() {
     _sortables: [],
 
     get canEditBoard() {
-      return this.currentBoardRole === 'owner' || this.currentBoardRole === 'editor';
+      return this.currentBoardRole === 'owner' || this.currentBoardRole === 'editor' || this.currentBoardRole === 'admin';
     },
 
     get canManageBoard() {
-      return this.currentBoardRole === 'owner';
+      return this.currentBoardRole === 'owner' || this.currentBoardRole === 'admin';
     },
 
     get canViewSettings() {

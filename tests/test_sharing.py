@@ -67,7 +67,7 @@ def test_owner_can_list_add_update_and_remove_board_members(app_env):
         db,
         main.Request(request_with_cookie(ctx["owner_cookie"])),
     )
-    assert listed["current_role"] == "owner"
+    assert listed["current_role"] == "admin"
     assert [member["role"] for member in listed["members"]] == ["owner", "editor", "viewer"]
 
     added = main.add_board_member(
