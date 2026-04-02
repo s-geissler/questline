@@ -83,12 +83,12 @@
                 title="Clear completed objectives"
                 x-show="!stage.is_log"
               >Clear completed</button>
+              <button
+                @click="deleteStage(stage.id); open = false"
+                class="block w-full text-left text-xs text-gray-600 hover:text-red-600 px-3 py-2 hover:bg-gray-100 transition-colors"
+                title="Delete stage"
+              >Delete stage</button>
             </div>
-            <button
-              @click="deleteStage(stage.id)"
-              class="text-gray-400 hover:text-red-500 flex-shrink-0 text-lg leading-none"
-              title="Delete stage"
-            >×</button>
           </div>
         </div>
 
