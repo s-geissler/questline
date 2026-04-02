@@ -3,15 +3,20 @@
 
 <div x-data="filtersPage()" x-init="init()" x-cloak class="max-w-5xl mx-auto p-6">
 
+  <div x-show="!canEdit" class="mb-6 bg-white/85 text-slate-700 text-sm rounded-xl px-4 py-3 shadow">
+    Read-only access. Viewers can inspect saved filters but cannot change them.
+  </div>
+
   <div class="flex items-center justify-between mb-6">
     <h1 class="text-2xl font-bold text-white">Filters</h1>
     <button
+      x-show="canEdit"
       @click="startCreate()"
       class="bg-white text-blue-700 font-semibold px-4 py-2 rounded-lg hover:bg-blue-50 transition-colors shadow"
     >+ New Filter</button>
   </div>
 
-  <template x-if="editingFilter">
+  <template x-if="editingFilter && canEdit">
     <div class="bg-white rounded-xl shadow p-5 mb-6">
     <div class="flex items-center justify-between mb-4">
       <h2 class="font-semibold text-gray-700" x-text="editingFilter.id ? 'Edit Filter' : 'New Filter'"></h2>
@@ -52,6 +57,35 @@
         </template>
       </select>
       <p class="mt-1 text-xs text-gray-400">Select a type to enable filtering by that type's custom fields.</p>
+    </div>
+
+    <div class="mb-4">
+      <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Source Hubs</label>
+      <div class="bg-gray-50 border rounded-xl p-3 space-y-2">
+        <template x-for="board in boards" :key="board.id">
+          <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+            <input
+              type="checkbox"
+              :checked="includesSourceBoard(board.id)"
+              @change="toggleSourceBoard(board.id)"
+              class="h-4 w-4 rounded accent-blue-500"
+            >
+            <span x-text="board.name"></span>
+            <span x-show="String(board.id) === String(boardId)" class="text-[11px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">Current</span>
+            <span
+              x-show="board.role"
+              class="text-[11px] px-1.5 py-0.5 rounded-full"
+              :class="board.role === 'owner'
+                ? 'bg-blue-100 text-blue-700'
+                : (board.role === 'editor'
+                  ? 'bg-amber-100 text-amber-700'
+                  : 'bg-emerald-100 text-emerald-700')"
+              x-text="board.role.charAt(0).toUpperCase() + board.role.slice(1)"
+            ></span>
+          </label>
+        </template>
+      </div>
+      <p class="mt-1 text-xs text-gray-400">Logs using this filter will pull objectives from the selected hubs you can access.</p>
     </div>
 
     <div class="space-y-3">
@@ -148,8 +182,8 @@
           <div class="font-medium text-gray-800 text-sm" x-text="savedFilter.name"></div>
           <div class="text-xs text-gray-400 mt-0.5" x-text="filterSummary(savedFilter)"></div>
         </div>
-        <button @click="startEdit(savedFilter)" class="text-sm text-blue-600 hover:text-blue-700 transition-colors">Edit</button>
-        <button @click="deleteFilter(savedFilter)" class="text-sm text-red-400 hover:text-red-600 transition-colors">Delete</button>
+        <button x-show="canEdit" @click="startEdit(savedFilter)" class="text-sm text-blue-600 hover:text-blue-700 transition-colors">Edit</button>
+        <button x-show="canEdit" @click="deleteFilter(savedFilter)" class="text-sm text-red-400 hover:text-red-600 transition-colors">Delete</button>
       </div>
     </template>
 
@@ -164,10 +198,16 @@
 function filtersPage() {
   return {
     boardId: {{ board.id }},
+    boardRole: {{ board_role | tojson }},
+    boards: {{ boards | tojson }},
     filters: [],
     taskTypes: [],
     editingFilter: null,
     nextRuleUid: 1,
+
+    get canEdit() {
+      return this.boardRole === 'owner' || this.boardRole === 'editor';
+    },
 
     async init() {
       await this.load();
@@ -323,9 +363,23 @@ function filtersPage() {
         definition: {
           op: 'and',
           selected_task_type_id: '',
+          source_board_ids: [this.boardId],
           rules: [],
         },
       };
+    },
+
+    includesSourceBoard(boardId) {
+      return (this.editingFilter?.definition?.source_board_ids || []).some(id => String(id) === String(boardId));
+    },
+
+    toggleSourceBoard(boardId) {
+      if (!this.editingFilter) return;
+      const current = [...(this.editingFilter.definition.source_board_ids || [])].map(id => String(id));
+      const target = String(boardId);
+      this.editingFilter.definition.source_board_ids = current.includes(target)
+        ? current.filter(id => id !== target)
+        : [...current, target];
     },
 
     addRule() {
@@ -350,12 +404,16 @@ function filtersPage() {
     },
 
     startCreate() {
+      if (!this.canEdit) return;
       this.editingFilter = this.blankFilter();
     },
 
     startEdit(savedFilter) {
+      if (!this.canEdit) return;
       this.editingFilter = JSON.parse(JSON.stringify(savedFilter));
       this.editingFilter.definition.selected_task_type_id = this.editingFilter.definition.selected_task_type_id ? String(this.editingFilter.definition.selected_task_type_id) : '';
+      const sourceBoardIds = this.editingFilter.definition.source_board_ids || [];
+      this.editingFilter.definition.source_board_ids = (sourceBoardIds.length ? sourceBoardIds : [this.boardId]).map(id => String(id));
       this.editingFilter.definition.rules = (this.editingFilter.definition.rules || []).map(rule => this.normalizeRule(rule));
     },
 
@@ -367,6 +425,9 @@ function filtersPage() {
       return {
         op: this.editingFilter.definition.op,
         selected_task_type_id: this.editingFilter.definition.selected_task_type_id ? parseInt(this.editingFilter.definition.selected_task_type_id, 10) : null,
+        source_board_ids: (this.editingFilter.definition.source_board_ids || [])
+          .map(id => parseInt(id, 10))
+          .filter(id => !Number.isNaN(id)),
         rules: this.editingFilter.definition.rules.map(rule => ({
           field: rule.field,
           operator: rule.operator,
@@ -376,6 +437,7 @@ function filtersPage() {
     },
 
     async saveFilter() {
+      if (!this.canEdit) return;
       if (!this.editingFilter.name.trim()) return;
       const payload = {
         name: this.editingFilter.name.trim(),
@@ -399,6 +461,7 @@ function filtersPage() {
     },
 
     async deleteFilter(savedFilter) {
+      if (!this.canEdit) return;
       if (!confirm(`Delete filter "${savedFilter.name}"?`)) return;
       await fetch(`/api/filters/${savedFilter.id}`, {method: 'DELETE'});
       this.filters = this.filters.filter(entry => entry.id !== savedFilter.id);
@@ -406,13 +469,17 @@ function filtersPage() {
     },
 
     filterSummary(savedFilter) {
-      const definition = savedFilter.definition || {op: 'and', selected_task_type_id: null, rules: []};
+      const definition = savedFilter.definition || {op: 'and', selected_task_type_id: null, source_board_ids: [], rules: []};
       const taskType = definition.selected_task_type_id
         ? this.taskTypes.find(tt => tt.id === definition.selected_task_type_id)
         : null;
       const ruleCount = (definition.rules || []).length;
+      const sourceNames = (definition.source_board_ids || [])
+        .map(boardId => this.boards.find(board => String(board.id) === String(boardId))?.name)
+        .filter(Boolean);
       const parts = [];
       if (taskType) parts.push(`Type: ${taskType.name}`);
+      parts.push(`Hubs: ${(sourceNames.length ? sourceNames : [this.boards.find(board => String(board.id) === String(this.boardId))?.name || 'Current hub']).join(', ')}`);
       parts.push(`${ruleCount} rule${ruleCount === 1 ? '' : 's'}`);
       parts.push(definition.op?.toUpperCase() || 'AND');
       return parts.join(' • ');

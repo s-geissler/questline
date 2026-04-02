@@ -11,13 +11,19 @@
 
 <div x-data="board()" x-init="init()" x-cloak @open-board-settings.window="showSettings = true">
 
+  <div x-show="!canEditBoard" class="mx-auto max-w-5xl px-6 pt-4">
+    <div class="bg-white/85 text-slate-700 text-sm rounded-xl px-4 py-3 shadow">
+      Read-only access. Viewers can browse this hub but cannot change objectives, stages, or settings.
+    </div>
+  </div>
+
   <!-- Board -->
   <div id="stages-container" class="flex gap-3 p-4 overflow-x-auto items-start min-h-[calc(100vh-48px)]">
 
     <!-- Stages -->
     <template x-for="stage in stages" :key="`${stage.id}-${stage.position}`">
       <div
-        class="rounded-xl shadow w-72 flex-shrink-0 flex flex-col overflow-hidden"
+        class="rounded-xl shadow w-72 flex-shrink-0 flex flex-col overflow-visible"
         :class="stage.is_log ? 'log-stage' : 'bg-gray-100'"
         :data-stage-column-id="stage.id"
       >
@@ -32,6 +38,7 @@
               x-model="stage.name"
               @blur="saveStageName(stage)"
               @keydown.enter="$el.blur()"
+              :disabled="!canEditBoard"
               class="stage-title-input font-semibold bg-transparent w-full rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400 text-sm"
               :class="stage.is_log ? 'log-stage-title' : 'text-gray-700 hover:bg-black/5 focus:bg-black/5'"
             >
@@ -43,7 +50,7 @@
               <div class="log-stage-summary text-[11px] leading-snug" x-text="logStageSummary(stage)"></div>
             </div>
           </div>
-          <div x-data="{ open: false }" @click.outside="open = false" class="relative ml-2 flex-shrink-0">
+          <div x-show="canEditBoard" x-data="{ open: false }" @click.outside="open = false" class="relative ml-2 flex-shrink-0">
             <button
               @click="open = !open"
               class="text-gray-400 hover:text-gray-700 px-2 py-1 rounded hover:bg-white transition-colors text-lg leading-none"
@@ -159,7 +166,7 @@
                     <template x-if="hasCustomFieldValue(task.custom_field_values[String(field.id)])">
                       <span
                         class="text-xs px-1.5 py-0.5 rounded font-medium self-start"
-                        :style="chipStyle(field)"
+                        :style="chipStyle(field, task.custom_field_values[String(field.id)])"
                         x-text="field.name + ': ' + task.custom_field_values[String(field.id)]"
                       ></span>
                     </template>
@@ -171,7 +178,7 @@
         </div>
 
         <!-- Add card form -->
-        <div class="px-2 pb-2 pt-1" x-show="!stage.is_log">
+        <div class="px-2 pb-2 pt-1" x-show="!stage.is_log && canEditBoard">
           <div x-show="showNewTask[stage.id] !== true">
             <button
               @click="showNewTask = {...showNewTask, [stage.id]: true}; newTaskTitles = {...newTaskTitles, [stage.id]: ''}; $nextTick(() => document.getElementById('new-task-input-' + stage.id)?.focus())"
@@ -205,7 +212,7 @@
     </template>
 
     <!-- Add stage -->
-    <div class="w-72 flex-shrink-0">
+    <div class="w-72 flex-shrink-0" x-show="canEditBoard">
       <div x-show="!showNewStage">
         <button
           @click="showNewStage = true; $nextTick(() => $refs.newStageInput.focus())"
@@ -253,7 +260,7 @@
       x-transition:enter="transition ease-out duration-150"
       x-transition:enter-start="opacity-0 scale-95"
       x-transition:enter-end="opacity-100 scale-100"
-      class="bg-white rounded-2xl shadow-2xl w-full max-w-md"
+      class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
       @click.stop
     >
       <div class="p-6">
@@ -268,6 +275,7 @@
           <input
             x-model="settingsBoardName"
             @keydown.enter="saveSettings()"
+            :disabled="!canManageBoard"
             class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
           >
         </div>
@@ -279,6 +287,7 @@
             <template x-for="c in PRESET_COLORS" :key="c">
               <button
                 @click="settingsBoardColor = c"
+                :disabled="!canManageBoard"
                 class="w-8 h-8 rounded-full hover:scale-110 transition-transform border-2 border-black/10"
                 :style="'background:' + c"
                 :class="settingsBoardColor === c ? 'ring-2 ring-offset-2 ring-gray-600 scale-110' : ''"
@@ -286,6 +295,7 @@
             </template>
             <button
               @click="settingsBoardColor = null"
+              :disabled="!canManageBoard"
               class="w-8 h-8 rounded-full bg-gray-100 border-2 border-dashed border-gray-300 flex items-center justify-center text-gray-400 hover:bg-gray-200 transition-colors"
               :class="!settingsBoardColor ? 'ring-2 ring-offset-2 ring-gray-400' : ''"
               title="No color"
@@ -294,10 +304,67 @@
           <div class="h-6 rounded-lg transition-colors" :style="'background:' + (settingsBoardColor || '#2563eb')"></div>
         </div>
 
+        <div x-show="canManageBoard" class="mb-6 border-t pt-5">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h3 class="text-sm font-semibold text-gray-800">Sharing</h3>
+              <p class="text-xs text-gray-400 mt-0.5">Share this hub with other registered users.</p>
+            </div>
+          </div>
+
+          <div class="flex gap-2 mb-4">
+            <input
+              x-model="shareEmail"
+              @keydown.enter="addBoardMember()"
+              placeholder="user@example.com"
+              class="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+            >
+            <select
+              x-model="shareRole"
+              class="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+            >
+              <option value="viewer">Viewer</option>
+              <option value="editor">Editor</option>
+              <option value="owner">Owner</option>
+            </select>
+            <button
+              @click="addBoardMember()"
+              class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            >Share</button>
+          </div>
+
+          <p x-show="shareError" x-text="shareError" class="text-sm text-red-500 mb-3"></p>
+
+          <div class="space-y-2">
+            <template x-for="member in boardMembers" :key="member.user_id">
+              <div class="flex items-center gap-3 border rounded-xl px-3 py-2">
+                <div class="min-w-0 flex-1">
+                  <div class="text-sm font-medium text-gray-800" x-text="member.display_name"></div>
+                  <div class="text-xs text-gray-400" x-text="member.email"></div>
+                </div>
+                <select
+                  :value="member.role"
+                  @change="updateBoardMemberRole(member, $event.target.value)"
+                  class="border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                >
+                  <option value="viewer">Viewer</option>
+                  <option value="editor">Editor</option>
+                  <option value="owner">Owner</option>
+                </select>
+                <button
+                  @click="removeBoardMember(member)"
+                  class="text-sm text-red-400 hover:text-red-600 transition-colors"
+                >Remove</button>
+              </div>
+            </template>
+          </div>
+        </div>
+
         <div class="flex justify-end gap-2 border-t pt-4">
           <button @click="showSettings = false" class="text-gray-500 hover:text-gray-700 px-4 py-2 text-sm">Cancel</button>
           <button
             @click="saveSettings()"
+            x-show="canManageBoard"
             class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
           >Save</button>
         </div>
@@ -336,10 +403,12 @@
                 x-model="selectedTask.title"
                 @blur="updateTaskField('title', selectedTask.title)"
                 @keydown.enter="$el.blur()"
+                :disabled="!canEditBoard"
                 class="text-xl font-bold w-full border-b-2 border-transparent hover:border-gray-200 focus:border-blue-400 focus:outline-none py-0.5 transition-colors"
               >
             </div>
             <button
+              x-show="canEditBoard"
               @click="toggleDone()"
               class="flex-shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
               :class="selectedTask.done
@@ -357,6 +426,7 @@
               <select
                 x-model="selectedTask.task_type_id"
                 @change="updateTaskType()"
+                :disabled="!canEditBoard"
                 class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               >
                 <option value="" :selected="!selectedTask.task_type_id">Objective (default)</option>
@@ -374,6 +444,7 @@
               <select
                 x-model="selectedTask.stage_id"
                 @change="moveTask()"
+                :disabled="!canEditBoard"
                 class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               >
                 <template x-for="stage in realStages" :key="stage.id">
@@ -387,6 +458,7 @@
                 type="date"
                 x-model="selectedTask.due_date"
                 @change="updateTaskField('due_date', selectedTask.due_date || null)"
+                :disabled="!canEditBoard"
                 class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               >
             </div>
@@ -394,6 +466,7 @@
               <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Color</label>
               <button
                 @click="showColorPicker = !showColorPicker"
+                :disabled="!canEditBoard"
                 class="w-8 h-8 rounded-full border-2 border-gray-200 hover:scale-110 transition-transform shadow-sm"
                 :style="selectedTask.color ? 'background:' + selectedTask.color : 'background:#e5e7eb'"
                 title="Pick color"
@@ -404,6 +477,7 @@
                   <template x-for="c in PRESET_COLORS" :key="c">
                     <button
                       @click="selectedTask.color = c; updateTaskField('color', c); showColorPicker = false"
+                      x-show="$root.__x.$data.canEditBoard"
                       class="w-6 h-6 rounded-full hover:scale-110 transition-transform border border-black/10"
                       :style="'background:' + c"
                       :class="selectedTask.color === c ? 'ring-2 ring-offset-1 ring-gray-500' : ''"
@@ -411,6 +485,7 @@
                   </template>
                   <button
                     @click="selectedTask.color = null; updateTaskField('color', null); showColorPicker = false"
+                    x-show="$root.__x.$data.canEditBoard"
                     class="w-6 h-6 rounded-full bg-gray-100 border border-dashed border-gray-300 flex items-center justify-center text-gray-400 text-xs hover:bg-gray-200"
                     title="No color"
                   >✕</button>
@@ -438,6 +513,7 @@
               <select
                 :value="descriptionVisibilityValue(selectedTask)"
                 @change="updateDescriptionVisibility($event.target.value)"
+                :disabled="!canEditBoard"
                 class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               >
                 <option value="default">Use type default</option>
@@ -448,7 +524,7 @@
             <!-- Rendered preview (click to edit) -->
             <div
               x-show="!descriptionEditing"
-              @click="descriptionEditing = true; $nextTick(() => $refs.descriptionTextarea.focus())"
+              @click="if (canEditBoard) { descriptionEditing = true; $nextTick(() => $refs.descriptionTextarea.focus()) }"
               class="min-h-[60px] cursor-text rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 border border-transparent hover:border-gray-200 transition-colors prose prose-sm max-w-none"
             >
               <template x-if="selectedTask.description">
@@ -463,6 +539,7 @@
               x-show="descriptionEditing"
               x-ref="descriptionTextarea"
               x-model="selectedTask.description"
+              :disabled="!canEditBoard"
               @blur="descriptionEditing = false; updateTaskField('description', selectedTask.description)"
               @keydown.escape="descriptionEditing = false; updateTaskField('description', selectedTask.description)"
               rows="5"
@@ -483,14 +560,15 @@
                       <select
                         :value="selectedTask.custom_field_values[String(field.id)] || ''"
                         @change="updateCustomField(field.id, $event.target.value)"
+                        :disabled="!canEditBoard"
                         class="flex-1 border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                       >
                         <option value="">— select —</option>
                         <template x-for="opt in (field.options || [])" :key="opt">
                           <option
-                            :value="opt"
-                            x-text="opt"
-                            :selected="selectedTask.custom_field_values[String(field.id)] === opt"
+                            :value="customFieldOptionLabel(opt)"
+                            x-text="customFieldOptionLabel(opt)"
+                            :selected="selectedTask.custom_field_values[String(field.id)] === customFieldOptionLabel(opt)"
                           ></option>
                         </template>
                       </select>
@@ -500,6 +578,7 @@
                         :type="field.field_type === 'number' ? 'number' : (field.field_type === 'date' ? 'date' : 'text')"
                         :value="selectedTask.custom_field_values[String(field.id)] || ''"
                         @change="updateCustomField(field.id, $event.target.value)"
+                        :disabled="!canEditBoard"
                         :placeholder="field.name"
                         class="flex-1 border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                       >
@@ -544,6 +623,7 @@
                     type="checkbox"
                     :checked="item.done"
                     @change="toggleChecklistItem(item)"
+                    :disabled="!canEditBoard"
                     class="h-4 w-4 rounded accent-blue-500 flex-shrink-0"
                   >
                   <span
@@ -557,6 +637,7 @@
                     :title="item.spawned_task_id ? 'Open linked objective' : ''"
                   ></span>
                   <button
+                    x-show="canEditBoard"
                     @click="deleteChecklistItem(item)"
                     class="text-gray-200 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
                     title="Delete item"
@@ -570,10 +651,12 @@
                 x-model="newChecklistItem"
                 @keydown.enter="addChecklistItem()"
                 @keydown.escape="newChecklistItem = ''"
+                :disabled="!canEditBoard"
                 placeholder="Add an item..."
                 class="flex-1 border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               >
               <button
+                x-show="canEditBoard"
                 @click="addChecklistItem()"
                 class="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm px-3 py-1.5 rounded-lg transition-colors"
               >Add</button>
@@ -583,6 +666,7 @@
           <!-- Footer -->
           <div class="border-t pt-4 flex justify-end">
             <button
+              x-show="canEditBoard"
               @click="deleteTask()"
               class="text-red-400 hover:text-red-600 text-sm transition-colors"
             >Delete objective</button>
@@ -647,6 +731,7 @@
 function board() {
   return {
     boardId: {{ board.id }},
+    boards: {{ boards | tojson }},
     stages: [],
     taskTypes: [],
     savedFilters: [],
@@ -660,10 +745,27 @@ function board() {
     logConfigStage: null,
     settingsBoardName: {{ board.name | tojson }},
     settingsBoardColor: {{ (board.color or '') | tojson }} || null,
+    currentBoardRole: {{ board_role | tojson }},
+    boardMembers: [],
+    shareEmail: '',
+    shareRole: 'viewer',
+    shareError: '',
     selectedTask: null,
     descriptionEditing: false,
     newChecklistItem: '',
     _sortables: [],
+
+    get canEditBoard() {
+      return this.currentBoardRole === 'owner' || this.currentBoardRole === 'editor';
+    },
+
+    get canManageBoard() {
+      return this.currentBoardRole === 'owner';
+    },
+
+    get canViewSettings() {
+      return !!this.currentBoardRole;
+    },
 
     get selectedTaskType() {
       if (!this.selectedTask || !this.selectedTask.task_type_id) return null;
@@ -691,7 +793,16 @@ function board() {
       this.stages = await stagesRes.json();
       this.taskTypes = await typesRes.json();
       this.savedFilters = await filtersRes.json();
+      await this.loadBoardMembers();
       this.$nextTick(() => this.initSortable());
+    },
+
+    async loadBoardMembers() {
+      const res = await fetch(`/api/boards/${this.boardId}/members`);
+      if (!res.ok) return;
+      const payload = await res.json();
+      this.currentBoardRole = payload.current_role;
+      this.boardMembers = payload.members || [];
     },
 
     checklistProgress(task) {
@@ -708,6 +819,7 @@ function board() {
     initSortable() {
       this._sortables.forEach(s => s.destroy());
       this._sortables = [];
+      if (!this.canEditBoard) return;
 
         const stagesContainer = document.getElementById('stages-container');
         if (stagesContainer) {
@@ -786,6 +898,7 @@ function board() {
 
     // Stages
     async createStage() {
+      if (!this.canEditBoard) return;
       if (!this.newStageName.trim()) return;
       const res = await fetch('/api/stages', {
         method: 'POST',
@@ -800,6 +913,7 @@ function board() {
     },
 
     async saveStageName(stage) {
+      if (!this.canEditBoard) return;
       if (!stage.name.trim()) return;
       await fetch(`/api/stages/${stage.id}`, {
         method: 'PUT',
@@ -809,6 +923,7 @@ function board() {
     },
 
     async deleteStage(stageId) {
+      if (!this.canEditBoard) return;
       if (!confirm('Delete this stage and all its objectives?')) return;
       await fetch(`/api/stages/${stageId}`, {method: 'DELETE'});
       this.stages = this.stages.filter(s => s.id !== stageId);
@@ -816,6 +931,7 @@ function board() {
 
     // Tasks
     async createTask(stageId) {
+      if (!this.canEditBoard) return;
       const title = (this.newTaskTitles[stageId] || '').trim();
       if (!title) return;
       const res = await fetch('/api/tasks', {
@@ -872,6 +988,7 @@ function board() {
     },
 
     async updateTaskField(field, value) {
+      if (!this.canEditBoard) return;
       const body = {};
       body[field] = value;
       const res = await fetch(`/api/tasks/${this.selectedTask.id}`, {
@@ -885,6 +1002,7 @@ function board() {
     },
 
     async updateTaskType() {
+      if (!this.canEditBoard) return;
       const typeId = this.selectedTask.task_type_id ? parseInt(this.selectedTask.task_type_id) : null;
       const res = await fetch(`/api/tasks/${this.selectedTask.id}`, {
         method: 'PUT',
@@ -897,6 +1015,7 @@ function board() {
     },
 
     async updateCustomField(fieldDefId, value) {
+      if (!this.canEditBoard) return;
       const res = await fetch(`/api/tasks/${this.selectedTask.id}`, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
@@ -908,6 +1027,7 @@ function board() {
     },
 
     async updateDescriptionVisibility(value) {
+      if (!this.canEditBoard) return;
       let nextValue = null;
       if (value === 'show') nextValue = true;
       if (value === 'hide') nextValue = false;
@@ -915,6 +1035,7 @@ function board() {
     },
 
     async toggleDone() {
+      if (!this.canEditBoard) return;
       const newDone = !this.selectedTask.done;
       const res = await fetch(`/api/tasks/${this.selectedTask.id}`, {
         method: 'PUT',
@@ -934,6 +1055,7 @@ function board() {
     },
 
     async moveTask() {
+      if (!this.canEditBoard) return;
       const newStageId = parseInt(this.selectedTask.stage_id);
       const targetStage = this.stages.find(s => s.id === newStageId);
       const position = targetStage ? targetStage.tasks.length : 0;
@@ -946,6 +1068,7 @@ function board() {
     },
 
     async deleteTask() {
+      if (!this.canEditBoard) return;
       if (!confirm('Delete this objective?')) return;
       const taskId = this.selectedTask.id;
       await fetch(`/api/tasks/${taskId}`, {method: 'DELETE'});
@@ -957,6 +1080,7 @@ function board() {
 
     // Checklist
     async addChecklistItem() {
+      if (!this.canEditBoard) return;
       const title = this.newChecklistItem.trim();
       if (!title) return;
       const res = await fetch(`/api/tasks/${this.selectedTask.id}/checklist`, {
@@ -974,6 +1098,7 @@ function board() {
     },
 
     async toggleChecklistItem(item) {
+      if (!this.canEditBoard) return;
       const res = await fetch(`/api/tasks/${this.selectedTask.id}/checklist/${item.id}`, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
@@ -987,11 +1112,13 @@ function board() {
     },
 
     async deleteChecklistItem(item) {
+      if (!this.canEditBoard) return;
       await fetch(`/api/tasks/${this.selectedTask.id}/checklist/${item.id}`, {method: 'DELETE'});
       this.selectedTask.checklist = this.selectedTask.checklist.filter(i => i.id !== item.id);
     },
 
     async sortStageByDueDate(stage) {
+      if (!this.canEditBoard) return;
       const datedTasks = stage.tasks.filter(task => task.due_date);
       if (datedTasks.length < 2) return;
 
@@ -1017,6 +1144,7 @@ function board() {
     },
 
     async clearCompletedStage(stage) {
+      if (!this.canEditBoard) return;
       if (!confirm(`Clear completed objectives from "${stage.name}"? Completed quests will also clear their spawned objectives.`)) return;
       await fetch(`/api/stages/${stage.id}/clear-completed`, {method: 'POST'});
       await this.loadData();
@@ -1033,6 +1161,7 @@ function board() {
     },
 
     async saveLogConfig() {
+      if (!this.canEditBoard) return;
       if (!this.logConfigStage) return;
       const payload = {
         is_log: this.logConfigStage.is_log,
@@ -1048,11 +1177,22 @@ function board() {
       await this.loadData();
     },
 
-    chipStyle(field) {
-      const bg = field.color || '#6b7280';
+    chipStyle(field, value = null) {
+      const bg = this.customFieldChipColor(field, value) || field.color || '#6b7280';
       const n = parseInt(bg.replace('#', ''), 16);
       const luminance = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
       return `background:${bg}; color:${luminance > 0.55 ? '#1f2937' : '#ffffff'}`;
+    },
+
+    customFieldOptionLabel(option) {
+      if (typeof option === 'string') return option;
+      return option?.label || option?.value || '';
+    },
+
+    customFieldChipColor(field, value) {
+      if (field?.field_type !== 'dropdown' || !value) return field?.color || null;
+      const option = (field.options || []).find(opt => this.customFieldOptionLabel(opt) === value);
+      return option?.color || field?.color || null;
     },
 
     hasCustomFieldValue(value) {
@@ -1114,8 +1254,12 @@ function board() {
     },
 
     sourceStageName(task) {
-      const source = this.stages.find(stage => String(stage.id) === String(task.stage_id));
-      return source ? source.name : 'another stage';
+      const localSource = this.stages.find(stage => String(stage.id) === String(task.stage_id));
+      const stageName = task?.stage_name || localSource?.name || 'another stage';
+      const boardName = task?.board_id && String(task.board_id) !== String(this.boardId)
+        ? (task.board_name || this.boards.find(board => String(board.id) === String(task.board_id))?.name)
+        : null;
+      return boardName ? `${boardName} / ${stageName}` : stageName;
     },
 
     logStageSummary(stage) {
@@ -1128,6 +1272,10 @@ function board() {
         ? this.taskTypes.find(tt => String(tt.id) === String(definition.selected_task_type_id))
         : null;
       if (taskType) parts.push(taskType.name);
+      const sourceNames = (definition.source_board_ids || [])
+        .map(boardId => this.boards.find(board => String(board.id) === String(boardId))?.name)
+        .filter(Boolean);
+      parts.push((sourceNames.length ? sourceNames : [this.boards.find(board => String(board.id) === String(this.boardId))?.name || 'Current hub']).join(', '));
       const ruleCount = (definition.rules || []).length;
       parts.push(`${definition.op?.toUpperCase() || 'AND'} • ${ruleCount} rule${ruleCount === 1 ? '' : 's'}`);
       return parts.join(' • ');
@@ -1135,6 +1283,7 @@ function board() {
 
     // Settings
     async saveSettings() {
+      if (!this.canManageBoard) return;
       await fetch(`/api/boards/${this.boardId}`, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
@@ -1143,6 +1292,64 @@ function board() {
       this.showSettings = false;
       document.title = this.settingsBoardName + ' — Questline';
       applyBoardColor(this.settingsBoardColor);
+    },
+
+    async addBoardMember() {
+      if (!this.canManageBoard) return;
+      this.shareError = '';
+      if (!this.shareEmail.trim()) return;
+      const res = await fetch(`/api/boards/${this.boardId}/members`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({email: this.shareEmail.trim(), role: this.shareRole}),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        this.shareError = data.detail || 'Unable to share hub';
+        return;
+      }
+      const member = await res.json();
+      const existing = this.boardMembers.findIndex(entry => entry.user_id === member.user_id);
+      if (existing === -1) {
+        this.boardMembers.push(member);
+      } else {
+        this.boardMembers[existing] = member;
+      }
+      this.shareEmail = '';
+      this.shareRole = 'viewer';
+      await this.loadBoardMembers();
+    },
+
+    async updateBoardMemberRole(member, role) {
+      if (!this.canManageBoard) return;
+      const res = await fetch(`/api/boards/${this.boardId}/members/${member.user_id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({role}),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        this.shareError = data.detail || 'Unable to update role';
+        await this.loadBoardMembers();
+        return;
+      }
+      this.shareError = '';
+      await this.loadBoardMembers();
+    },
+
+    async removeBoardMember(member) {
+      if (!this.canManageBoard) return;
+      this.shareError = '';
+      if (!confirm(`Remove ${member.display_name} from this hub?`)) return;
+      const res = await fetch(`/api/boards/${this.boardId}/members/${member.user_id}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        this.shareError = data.detail || 'Unable to remove member';
+        return;
+      }
+      await this.loadBoardMembers();
     },
 
     // Helpers

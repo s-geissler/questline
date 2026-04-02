@@ -54,6 +54,45 @@ def add_custom_field(main, db, task_type_id, name, field_type="text", options=No
     )
 
 
+def test_dropdown_custom_field_options_can_store_per_option_colors(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+    board = create_board(main, db)
+    task_type = create_task_type(main, db, board["id"], name="Bug")
+
+    field = add_custom_field(
+        main,
+        db,
+        task_type["id"],
+        "Status",
+        field_type="dropdown",
+        options=[
+            {"label": "Open", "color": "#ef4444"},
+            {"label": "Ready", "color": "#22c55e"},
+        ],
+    )
+    assert field["options"] == [
+        {"label": "Open", "color": "#ef4444"},
+        {"label": "Ready", "color": "#22c55e"},
+    ]
+
+    updated = main.update_custom_field(
+        task_type["id"],
+        field["id"],
+        main.CustomFieldCreate(
+            name="Status",
+            field_type="dropdown",
+            show_on_card=True,
+            options=["Open", {"label": "Done", "color": "#3b82f6"}],
+        ),
+        db,
+    )
+    assert updated["options"] == [
+        {"label": "Open", "color": None},
+        {"label": "Done", "color": "#3b82f6"},
+    ]
+
+
 def test_task_type_is_preserved_and_can_be_cleared(app_env):
     main = app_env["main"]
     db = app_env["db"]

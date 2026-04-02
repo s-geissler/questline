@@ -3,9 +3,14 @@
 
 <div x-data="automationsPage()" x-init="init()" x-cloak class="max-w-3xl mx-auto p-6">
 
+  <div x-show="!canEdit" class="mb-6 bg-white/85 text-slate-700 text-sm rounded-xl px-4 py-3 shadow">
+    Read-only access. Viewers can inspect automations but cannot change them.
+  </div>
+
   <div class="flex items-center justify-between mb-6">
     <h1 class="text-2xl font-bold text-white">Automations</h1>
     <button
+      x-show="canEdit"
       @click="showCreateForm = !showCreateForm"
       class="bg-white text-blue-700 font-semibold px-4 py-2 rounded-lg hover:bg-blue-50 transition-colors shadow"
     >+ New Automation</button>
@@ -17,7 +22,7 @@
   </p>
 
   <!-- Create form -->
-  <div x-show="showCreateForm" class="bg-white rounded-xl shadow p-5 mb-5">
+  <div x-show="showCreateForm && canEdit" class="bg-white rounded-xl shadow p-5 mb-5">
     <h2 class="font-semibold text-gray-700 mb-4">New Automation</h2>
 
     <div class="mb-3">
@@ -148,6 +153,7 @@
       >
         <!-- Enable toggle -->
         <button
+          x-show="canEdit"
           @click="toggleEnabled(auto)"
           class="flex-shrink-0 w-10 h-6 rounded-full transition-colors relative"
           :class="auto.enabled ? 'bg-blue-500' : 'bg-gray-300'"
@@ -173,6 +179,7 @@
 
         <!-- Delete -->
         <button
+          x-show="canEdit"
           @click="deleteAuto(auto)"
           class="text-gray-300 hover:text-red-500 transition-colors text-xl leading-none flex-shrink-0"
           title="Delete automation"
@@ -192,6 +199,7 @@
 function automationsPage() {
   return {
     boardId: {{ board.id }},
+    boardRole: {{ board_role | tojson }},
     automations: [],
     stages: [],
     taskTypes: [],
@@ -205,6 +213,10 @@ function automationsPage() {
       action_task_type_id: '',
       action_color: null,
       action_days_offset: 7,
+    },
+
+    get canEdit() {
+      return this.boardRole === 'owner' || this.boardRole === 'editor';
     },
 
     async init() {
@@ -251,6 +263,7 @@ function automationsPage() {
     },
 
     async createAuto() {
+      if (!this.canEdit) return;
       if (!this.newAuto.name.trim()) {
         alert('Please enter a name for the automation.');
         return;
@@ -298,6 +311,7 @@ function automationsPage() {
     },
 
     async toggleEnabled(auto) {
+      if (!this.canEdit) return;
       const res = await fetch(`/api/automations/${auto.id}`, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
@@ -308,6 +322,7 @@ function automationsPage() {
     },
 
     async deleteAuto(auto) {
+      if (!this.canEdit) return;
       if (!confirm(`Delete automation "${auto.name}"?`)) return;
       await fetch(`/api/automations/${auto.id}`, {method: 'DELETE'});
       this.automations = this.automations.filter(a => a.id !== auto.id);

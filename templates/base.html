@@ -226,6 +226,9 @@
             style="background: {{ b.color or '#3b82f6' }}"
           ></span>
           <span class="flex-1">{{ b.name }}</span>
+          {% if b.role %}
+          <span class="text-[11px] px-1.5 py-0.5 rounded-full mr-2 {% if b.role == 'owner' %}bg-blue-100 text-blue-700{% elif b.role == 'editor' %}bg-amber-100 text-amber-700{% else %}bg-emerald-100 text-emerald-700{% endif %}">{{ b.role.title() }}</span>
+          {% endif %}
           {% if b.id == board.id %}<span class="ml-2 text-blue-500">✓</span>{% endif %}
         </a>
         {% endfor %}
@@ -243,6 +246,17 @@
     {% endif %}
 
     <div class="ml-auto flex items-center gap-2">
+      {% if current_user %}
+      <span class="text-sm text-white/80">{{ current_user.display_name }}</span>
+      <button
+        type="button"
+        onclick="fetch('/api/auth/logout', {method: 'POST'}).then(() => window.location.href = '/login')"
+        class="px-3 py-1.5 rounded hover:bg-black/20 text-sm font-medium transition-colors"
+      >Logout</button>
+      {% else %}
+      <a href="/login" class="px-3 py-1.5 rounded hover:bg-black/20 text-sm font-medium transition-colors">Login</a>
+      <a href="/register" class="px-3 py-1.5 rounded hover:bg-black/20 text-sm font-medium transition-colors">Register</a>
+      {% endif %}
       <button
         type="button"
         x-data="{ dark: document.documentElement.classList.contains('dark') }"

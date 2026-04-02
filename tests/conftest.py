@@ -9,8 +9,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
-@pytest.fixture()
-def app_env(tmp_path, monkeypatch):
+def _load_modules(tmp_path, monkeypatch):
     db_path = tmp_path / "test.db"
     monkeypatch.setenv("QUESTLINE_DATABASE_URL", f"sqlite:///{db_path}")
 
@@ -20,6 +19,12 @@ def app_env(tmp_path, monkeypatch):
     database = importlib.import_module("database")
     models = importlib.import_module("models")
     main = importlib.import_module("main")
+    return database, models, main
+
+
+@pytest.fixture()
+def app_env(tmp_path, monkeypatch):
+    database, models, main = _load_modules(tmp_path, monkeypatch)
     db = database.SessionLocal()
     try:
         yield {
@@ -31,3 +36,4 @@ def app_env(tmp_path, monkeypatch):
     finally:
         db.close()
         database.engine.dispose()
+

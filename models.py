@@ -31,6 +31,12 @@ class Board(Base):
         back_populates="board",
         cascade="all, delete-orphan",
     )
+    owner_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    memberships = relationship(
+        "BoardMembership",
+        back_populates="board",
+        cascade="all, delete-orphan",
+    )
 
 
 class Stage(Base):
@@ -59,6 +65,45 @@ class SavedFilter(Base):
     name = Column(String, nullable=False)
     definition = Column(Text, nullable=False)
     board = relationship("Board", back_populates="saved_filters")
+
+
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True)
+    email = Column(String, nullable=False, unique=True)
+    password_hash = Column(String, nullable=False)
+    display_name = Column(String, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+    sessions = relationship(
+        "UserSession",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    board_memberships = relationship(
+        "BoardMembership",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
+
+class UserSession(Base):
+    __tablename__ = "user_sessions"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    token_hash = Column(String, nullable=False, unique=True)
+    created_at = Column(DateTime, server_default=func.now())
+    user = relationship("User", back_populates="sessions")
+
+
+class BoardMembership(Base):
+    __tablename__ = "board_memberships"
+    id = Column(Integer, primary_key=True)
+    board_id = Column(Integer, ForeignKey("boards.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    role = Column(String, nullable=False, default="owner")
+    created_at = Column(DateTime, server_default=func.now())
+    board = relationship("Board", back_populates="memberships")
+    user = relationship("User", back_populates="board_memberships")
 
 
 class TaskType(Base):

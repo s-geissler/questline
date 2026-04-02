@@ -41,10 +41,22 @@
         <a :href="'/board/' + board.id"
            class="block p-5 h-24 flex items-end hover:opacity-90 transition-opacity"
            :style="'background:' + (board.color || '#2563eb')">
-          <span class="text-white font-bold text-base leading-tight drop-shadow" x-text="board.name"></span>
+          <div class="flex items-end justify-between gap-3 w-full">
+            <span class="text-white font-bold text-base leading-tight drop-shadow" x-text="board.name"></span>
+            <span
+              x-show="board.role"
+              class="text-[11px] px-1.5 py-0.5 rounded-full text-white font-medium border flex-shrink-0"
+              :class="board.role === 'owner'
+                ? 'bg-white/20 border-white/25'
+                : (board.role === 'editor'
+                  ? 'bg-amber-400/25 border-amber-200/30'
+                  : 'bg-emerald-400/25 border-emerald-200/30')"
+              x-text="board.role.charAt(0).toUpperCase() + board.role.slice(1)"
+            ></span>
+          </div>
         </a>
         <!-- Footer: rename + delete -->
-        <div class="flex items-center gap-2 px-3 py-2 border-t">
+        <div class="flex items-center gap-2 px-3 py-2 border-t" x-show="board.role === 'owner'">
           <template x-if="board.editing">
             <input
               :id="'rename-' + board.id"
@@ -96,6 +108,7 @@ function homePage() {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({name: this.newName.trim()}),
       });
+      if (!res.ok) return;
       const board = await res.json();
       this.boards.push({...board, editing: false, editName: board.name});
       this.newName = '';
@@ -113,18 +126,24 @@ function homePage() {
         board.editing = false;
         return;
       }
-      await fetch(`/api/boards/${board.id}`, {
+      const res = await fetch(`/api/boards/${board.id}`, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({name: board.editName.trim()}),
       });
+      if (!res.ok) {
+        board.editName = board.name;
+        board.editing = false;
+        return;
+      }
       board.name = board.editName.trim();
       board.editing = false;
     },
 
     async deleteBoard(board) {
       if (!confirm(`Delete hub "${board.name}" and all its content?`)) return;
-      await fetch(`/api/boards/${board.id}`, {method: 'DELETE'});
+      const res = await fetch(`/api/boards/${board.id}`, {method: 'DELETE'});
+      if (!res.ok) return;
       this.boards = this.boards.filter(b => b.id !== board.id);
     },
   };
