@@ -261,10 +261,95 @@
     <a href="/board/{{ board.id }}/automations" class="px-3 py-1.5 rounded hover:bg-black/20 text-sm font-medium transition-colors">Automations</a>
     {% endif %}
 
-    <div x-data='userMenu({{ {"display_name": current_user.display_name, "email": current_user.email, "role": current_user.role} | tojson if current_user else "null" }})' class="ml-auto flex items-center gap-2">
+    <div x-data='userMenu({{ {"id": current_user.id, "display_name": current_user.display_name, "email": current_user.email, "role": current_user.role} | tojson if current_user else "null" }})' x-init="init()" class="ml-auto flex items-center gap-2">
       {% if current_user and current_user.role == 'admin' %}
       <a href="/admin" class="px-3 py-1.5 rounded hover:bg-black/20 text-sm font-medium transition-colors">Admin</a>
       {% endif %}
+      {% if current_user %}
+      <div class="relative">
+        <button
+          type="button"
+          @click="toggleNotifications()"
+          @click.outside="notificationsOpen = false"
+          class="relative px-3 py-1.5 rounded hover:bg-black/20 text-sm font-medium transition-colors flex items-center justify-center"
+          aria-label="Notifications"
+          title="Notifications"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-white/85" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M12 2a5 5 0 0 0-5 5v2.586c0 .53-.211 1.04-.586 1.414L5.293 12.12A1 1 0 0 0 6 13.828h12a1 1 0 0 0 .707-1.707l-1.121-1.121A2 2 0 0 1 17 9.586V7a5 5 0 0 0-5-5Zm0 20a3 3 0 0 0 2.995-2.824L15 19h-6a3 3 0 0 0 3 3Z"/>
+          </svg>
+          <span
+            x-show="unreadCount > 0"
+            x-text="unreadCount > 9 ? '9+' : unreadCount"
+            class="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-semibold flex items-center justify-center"
+          ></span>
+        </button>
+        <div
+          x-show="notificationsOpen"
+          x-cloak
+          x-transition:enter="transition ease-out duration-100"
+          x-transition:enter-start="opacity-0 scale-95"
+          x-transition:enter-end="opacity-100 scale-100"
+          x-transition:leave="transition ease-in duration-75"
+          x-transition:leave-start="opacity-100 scale-100"
+          x-transition:leave-end="opacity-0 scale-95"
+          class="absolute right-0 top-full mt-1 bg-white text-gray-800 shadow-xl rounded-xl py-2 w-[320px] z-50"
+        >
+          <div class="flex items-center justify-between px-3 pb-2 border-b border-gray-100">
+            <div class="text-sm font-semibold text-gray-800">Notifications</div>
+            <button
+              x-show="unreadCount > 0"
+              type="button"
+              @click="markAllNotificationsRead()"
+              class="text-xs text-blue-600 hover:text-blue-700"
+            >Mark all read</button>
+          </div>
+          <div class="max-h-[360px] overflow-y-auto">
+            <template x-if="notifications.length === 0">
+              <div class="px-3 py-4 text-sm text-gray-500">No notifications</div>
+            </template>
+            <template x-for="notification in notifications" :key="notification.id">
+              <button
+                type="button"
+                @click="openNotification(notification)"
+                class="w-full text-left px-3 py-2 hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-b-0"
+              >
+                <div class="flex items-start gap-2">
+                  <span
+                    class="mt-1 w-2 h-2 rounded-full flex-shrink-0"
+                    :class="notification.read_at ? 'bg-gray-200' : 'bg-blue-500'"
+                  ></span>
+                  <div class="min-w-0 flex-1">
+                    <div class="text-sm font-medium text-gray-800" x-text="notification.title"></div>
+                    <div x-show="notification.body" class="text-xs text-gray-500 mt-0.5" x-text="notification.body"></div>
+                    <div class="text-[11px] text-gray-400 mt-1" x-text="formatNotificationTime(notification.created_at)"></div>
+                  </div>
+                </div>
+              </button>
+            </template>
+          </div>
+        </div>
+      </div>
+      {% else %}
+      <a href="/login" class="px-3 py-1.5 rounded hover:bg-black/20 text-sm font-medium transition-colors">Login</a>
+      <a href="/register" class="px-3 py-1.5 rounded hover:bg-black/20 text-sm font-medium transition-colors">Register</a>
+      {% endif %}
+      <button
+        type="button"
+        x-data="{ dark: document.documentElement.classList.contains('dark') }"
+        @click="dark = !dark; applyTheme(dark ? 'dark' : 'light')"
+        class="px-3 py-1.5 rounded hover:bg-black/20 text-sm font-medium transition-colors flex items-center justify-center"
+        title="Toggle theme"
+        :aria-label="dark ? 'Switch to light mode' : 'Switch to dark mode'"
+      >
+        <svg x-show="!dark" x-cloak xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12Zm0-16a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0V3a1 1 0 0 1 1-1Zm0 17a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0v-2a1 1 0 0 1 1-1Zm10-7a1 1 0 0 1-1 1h-2a1 1 0 1 1 0-2h2a1 1 0 0 1 1 1ZM5 12a1 1 0 0 1-1 1H2a1 1 0 1 1 0-2h2a1 1 0 0 1 1 1Zm12.657 6.243a1 1 0 0 1 0 1.414l-1.414 1.414a1 1 0 1 1-1.414-1.414l1.414-1.414a1 1 0 0 1 1.414 0ZM9.172 9.172a1 1 0 0 1-1.414 0L6.343 7.757A1 1 0 0 1 7.757 6.343l1.415 1.414a1 1 0 0 1 0 1.415Zm11.485-2.829a1 1 0 0 1 0 1.414l-1.414 1.415a1 1 0 1 1-1.414-1.415l1.414-1.414a1 1 0 0 1 1.414 0ZM9.172 14.828a1 1 0 0 1 0 1.415l-1.415 1.414a1 1 0 1 1-1.414-1.414l1.415-1.415a1 1 0 0 1 1.414 0Z"/>
+        </svg>
+        <svg x-show="dark" x-cloak xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M21 14.129A9 9 0 1 1 9.871 3a1 1 0 0 1 1.065 1.57A7 7 0 1 0 19.43 13.064 1 1 0 0 1 21 14.13Z"/>
+        </svg>
+      </button>
+      {% block nav_extra %}{% endblock %}
       {% if current_user %}
       <div class="relative">
         <button
@@ -301,26 +386,7 @@
           >Logout</button>
         </div>
       </div>
-      {% else %}
-      <a href="/login" class="px-3 py-1.5 rounded hover:bg-black/20 text-sm font-medium transition-colors">Login</a>
-      <a href="/register" class="px-3 py-1.5 rounded hover:bg-black/20 text-sm font-medium transition-colors">Register</a>
       {% endif %}
-      <button
-        type="button"
-        x-data="{ dark: document.documentElement.classList.contains('dark') }"
-        @click="dark = !dark; applyTheme(dark ? 'dark' : 'light')"
-        class="px-3 py-1.5 rounded hover:bg-black/20 text-sm font-medium transition-colors flex items-center justify-center"
-        title="Toggle theme"
-        :aria-label="dark ? 'Switch to light mode' : 'Switch to dark mode'"
-      >
-        <svg x-show="!dark" x-cloak xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-          <path d="M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12Zm0-16a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0V3a1 1 0 0 1 1-1Zm0 17a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0v-2a1 1 0 0 1 1-1Zm10-7a1 1 0 0 1-1 1h-2a1 1 0 1 1 0-2h2a1 1 0 0 1 1 1ZM5 12a1 1 0 0 1-1 1H2a1 1 0 1 1 0-2h2a1 1 0 0 1 1 1Zm12.657 6.243a1 1 0 0 1 0 1.414l-1.414 1.414a1 1 0 1 1-1.414-1.414l1.414-1.414a1 1 0 0 1 1.414 0ZM9.172 9.172a1 1 0 0 1-1.414 0L6.343 7.757A1 1 0 0 1 7.757 6.343l1.415 1.414a1 1 0 0 1 0 1.415Zm11.485-2.829a1 1 0 0 1 0 1.414l-1.414 1.415a1 1 0 1 1-1.414-1.415l1.414-1.414a1 1 0 0 1 1.414 0ZM9.172 14.828a1 1 0 0 1 0 1.415l-1.415 1.414a1 1 0 1 1-1.414-1.414l1.415-1.415a1 1 0 0 1 1.414 0Z"/>
-        </svg>
-        <svg x-show="dark" x-cloak xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-          <path d="M21 14.129A9 9 0 1 1 9.871 3a1 1 0 0 1 1.065 1.57A7 7 0 1 0 19.43 13.064 1 1 0 0 1 21 14.13Z"/>
-        </svg>
-      </button>
-      {% block nav_extra %}{% endblock %}
 
       {% if current_user %}
       <div
@@ -371,12 +437,65 @@
     function userMenu(currentUser) {
       return {
         menuOpen: false,
+        notificationsOpen: false,
+        notifications: [],
+        unreadCount: 0,
         profileOpen: false,
         savingProfile: false,
         profileError: '',
         profile: {
           display_name: currentUser?.display_name || '',
           password: '',
+        },
+
+        async init() {
+          if (currentUser) {
+            await this.fetchNotifications();
+          }
+        },
+
+        async fetchNotifications() {
+          const res = await fetch('/api/notifications');
+          if (!res.ok) return;
+          const data = await res.json();
+          this.notifications = data.items || [];
+          this.unreadCount = data.unread_count || 0;
+        },
+
+        async toggleNotifications() {
+          this.notificationsOpen = !this.notificationsOpen;
+          if (this.notificationsOpen) {
+            await this.fetchNotifications();
+          }
+        },
+
+        async openNotification(notification) {
+          if (!notification.read_at) {
+            await fetch(`/api/notifications/${notification.id}/read`, {method: 'POST'});
+            notification.read_at = new Date().toISOString();
+            this.unreadCount = Math.max(0, this.unreadCount - 1);
+          }
+          this.notificationsOpen = false;
+          if (notification.link_url) {
+            window.location.href = notification.link_url;
+          }
+        },
+
+        async markAllNotificationsRead() {
+          const res = await fetch('/api/notifications/read-all', {method: 'POST'});
+          if (!res.ok) return;
+          this.notifications = this.notifications.map(notification => ({
+            ...notification,
+            read_at: notification.read_at || new Date().toISOString(),
+          }));
+          this.unreadCount = 0;
+        },
+
+        formatNotificationTime(value) {
+          if (!value) return '';
+          const dt = new Date(value);
+          if (Number.isNaN(dt.getTime())) return '';
+          return dt.toLocaleString(undefined, {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'});
         },
 
         openProfile() {

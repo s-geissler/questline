@@ -318,6 +318,7 @@ def board_membership_to_dict(membership: models.BoardMembership) -> dict:
         "display_name": membership.user.display_name,
         "role": membership.role,
         "account_role": membership.user.role,
+        "is_active": membership.user.is_active,
     }
 
 

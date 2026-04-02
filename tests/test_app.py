@@ -123,6 +123,59 @@ def test_due_date_round_trip_on_task(app_env):
     assert updated["due_date"] == "2026-04-17"
 
 
+def test_task_assignee_can_be_set_and_cleared(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+    models = app_env["models"]
+    board = create_board(main, db)
+    stage = create_stage(main, db, board["id"], "Backlog")
+    task = create_task(main, db, stage["id"], "Assigned task")
+
+    assignee = models.User(
+        email="assignee@example.com",
+        password_hash="x",
+        display_name="Assigned User",
+        is_active=True,
+    )
+    db.add(assignee)
+    db.commit()
+    board_row = db.query(models.Board).filter(models.Board.id == board["id"]).first()
+    main.ensure_board_membership(board_row, assignee, "viewer", db)
+    db.commit()
+
+    updated = main.update_task(task["id"], main.TaskUpdate(assignee_user_id=assignee.id), db)
+    assert updated["assignee_user_id"] == assignee.id
+    assert updated["assignee"]["display_name"] == "Assigned User"
+
+    cleared = main.update_task(task["id"], main.TaskUpdate(assignee_user_id=None), db)
+    assert cleared["assignee_user_id"] is None
+    assert cleared["assignee"] is None
+
+
+def test_task_assignee_must_be_active_board_member(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+    models = app_env["models"]
+    board = create_board(main, db)
+    stage = create_stage(main, db, board["id"], "Backlog")
+    task = create_task(main, db, stage["id"], "Assigned task")
+
+    outsider = models.User(
+        email="outsider-assignee@example.com",
+        password_hash="x",
+        display_name="Outsider",
+        is_active=True,
+    )
+    db.add(outsider)
+    db.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        main.update_task(task["id"], main.TaskUpdate(assignee_user_id=outsider.id), db)
+
+    assert exc.value.status_code == 400
+    assert exc.value.detail == "Assignee must be a board member"
+
+
 def test_task_reorder_updates_positions_and_stage(app_env):
     main = app_env["main"]
     db = app_env["db"]

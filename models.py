@@ -106,6 +106,11 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    notifications = relationship(
+        "Notification",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
     board_memberships = relationship(
         "BoardMembership",
         back_populates="user",
@@ -141,6 +146,27 @@ class BoardMembership(Base):
     created_at = Column(DateTime, server_default=func.now())
     board = relationship("Board", back_populates="memberships")
     user = relationship("User", back_populates="board_memberships")
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    __table_args__ = (
+        Index("ix_notifications_user_read_created", "user_id", "read_at", "created_at"),
+        Index("ix_notifications_dedupe_key", "dedupe_key"),
+    )
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    type = Column(String, nullable=False)
+    title = Column(String, nullable=False)
+    body = Column(Text, nullable=True)
+    link_url = Column(String, nullable=True)
+    board_id = Column(Integer, ForeignKey("boards.id"), nullable=True)
+    task_id = Column(Integer, ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True)
+    dedupe_key = Column(String, nullable=True, unique=True)
+    read_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    user = relationship("User", back_populates="notifications")
 
 
 class TaskType(Base):
@@ -198,6 +224,7 @@ class Task(Base):
     description = Column(Text, default="")
     due_date = Column(String, nullable=True)
     parent_task_id = Column(Integer, ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True)
+    assignee_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     show_description_on_card = Column(Boolean, nullable=True)
     show_checklist_on_card = Column(Boolean, nullable=True)
     stage_id = Column("list_id", Integer, ForeignKey("lists.id"), nullable=False)
@@ -210,6 +237,7 @@ class Task(Base):
     stage = relationship("Stage", back_populates="tasks", foreign_keys=[stage_id])
     task_type = relationship("TaskType", back_populates="tasks")
     parent_task = relationship("Task", foreign_keys=[parent_task_id], remote_side=[id])
+    assignee = relationship("User", foreign_keys=[assignee_user_id])
     custom_field_values = relationship(
         "CustomFieldValue", back_populates="task", cascade="all, delete-orphan"
     )

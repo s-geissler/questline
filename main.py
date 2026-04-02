@@ -1,7 +1,7 @@
 import json
 import logging
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from fastapi import FastAPI, Depends, HTTPException, Request, Response
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -79,6 +79,7 @@ def _run_column_migrations():
         ("tasks",            "color",   "VARCHAR"),
         ("tasks",            "due_date", "VARCHAR"),
         ("tasks",            "parent_task_id", "INTEGER REFERENCES tasks(id)"),
+        ("tasks",            "assignee_user_id", "INTEGER REFERENCES users(id)"),
         ("tasks",            "show_description_on_card", "BOOLEAN"),
         ("tasks",            "show_checklist_on_card", "BOOLEAN"),
         ("automations",      "action_task_type_id", "INTEGER REFERENCES task_types(id)"),
@@ -116,6 +117,7 @@ def _run_index_migrations():
         ("ix_tasks_stage_position", "CREATE INDEX IF NOT EXISTS ix_tasks_stage_position ON tasks(list_id, position)"),
         ("ix_tasks_task_type_id", "CREATE INDEX IF NOT EXISTS ix_tasks_task_type_id ON tasks(task_type_id)"),
         ("ix_tasks_parent_task_id", "CREATE INDEX IF NOT EXISTS ix_tasks_parent_task_id ON tasks(parent_task_id)"),
+        ("ix_tasks_assignee_user_id", "CREATE INDEX IF NOT EXISTS ix_tasks_assignee_user_id ON tasks(assignee_user_id)"),
         ("ix_tasks_done", "CREATE INDEX IF NOT EXISTS ix_tasks_done ON tasks(done)"),
         ("ix_tasks_due_date", "CREATE INDEX IF NOT EXISTS ix_tasks_due_date ON tasks(due_date)"),
         ("ix_tasks_created_at", "CREATE INDEX IF NOT EXISTS ix_tasks_created_at ON tasks(created_at)"),
@@ -128,6 +130,8 @@ def _run_index_migrations():
         ("ix_automations_action_stage_id", "CREATE INDEX IF NOT EXISTS ix_automations_action_stage_id ON automations(action_list_id)"),
         ("ix_users_is_active", "CREATE INDEX IF NOT EXISTS ix_users_is_active ON users(is_active)"),
         ("uq_board_memberships_board_user", "CREATE UNIQUE INDEX IF NOT EXISTS uq_board_memberships_board_user ON board_memberships(board_id, user_id)"),
+        ("ix_notifications_user_read_created", "CREATE INDEX IF NOT EXISTS ix_notifications_user_read_created ON notifications(user_id, read_at, created_at)"),
+        ("ix_notifications_dedupe_key", "CREATE UNIQUE INDEX IF NOT EXISTS ix_notifications_dedupe_key ON notifications(dedupe_key) WHERE dedupe_key IS NOT NULL"),
     ]
     with engine.connect() as conn:
         for _, sql in indexes:
@@ -308,6 +312,7 @@ class TaskUpdate(BaseModel):
     description: Optional[str] = None
     due_date: Optional[str] = None
     task_type_id: Optional[int] = None
+    assignee_user_id: Optional[int] = None
     color: Optional[str] = None
     show_description_on_card: Optional[bool] = None
     show_checklist_on_card: Optional[bool] = None
@@ -444,6 +449,25 @@ def _validate_custom_fields_for_task(
             raise HTTPException(status_code=400, detail="Custom field does not belong to the selected task type")
         if not field_def.task_type or field_def.task_type.board_id != board_id:
             raise HTTPException(status_code=400, detail="Custom field belongs to a different board")
+
+
+def _validate_assignee_for_task(board_id: int, assignee_user_id: Optional[int], db: Session):
+    if assignee_user_id is None:
+        return None
+    assignee = db.query(models.User).filter(models.User.id == assignee_user_id).first()
+    if not assignee or not assignee.is_active:
+        raise HTTPException(status_code=400, detail="Assignee must be an active user")
+    membership = (
+        db.query(models.BoardMembership)
+        .filter(
+            models.BoardMembership.board_id == board_id,
+            models.BoardMembership.user_id == assignee_user_id,
+        )
+        .first()
+    )
+    if not membership:
+        raise HTTPException(status_code=400, detail="Assignee must be a board member")
+    return assignee
 
 
 # ---------------------------------------------------------------------------
@@ -610,6 +634,103 @@ def _validated_hex_color(value: Optional[str], fallback: str, detail: str) -> st
     return color
 
 
+def notification_to_dict(notification: models.Notification) -> dict:
+    return {
+        "id": notification.id,
+        "type": notification.type,
+        "title": notification.title,
+        "body": notification.body or "",
+        "link_url": notification.link_url,
+        "board_id": notification.board_id,
+        "task_id": notification.task_id,
+        "read_at": notification.read_at.isoformat() if notification.read_at else None,
+        "created_at": notification.created_at.isoformat() if notification.created_at else None,
+    }
+
+
+def create_notification(
+    user_id: int,
+    notification_type: str,
+    title: str,
+    body: Optional[str],
+    db: Session,
+    *,
+    link_url: Optional[str] = None,
+    board_id: Optional[int] = None,
+    task_id: Optional[int] = None,
+    dedupe_key: Optional[str] = None,
+):
+    if dedupe_key:
+        existing = (
+            db.query(models.Notification)
+            .filter(models.Notification.dedupe_key == dedupe_key)
+            .first()
+        )
+        if existing:
+            return existing
+    notification = models.Notification(
+        user_id=user_id,
+        type=notification_type,
+        title=title,
+        body=body or "",
+        link_url=link_url,
+        board_id=board_id,
+        task_id=task_id,
+        dedupe_key=dedupe_key,
+    )
+    db.add(notification)
+    db.flush()
+    return notification
+
+
+def generate_due_notifications_for_user(user: models.User, db: Session):
+    today = date.today().isoformat()
+    query = (
+        db.query(models.Task)
+        .join(models.Stage, models.Task.stage_id == models.Stage.id)
+        .filter(
+            models.Task.assignee_user_id == user.id,
+            models.Task.done == False,
+            models.Task.due_date.is_not(None),
+            models.Task.due_date != "",
+        )
+    )
+    if user.role != "admin":
+        query = query.join(
+            models.BoardMembership,
+            models.BoardMembership.board_id == models.Stage.board_id,
+        ).filter(models.BoardMembership.user_id == user.id)
+    tasks = query.all()
+    created = False
+    for task in tasks:
+        if not task.stage or not task.stage.board:
+            continue
+        notification_type = None
+        if task.due_date == today:
+            notification_type = "task_due_today"
+        elif task.due_date < today:
+            notification_type = "task_overdue"
+        if not notification_type:
+            continue
+        dedupe_key = f"{notification_type}:task:{task.id}:user:{user.id}:date:{today}"
+        title = "Task due today" if notification_type == "task_due_today" else "Task overdue"
+        body = task.title
+        create_notification(
+            user.id,
+            notification_type,
+            title,
+            body,
+            db,
+            link_url=f"/board/{task.stage.board_id}?task_id={task.id}",
+            board_id=task.stage.board_id,
+            task_id=task.id,
+            dedupe_key=dedupe_key,
+        )
+        created = True
+    if created:
+        db.commit()
+
+
 def task_to_dict(task: models.Task) -> dict:
     custom_values = {str(cfv.field_def_id): cfv.value for cfv in task.custom_field_values}
     checklist = [
@@ -650,6 +771,13 @@ def task_to_dict(task: models.Task) -> dict:
             "title": task.parent_task.title,
             "board_id": task.parent_task.stage.board_id if task.parent_task.stage else None,
         }
+    assignee = None
+    if task.assignee:
+        assignee = {
+            "id": task.assignee.id,
+            "display_name": task.assignee.display_name,
+            "email": task.assignee.email,
+        }
     return {
         "id": task.id,
         "title": task.title,
@@ -659,6 +787,8 @@ def task_to_dict(task: models.Task) -> dict:
         "board_name": task.stage.board.name if task.stage and task.stage.board else None,
         "stage_name": task.stage.name if task.stage else None,
         "parent_task": parent_task,
+        "assignee": assignee,
+        "assignee_user_id": task.assignee_user_id,
         "show_description_on_card": task.show_description_on_card,
         "effective_show_description_on_card": effective_show_description_on_card,
         "show_checklist_on_card": task.show_checklist_on_card,
@@ -842,6 +972,61 @@ def auth_update_profile(data: ProfileUpdate, request: Request, response: Respons
         _set_session_cookie(response, token)
     db.refresh(user)
     return user_to_dict(user)
+
+
+@app.get("/api/notifications")
+def get_notifications(request: Request, db: Session = Depends(get_db)):
+    user = require_current_user(request, db)
+    generate_due_notifications_for_user(user, db)
+    notifications = (
+        db.query(models.Notification)
+        .filter(models.Notification.user_id == user.id)
+        .order_by(models.Notification.created_at.desc(), models.Notification.id.desc())
+        .limit(20)
+        .all()
+    )
+    unread_count = (
+        db.query(models.Notification)
+        .filter(
+            models.Notification.user_id == user.id,
+            models.Notification.read_at.is_(None),
+        )
+        .count()
+    )
+    return {
+        "items": [notification_to_dict(notification) for notification in notifications],
+        "unread_count": unread_count,
+    }
+
+
+@app.post("/api/notifications/{notification_id}/read")
+def mark_notification_read(notification_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_current_user(request, db)
+    notification = (
+        db.query(models.Notification)
+        .filter(
+            models.Notification.id == notification_id,
+            models.Notification.user_id == user.id,
+        )
+        .first()
+    )
+    if not notification:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    if notification.read_at is None:
+        notification.read_at = datetime.utcnow()
+        db.commit()
+    return {"ok": True}
+
+
+@app.post("/api/notifications/read-all")
+def mark_all_notifications_read(request: Request, db: Session = Depends(get_db)):
+    user = require_current_user(request, db)
+    db.query(models.Notification).filter(
+        models.Notification.user_id == user.id,
+        models.Notification.read_at.is_(None),
+    ).update({"read_at": datetime.utcnow()}, synchronize_session=False)
+    db.commit()
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------
@@ -1030,7 +1215,7 @@ def get_board_members(board_id: int, db: Session = Depends(get_db), request: Req
 
 @app.post("/api/boards/{board_id}/members")
 def add_board_member(board_id: int, data: BoardMemberCreate, db: Session = Depends(get_db), request: Request = None):
-    _authorize_board_request(request, db, board_id, "owner")
+    actor = _authorize_board_request(request, db, board_id, "owner")
     role = _validate_membership_role(data.role)
     email = _normalize_email(data.email)
     user = db.query(models.User).filter(models.User.email == email).first()
@@ -1039,9 +1224,29 @@ def add_board_member(board_id: int, data: BoardMemberCreate, db: Session = Depen
     board = db.query(models.Board).filter(models.Board.id == board_id).first()
     if not board:
         raise HTTPException(status_code=404, detail="Board not found")
+    existing_membership = (
+        db.query(models.BoardMembership)
+        .filter(
+            models.BoardMembership.board_id == board_id,
+            models.BoardMembership.user_id == user.id,
+        )
+        .first()
+    )
     membership = ensure_board_membership(board, user, role, db)
     db.commit()
     db.refresh(membership)
+    if existing_membership is None and actor and actor.id != user.id:
+        create_notification(
+            user.id,
+            "board_shared",
+            "Hub shared with you",
+            f"{actor.display_name} shared {board.name} with you",
+            db,
+            link_url=f"/board/{board.id}",
+            board_id=board.id,
+            dedupe_key=f"board_shared:board:{board.id}:user:{user.id}",
+        )
+        db.commit()
     return board_membership_to_dict(membership)
 
 
@@ -1376,19 +1581,23 @@ def reorder_tasks(data: ReorderTasks, db: Session = Depends(get_db), request: Re
 
 @app.put("/api/tasks/{task_id}")
 def update_task(task_id: int, data: TaskUpdate, db: Session = Depends(get_db), request: Request = None):
+    current_user = None
     board_id = _board_id_for_task(task_id, db)
     if board_id is not None:
-        _authorize_board_request(request, db, board_id, "editor")
+        current_user = _authorize_board_request(request, db, board_id, "editor")
     task = db.query(models.Task).filter(models.Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     if "task_type_id" in data.model_fields_set and data.task_type_id is not None:
         _require_task_type_in_board(data.task_type_id, task.stage.board_id, db)
+    if "assignee_user_id" in data.model_fields_set:
+        _validate_assignee_for_task(task.stage.board_id, data.assignee_user_id, db)
 
     effective_task_type_id = data.task_type_id if "task_type_id" in data.model_fields_set else task.task_type_id
     _validate_custom_fields_for_task(data.custom_fields, effective_task_type_id, task.stage.board_id, db)
 
     prev_done = task.done
+    prev_assignee_user_id = task.assignee_user_id
 
     if data.title is not None:
         task.title = data.title
@@ -1398,6 +1607,8 @@ def update_task(task_id: int, data: TaskUpdate, db: Session = Depends(get_db), r
         task.due_date = data.due_date or None
     if "task_type_id" in data.model_fields_set:
         task.task_type_id = data.task_type_id
+    if "assignee_user_id" in data.model_fields_set:
+        task.assignee_user_id = data.assignee_user_id
     if "color" in data.model_fields_set:
         task.color = data.color or None
     if "show_description_on_card" in data.model_fields_set:
@@ -1459,6 +1670,26 @@ def update_task(task_id: int, data: TaskUpdate, db: Session = Depends(get_db), r
 
     if data.done is True and not prev_done:
         run_automations(task, "task_done", db)
+        db.commit()
+
+    if (
+        "assignee_user_id" in data.model_fields_set
+        and task.assignee_user_id
+        and task.assignee_user_id != prev_assignee_user_id
+        and current_user
+        and current_user.id != task.assignee_user_id
+        and task.stage
+    ):
+        create_notification(
+            task.assignee_user_id,
+            "task_assigned",
+            "Assigned to an objective",
+            f"{current_user.display_name} assigned you to {task.title}",
+            db,
+            link_url=f"/board/{task.stage.board_id}?task_id={task.id}",
+            board_id=task.stage.board_id,
+            task_id=task.id,
+        )
         db.commit()
 
     db.refresh(task)
