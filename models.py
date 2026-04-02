@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Text, DateTime, Index
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Text, DateTime, Index, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -132,6 +132,7 @@ class BoardMembership(Base):
         Index("ix_board_memberships_board_user", "board_id", "user_id"),
         Index("ix_board_memberships_user_id", "user_id"),
         Index("ix_board_memberships_board_role", "board_id", "role"),
+        UniqueConstraint("board_id", "user_id", name="uq_board_memberships_board_user"),
     )
     id = Column(Integer, primary_key=True)
     board_id = Column(Integer, ForeignKey("boards.id"), nullable=False)

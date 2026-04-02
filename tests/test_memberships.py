@@ -1,3 +1,6 @@
+from sqlalchemy.exc import IntegrityError
+
+
 def test_require_board_access_respects_role_hierarchy(app_env):
     main = app_env["main"]
     db = app_env["db"]
@@ -98,3 +101,27 @@ def test_owner_membership_backfills_from_existing_owner_user_id(app_env):
     )
     assert membership is not None
     assert membership.role == "owner"
+
+
+def test_board_membership_is_unique_per_board_and_user(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+    models = app_env["models"]
+
+    owner = models.User(email="owner3@example.com", password_hash="x", display_name="Owner Three")
+    viewer = models.User(email="viewer3@example.com", password_hash="x", display_name="Viewer Three")
+    db.add_all([owner, viewer])
+    db.commit()
+
+    board = main.create_board(main.BoardCreate(name="Unique Board"), db)
+    board_row = db.query(models.Board).filter(models.Board.id == board["id"]).first()
+
+    db.add(models.BoardMembership(board_id=board_row.id, user_id=viewer.id, role="viewer"))
+    db.commit()
+
+    db.add(models.BoardMembership(board_id=board_row.id, user_id=viewer.id, role="editor"))
+    try:
+        db.commit()
+        assert False, "Expected duplicate membership insert to fail"
+    except IntegrityError:
+        db.rollback()

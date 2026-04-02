@@ -350,6 +350,30 @@ def test_checklist_on_card_uses_type_default_and_task_override(app_env):
     assert overridden["show_checklist_on_card"] is False
 
 
+def test_saved_filter_rejects_malformed_custom_field_rule(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+    board = create_board(main, db)
+
+    with pytest.raises(HTTPException) as exc:
+        create_saved_filter(
+            main,
+            db,
+            board["id"],
+            definition={
+                "op": "and",
+                "selected_task_type_id": None,
+                "source_board_ids": [],
+                "rules": [
+                    {"field": "custom:not-a-number", "operator": "eq", "value": "x"},
+                ],
+            },
+        )
+
+    assert exc.value.status_code == 400
+    assert exc.value.detail == "Invalid custom field rule"
+
+
 def test_clear_completed_stage_removes_completed_quests_and_spawned_children(app_env):
     main = app_env["main"]
     db = app_env["db"]

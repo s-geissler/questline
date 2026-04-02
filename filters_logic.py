@@ -72,7 +72,10 @@ def _validated_filter_definition(
 
     for rule in parsed.get("rules") or []:
         if rule["field"].startswith("custom:"):
-            field_id = int(rule["field"].split(":", 1)[1])
+            try:
+                field_id = int(rule["field"].split(":", 1)[1])
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail="Invalid custom field rule")
             field_def = db.query(models.CustomFieldDef).filter(models.CustomFieldDef.id == field_id).first()
             if not field_def or not field_def.task_type or field_def.task_type.board_id != owning_board_id:
                 raise HTTPException(status_code=400, detail="Invalid custom field rule")
@@ -117,7 +120,10 @@ def _task_field_value(task: models.Task, field: str):
     if field == "has_parent_task":
         return bool(task.parent_task_id)
     if field.startswith("custom:"):
-        field_id = int(field.split(":", 1)[1])
+        try:
+            field_id = int(field.split(":", 1)[1])
+        except (TypeError, ValueError):
+            return None
         for cfv in task.custom_field_values:
             if cfv.field_def_id == field_id:
                 return cfv.value

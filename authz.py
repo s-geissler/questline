@@ -1,10 +1,12 @@
 import hashlib
 import hmac
+import os
 import secrets
 from typing import Optional
 
 from fastapi import HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 import models
@@ -12,6 +14,10 @@ import models
 SESSION_COOKIE = "questline_session"
 PASSWORD_HASH_ITERATIONS = 120_000
 BOARD_ROLE_ORDER = {"viewer": 1, "editor": 2, "owner": 3, "admin": 4}
+SESSION_COOKIE_SECURE = os.getenv("QUESTLINE_SESSION_COOKIE_SECURE", "").lower() in {"1", "true", "yes", "on"}
+SESSION_COOKIE_SAMESITE = os.getenv("QUESTLINE_SESSION_COOKIE_SAMESITE", "lax").lower()
+if SESSION_COOKIE_SAMESITE not in {"lax", "strict", "none"}:
+    SESSION_COOKIE_SAMESITE = "lax"
 
 
 def get_accessible_boards(user: Optional[models.User], db: Session):
@@ -37,16 +43,49 @@ def board_is_shared(board_id: int, db: Session) -> bool:
     )
 
 
+def _board_shared_map(board_ids: list[int], db: Session) -> dict[int, bool]:
+    if not board_ids:
+        return {}
+    rows = (
+        db.query(models.BoardMembership.board_id, func.count(models.BoardMembership.id))
+        .filter(models.BoardMembership.board_id.in_(board_ids))
+        .group_by(models.BoardMembership.board_id)
+        .all()
+    )
+    counts = {board_id: count for board_id, count in rows}
+    return {board_id: counts.get(board_id, 0) > 1 for board_id in board_ids}
+
+
+def _board_role_map(board_ids: list[int], user: Optional[models.User], db: Session) -> dict[int, Optional[str]]:
+    if not user or not board_ids:
+        return {}
+    if user.role == "admin":
+        return {board_id: "admin" for board_id in board_ids}
+    rows = (
+        db.query(models.BoardMembership.board_id, models.BoardMembership.role)
+        .filter(
+            models.BoardMembership.user_id == user.id,
+            models.BoardMembership.board_id.in_(board_ids),
+        )
+        .all()
+    )
+    return {board_id: role for board_id, role in rows}
+
+
 def _boards_for_nav(db: Session, user: Optional[models.User] = None):
+    boards = get_accessible_boards(user, db)
+    board_ids = [board.id for board in boards]
+    shared_map = _board_shared_map(board_ids, db)
+    role_map = _board_role_map(board_ids, user, db)
     return [
         {
             "id": b.id,
             "name": b.name,
             "color": b.color,
-            "role": get_board_role(b.id, user, db) if user else None,
-            "is_shared": board_is_shared(b.id, db),
+            "role": role_map.get(b.id) if user else None,
+            "is_shared": shared_map.get(b.id, False),
         }
-        for b in get_accessible_boards(user, db)
+        for b in boards
     ]
 
 
@@ -94,8 +133,8 @@ def _set_session_cookie(response: Response, token: str):
         SESSION_COOKIE,
         token,
         httponly=True,
-        samesite="lax",
-        secure=False,
+        samesite=SESSION_COOKIE_SAMESITE,
+        secure=SESSION_COOKIE_SECURE,
         path="/",
     )
 

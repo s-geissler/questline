@@ -6,7 +6,7 @@ from fastapi import FastAPI, Depends, HTTPException, Request, Response
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import text
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List as PyList, Union
@@ -21,6 +21,8 @@ from authz import (
     _board_id_for_task,
     _board_id_for_task_type,
     _boards_for_nav,
+    _board_role_map,
+    _board_shared_map,
     _clear_session_cookie,
     _hash_session_token,
     _normalize_email,
@@ -125,6 +127,7 @@ def _run_index_migrations():
         ("ix_automations_trigger_stage_id", "CREATE INDEX IF NOT EXISTS ix_automations_trigger_stage_id ON automations(trigger_list_id)"),
         ("ix_automations_action_stage_id", "CREATE INDEX IF NOT EXISTS ix_automations_action_stage_id ON automations(action_list_id)"),
         ("ix_users_is_active", "CREATE INDEX IF NOT EXISTS ix_users_is_active ON users(is_active)"),
+        ("uq_board_memberships_board_user", "CREATE UNIQUE INDEX IF NOT EXISTS uq_board_memberships_board_user ON board_memberships(board_id, user_id)"),
     ]
     with engine.connect() as conn:
         for _, sql in indexes:
@@ -200,12 +203,49 @@ def _migrate_admin_role():
         db.close()
 
 
+def _dedupe_board_memberships():
+    db = SessionLocal()
+    try:
+        duplicate_pairs = (
+            db.query(
+                models.BoardMembership.board_id,
+                models.BoardMembership.user_id,
+                func.count(models.BoardMembership.id),
+            )
+            .group_by(models.BoardMembership.board_id, models.BoardMembership.user_id)
+            .having(func.count(models.BoardMembership.id) > 1)
+            .all()
+        )
+        for board_id, user_id, _ in duplicate_pairs:
+            memberships = (
+                db.query(models.BoardMembership)
+                .filter(
+                    models.BoardMembership.board_id == board_id,
+                    models.BoardMembership.user_id == user_id,
+                )
+                .order_by(models.BoardMembership.id.asc())
+                .all()
+            )
+            keeper = memberships[0]
+            preferred_role = next((m.role for m in memberships if m.role == "owner"), None) or next(
+                (m.role for m in memberships if m.role == "editor"),
+                None,
+            ) or keeper.role
+            keeper.role = preferred_role
+            for membership in memberships[1:]:
+                db.delete(membership)
+        db.commit()
+    finally:
+        db.close()
+
+
 models.Base.metadata.create_all(bind=engine)
 _run_column_migrations()
-_run_index_migrations()
 _migrate_orphan_data()
 _migrate_board_memberships()
 _migrate_admin_role()
+_dedupe_board_memberships()
+_run_index_migrations()
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -785,7 +825,7 @@ def auth_logout(request: Request, response: Response, db: Session = Depends(get_
 
 
 @app.put("/api/auth/profile")
-def auth_update_profile(data: ProfileUpdate, request: Request, db: Session = Depends(get_db)):
+def auth_update_profile(data: ProfileUpdate, request: Request, response: Response, db: Session = Depends(get_db)):
     user = require_current_user(request, db)
     display_name = (data.display_name or "").strip()
     if not display_name:
@@ -795,7 +835,11 @@ def auth_update_profile(data: ProfileUpdate, request: Request, db: Session = Dep
         if len(data.password) < 8:
             raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
         user.password_hash = hash_password(data.password)
+        db.query(models.UserSession).filter(models.UserSession.user_id == user.id).delete()
     db.commit()
+    if data.password is not None and data.password != "":
+        token = create_user_session(user, db)
+        _set_session_cookie(response, token)
     db.refresh(user)
     return user_to_dict(user)
 
@@ -808,27 +852,32 @@ def auth_update_profile(data: ProfileUpdate, request: Request, db: Session = Dep
 def get_boards(request: Request = None, db: Session = Depends(get_db)):
     if request is None:
         boards = db.query(models.Board).order_by(models.Board.position).all()
+        board_ids = [board.id for board in boards]
+        shared_map = _board_shared_map(board_ids, db)
         return [
             {
                 "id": b.id,
                 "name": b.name,
                 "color": b.color,
                 "position": b.position,
-                "is_shared": board_is_shared(b.id, db),
+                "is_shared": shared_map.get(b.id, False),
             }
             for b in boards
         ]
     else:
         user = require_current_user(request, db)
         boards = get_accessible_boards(user, db)
+        board_ids = [board.id for board in boards]
+        role_map = _board_role_map(board_ids, user, db)
+        shared_map = _board_shared_map(board_ids, db)
         return [
             {
                 "id": b.id,
                 "name": b.name,
                 "color": b.color,
                 "position": b.position,
-                "role": get_board_role(b.id, user, db),
-                "is_shared": board_is_shared(b.id, db),
+                "role": role_map.get(b.id),
+                "is_shared": shared_map.get(b.id, False),
             }
             for b in boards
         ]
@@ -864,6 +913,16 @@ def create_board(data: BoardCreate, db: Session = Depends(get_db), request: Requ
 def get_admin_users(request: Request, db: Session = Depends(get_db)):
     require_admin(request, db)
     users = db.query(models.User).order_by(models.User.created_at, models.User.id).all()
+    user_ids = [user.id for user in users]
+    board_count_rows = (
+        db.query(models.BoardMembership.user_id, func.count(models.BoardMembership.id))
+        .filter(models.BoardMembership.user_id.in_(user_ids))
+        .group_by(models.BoardMembership.user_id)
+        .all()
+        if user_ids
+        else []
+    )
+    board_count_map = {user_id: count for user_id, count in board_count_rows}
     return [
         {
             "id": user.id,
@@ -871,7 +930,7 @@ def get_admin_users(request: Request, db: Session = Depends(get_db)):
             "display_name": user.display_name,
             "role": user.role,
             "is_active": user.is_active,
-            "board_count": db.query(models.BoardMembership).filter(models.BoardMembership.user_id == user.id).count(),
+            "board_count": board_count_map.get(user.id, 0),
         }
         for user in users
     ]

@@ -1,3 +1,6 @@
+import importlib
+import sys
+
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
 
@@ -174,14 +177,23 @@ def test_profile_update_changes_display_name_and_password(app_env):
     )
     session_token = response.headers.get("set-cookie").split(";", 1)[0]
     request = request_with_cookie(session_token)
+    update_response = main.Response()
 
     updated = main.auth_update_profile(
         main.ProfileUpdate(display_name="Renamed User", password="newsecret1"),
         request,
+        update_response,
         db,
     )
     assert updated["display_name"] == "Renamed User"
-    assert main.auth_me(request, db)["display_name"] == "Renamed User"
+    new_session_token = update_response.headers.get("set-cookie").split(";", 1)[0]
+    assert main.auth_me(request_with_cookie(new_session_token), db)["display_name"] == "Renamed User"
+
+    try:
+        main.auth_me(request, db)
+        assert False, "Expected prior session to be invalid after password change"
+    except main.HTTPException as exc:
+        assert exc.status_code == 401
 
     try:
         main.auth_login(
@@ -220,6 +232,7 @@ def test_profile_update_requires_valid_display_name(app_env):
         main.auth_update_profile(
             main.ProfileUpdate(display_name="   ", password=None),
             request_with_cookie(session_token),
+            main.Response(),
             db,
         )
         assert False, "Expected blank display name to be rejected"
@@ -291,3 +304,32 @@ def test_inactive_new_accounts_require_admin_activation(app_env):
         db,
     )
     assert relogin["is_active"] is True
+
+
+def test_session_cookie_flags_can_be_configured(tmp_path, monkeypatch):
+    db_path = tmp_path / "cookie-test.db"
+    monkeypatch.setenv("QUESTLINE_DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("QUESTLINE_SESSION_COOKIE_SECURE", "true")
+    monkeypatch.setenv("QUESTLINE_SESSION_COOKIE_SAMESITE", "strict")
+
+    for module_name in ("main", "models", "database", "authz"):
+        sys.modules.pop(module_name, None)
+
+    main = importlib.import_module("main")
+    db = importlib.import_module("database").SessionLocal()
+    try:
+        response = main.Response()
+        main.auth_register(
+            main.RegisterRequest(
+                email="cookie@example.com",
+                password="supersecret",
+                display_name="Cookie User",
+            ),
+            response,
+            db,
+        )
+        cookie_header = response.headers.get("set-cookie")
+        assert "Secure" in cookie_header
+        assert "SameSite=strict" in cookie_header
+    finally:
+        db.close()
