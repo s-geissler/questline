@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% if board %}{{ board.name }} — Questline{% else %}Questline{% endif %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.5/dist/cdn.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+  <style>
+    :root {
+      color-scheme: light;
+    }
+
+    :root.dark {
+      color-scheme: dark;
+    }
+
+    [x-cloak] { display: none !important; }
+    .task-ghost { opacity: 0.4; }
+    .prose h1,.prose h2,.prose h3 { font-weight: 600; margin: 0.5em 0 0.25em; }
+    .prose h1 { font-size: 1.2em; }
+    .prose h2 { font-size: 1.1em; }
+    .prose h3 { font-size: 1em; }
+    .prose p { margin: 0.4em 0; }
+    .prose ul,.prose ol { padding-left: 1.4em; margin: 0.4em 0; }
+    .prose ul { list-style-type: disc; }
+    .prose ol { list-style-type: decimal; }
+    .prose code { background: #f1f5f9; border-radius: 3px; padding: 0.1em 0.35em; font-size: 0.875em; font-family: monospace; }
+    .prose pre { background: #f1f5f9; border-radius: 6px; padding: 0.75em 1em; overflow-x: auto; margin: 0.5em 0; }
+    .prose pre code { background: none; padding: 0; }
+    .prose a { color: #2563eb; text-decoration: underline; }
+    .prose blockquote { border-left: 3px solid #cbd5e1; padding-left: 0.75em; color: #64748b; margin: 0.5em 0; }
+    .prose strong { font-weight: 600; }
+    .prose em { font-style: italic; }
+    .log-stage {
+      background: #f0f9ff;
+      box-shadow: 0 10px 24px rgba(14, 116, 144, 0.08);
+      border: 1px solid rgba(125, 211, 252, 0.8);
+    }
+    .log-stage-header {
+      background: rgba(224, 242, 254, 0.92);
+      border-bottom: 1px solid rgba(125, 211, 252, 0.9);
+    }
+    .log-stage-body {
+      background: rgba(240, 249, 255, 0.75);
+      border: 2px dashed rgba(125, 211, 252, 0.8);
+      border-top: 0;
+      border-bottom-left-radius: 0.75rem;
+      border-bottom-right-radius: 0.75rem;
+    }
+    .log-stage-title {
+      color: #0c4a6e;
+    }
+    .log-stage-title:hover,
+    .log-stage-title:focus {
+      background-color: rgba(186, 230, 253, 0.7) !important;
+    }
+    .log-stage-badge {
+      color: #075985;
+      background: rgba(255, 255, 255, 0.85);
+    }
+    .log-stage-summary {
+      color: rgba(12, 74, 110, 0.85);
+    }
+
+    :root.dark body { color: #e5e7eb; }
+    :root.dark .bg-white { background-color: #111827 !important; }
+    :root.dark .bg-gray-100 { background-color: #1f2937 !important; }
+    :root.dark .bg-gray-50 { background-color: #111827 !important; }
+    :root.dark .bg-blue-50 { background-color: #172554 !important; }
+    :root.dark .bg-purple-50 { background-color: #3b0764 !important; }
+    :root.dark .bg-orange-50 { background-color: #431407 !important; }
+    :root.dark .bg-green-50 { background-color: #052e16 !important; }
+    :root.dark .text-gray-900,
+    :root.dark .text-gray-800,
+    :root.dark .text-gray-700,
+    :root.dark .text-gray-600 { color: #e5e7eb !important; }
+    :root.dark .text-gray-500,
+    :root.dark .text-gray-400,
+    :root.dark .text-gray-300 { color: #9ca3af !important; }
+    :root.dark .text-blue-700 { color: #93c5fd !important; }
+    :root.dark .text-blue-600 { color: #60a5fa !important; }
+    :root.dark .text-orange-600 { color: #fdba74 !important; }
+    :root.dark .text-green-600 { color: #86efac !important; }
+    :root.dark .text-purple-600,
+    :root.dark .text-purple-700 { color: #d8b4fe !important; }
+    :root.dark .border,
+    :root.dark .border-t,
+    :root.dark .border-b,
+    :root.dark .border-gray-200,
+    :root.dark .border-gray-300 { border-color: #374151 !important; }
+    :root.dark input,
+    :root.dark select,
+    :root.dark textarea {
+      background-color: #0f172a !important;
+      color: #e5e7eb !important;
+      border-color: #374151 !important;
+    }
+    :root.dark .stage-title-input {
+      background-color: transparent !important;
+      border-color: transparent !important;
+    }
+    :root.dark .stage-title-input:hover,
+    :root.dark .stage-title-input:focus {
+      background-color: rgba(255, 255, 255, 0.06) !important;
+    }
+    :root.dark input::placeholder,
+    :root.dark textarea::placeholder { color: #6b7280 !important; }
+    :root.dark option {
+      background-color: #0f172a;
+      color: #e5e7eb;
+    }
+    :root.dark .shadow,
+    :root.dark .shadow-sm,
+    :root.dark .shadow-md,
+    :root.dark .shadow-xl,
+    :root.dark .shadow-2xl { box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35) !important; }
+    :root.dark .hover\:bg-gray-100:hover { background-color: #1f2937 !important; }
+    :root.dark .hover\:bg-gray-200:hover { background-color: #374151 !important; }
+    :root.dark .hover\:bg-blue-50:hover { background-color: #1e3a8a !important; }
+    :root.dark .prose,
+    :root.dark .prose p,
+    :root.dark .prose li,
+    :root.dark .prose strong,
+    :root.dark .prose em { color: #e5e7eb !important; }
+    :root.dark .prose code,
+    :root.dark .prose pre { background: #0f172a; color: #e5e7eb; }
+    :root.dark .prose blockquote { border-left-color: #475569; color: #cbd5e1; }
+    :root.dark .log-stage {
+      background: #0b1726;
+      border-color: rgba(56, 189, 248, 0.38);
+      box-shadow: 0 16px 32px rgba(2, 8, 23, 0.45);
+    }
+    :root.dark .log-stage-header {
+      background: rgba(8, 47, 73, 0.92);
+      border-bottom-color: rgba(56, 189, 248, 0.35) !important;
+    }
+    :root.dark .log-stage-body {
+      background: rgba(8, 23, 38, 0.72);
+      border-color: rgba(56, 189, 248, 0.35);
+    }
+    :root.dark .log-stage-title {
+      color: #dbeafe !important;
+    }
+    :root.dark .log-stage-badge {
+      color: #bae6fd !important;
+      background: rgba(15, 23, 42, 0.85) !important;
+    }
+    :root.dark .log-stage-summary {
+      color: rgba(186, 230, 253, 0.84) !important;
+    }
+  </style>
+  <script>
+    const PRESET_COLORS = [
+      '#ef4444','#f97316','#f59e0b','#eab308',
+      '#22c55e','#14b8a6','#06b6d4','#3b82f6',
+      '#6366f1','#a855f7','#ec4899','#64748b',
+    ];
+
+    function _darkenHex(hex, amount) {
+      const n = parseInt((hex || '#1d4ed8').replace('#', ''), 16);
+      const r = Math.max(0, ((n >> 16) & 255) * (1 - amount) | 0);
+      const g = Math.max(0, ((n >>  8) & 255) * (1 - amount) | 0);
+      const b = Math.max(0, ((n      ) & 255) * (1 - amount) | 0);
+      return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('');
+    }
+
+    function applyBoardColor(color) {
+      const bg = color || '#1d4ed8';
+      document.body.style.backgroundColor = bg;
+      const nav = document.getElementById('main-nav');
+      if (nav) nav.style.backgroundColor = _darkenHex(bg, 0.25);
+    }
+
+    function getInitialTheme() {
+      const saved = localStorage.getItem('questline-theme');
+      if (saved === 'dark' || saved === 'light') return saved;
+      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+
+    function applyTheme(theme) {
+      document.documentElement.classList.toggle('dark', theme === 'dark');
+      localStorage.setItem('questline-theme', theme);
+    }
+
+    applyTheme(getInitialTheme());
+  </script>
+</head>
+<body class="min-h-screen text-gray-900">
+
+  <nav id="main-nav" class="text-white px-5 py-2 flex items-center gap-1 shadow-md">
+    <a href="/" class="font-bold text-lg mr-2 hover:text-white/70 transition-colors">Questline</a>
+
+    {% if board %}
+    <!-- Board switcher dropdown -->
+    <div x-data="{open: false}" class="relative mr-1">
+      <button
+        @click="open = !open"
+        @click.outside="open = false"
+        class="px-3 py-1.5 rounded hover:bg-black/20 flex items-center gap-1.5 text-sm font-semibold transition-colors"
+      >
+        <span>{{ board.name }}</span>
+        <span class="text-xs opacity-60">▼</span>
+      </button>
+      <div
+        x-show="open"
+        x-cloak
+        x-transition:enter="transition ease-out duration-100"
+        x-transition:enter-start="opacity-0 scale-95"
+        x-transition:enter-end="opacity-100 scale-100"
+        x-transition:leave="transition ease-in duration-75"
+        x-transition:leave-start="opacity-100 scale-100"
+        x-transition:leave-end="opacity-0 scale-95"
+        class="absolute top-full left-0 mt-1 bg-white text-gray-800 shadow-xl rounded-xl py-1 min-w-[200px] z-50"
+        @click="open = false"
+      >
+        {% for b in boards %}
+        <a
+          href="/board/{{ b.id }}"
+          class="flex items-center px-3 py-2 hover:bg-gray-100 text-sm transition-colors {% if b.id == board.id %}font-semibold text-blue-600{% endif %}"
+        >
+          <span
+            class="w-3 h-3 rounded-full mr-2.5 flex-shrink-0 border border-black/10"
+            style="background: {{ b.color or '#3b82f6' }}"
+          ></span>
+          <span class="flex-1">{{ b.name }}</span>
+          {% if b.id == board.id %}<span class="ml-2 text-blue-500">✓</span>{% endif %}
+        </a>
+        {% endfor %}
+        <div class="border-t my-1"></div>
+        <a href="/" class="flex items-center px-4 py-2 hover:bg-gray-100 text-sm text-gray-500 transition-colors">
+          <span class="w-5 mr-1"></span>All Hubs
+        </a>
+      </div>
+    </div>
+
+    <a href="/board/{{ board.id }}" class="px-3 py-1.5 rounded hover:bg-black/20 text-sm font-medium transition-colors">Hub</a>
+    <a href="/board/{{ board.id }}/task-types" class="px-3 py-1.5 rounded hover:bg-black/20 text-sm font-medium transition-colors">Objective Types</a>
+    <a href="/board/{{ board.id }}/filters" class="px-3 py-1.5 rounded hover:bg-black/20 text-sm font-medium transition-colors">Filters</a>
+    <a href="/board/{{ board.id }}/automations" class="px-3 py-1.5 rounded hover:bg-black/20 text-sm font-medium transition-colors">Automations</a>
+    {% endif %}
+
+    <div class="ml-auto flex items-center gap-2">
+      <button
+        type="button"
+        x-data="{ dark: document.documentElement.classList.contains('dark') }"
+        @click="dark = !dark; applyTheme(dark ? 'dark' : 'light')"
+        class="px-3 py-1.5 rounded hover:bg-black/20 text-sm font-medium transition-colors flex items-center justify-center"
+        title="Toggle theme"
+        :aria-label="dark ? 'Switch to light mode' : 'Switch to dark mode'"
+      >
+        <svg x-show="!dark" x-cloak xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12Zm0-16a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0V3a1 1 0 0 1 1-1Zm0 17a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0v-2a1 1 0 0 1 1-1Zm10-7a1 1 0 0 1-1 1h-2a1 1 0 1 1 0-2h2a1 1 0 0 1 1 1ZM5 12a1 1 0 0 1-1 1H2a1 1 0 1 1 0-2h2a1 1 0 0 1 1 1Zm12.657 6.243a1 1 0 0 1 0 1.414l-1.414 1.414a1 1 0 1 1-1.414-1.414l1.414-1.414a1 1 0 0 1 1.414 0ZM9.172 9.172a1 1 0 0 1-1.414 0L6.343 7.757A1 1 0 0 1 7.757 6.343l1.415 1.414a1 1 0 0 1 0 1.415Zm11.485-2.829a1 1 0 0 1 0 1.414l-1.414 1.415a1 1 0 1 1-1.414-1.415l1.414-1.414a1 1 0 0 1 1.414 0ZM9.172 14.828a1 1 0 0 1 0 1.415l-1.415 1.414a1 1 0 1 1-1.414-1.414l1.415-1.415a1 1 0 0 1 1.414 0Z"/>
+        </svg>
+        <svg x-show="dark" x-cloak xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M21 14.129A9 9 0 1 1 9.871 3a1 1 0 0 1 1.065 1.57A7 7 0 1 0 19.43 13.064 1 1 0 0 1 21 14.13Z"/>
+        </svg>
+      </button>
+      {% block nav_extra %}{% endblock %}
+    </div>
+  </nav>
+
+  <script>
+    applyBoardColor({{ (board.color if board and board.color else None) | tojson }});
+  </script>
+
+  {% block content %}{% endblock %}
+
+</body>
+</html>

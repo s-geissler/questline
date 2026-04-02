@@ -1,0 +1,424 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div x-data="filtersPage()" x-init="init()" x-cloak class="max-w-5xl mx-auto p-6">
+
+  <div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-bold text-white">Filters</h1>
+    <button
+      @click="startCreate()"
+      class="bg-white text-blue-700 font-semibold px-4 py-2 rounded-lg hover:bg-blue-50 transition-colors shadow"
+    >+ New Filter</button>
+  </div>
+
+  <template x-if="editingFilter">
+    <div class="bg-white rounded-xl shadow p-5 mb-6">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="font-semibold text-gray-700" x-text="editingFilter.id ? 'Edit Filter' : 'New Filter'"></h2>
+      <button @click="cancelEdit()" class="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+      <div class="md:col-span-2">
+        <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Name</label>
+        <input
+          x-model="editingFilter.name"
+          class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+          placeholder="e.g. Open Bugs, Overdue Work..."
+        >
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Match</label>
+        <select
+          x-model="editingFilter.definition.op"
+          class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+        >
+          <option value="and">All rules (AND)</option>
+          <option value="or">Any rule (OR)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="mb-4">
+      <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Selected Type</label>
+      <select
+        x-model="editingFilter.definition.selected_task_type_id"
+        @change="handleSelectedTypeChange()"
+        class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+      >
+        <option value="" :selected="!editingFilter.definition.selected_task_type_id">Any type</option>
+        <template x-for="tt in taskTypes" :key="tt.id">
+          <option :value="String(tt.id)" :selected="String(editingFilter.definition.selected_task_type_id || '') === String(tt.id)" x-text="tt.name"></option>
+        </template>
+      </select>
+      <p class="mt-1 text-xs text-gray-400">Select a type to enable filtering by that type's custom fields.</p>
+    </div>
+
+    <div class="space-y-3">
+      <template x-for="(rule, idx) in editingFilter.definition.rules" :key="rule.uid">
+        <div class="bg-gray-50 rounded-xl p-3 border">
+          <div class="grid grid-cols-1 md:grid-cols-[1.4fr_1fr_1.4fr_auto] gap-3 items-end">
+            <div>
+              <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Field</label>
+              <select
+                x-model="rule.field"
+                @change="resetRuleForField(rule)"
+                class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              >
+                <template x-for="field in availableFields" :key="field.key">
+                  <option :value="field.key" :selected="rule.field === field.key" x-text="field.label"></option>
+                </template>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Operator</label>
+              <select
+                x-model="rule.operator"
+                class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              >
+                <template x-for="operator in operatorsForRule(rule)" :key="operator.value">
+                  <option :value="operator.value" :selected="rule.operator === operator.value" x-text="operator.label"></option>
+                </template>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Value</label>
+              <template x-if="usesDropdownValue(rule)">
+                <select x-model="rule.value" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+                  <option value="">Select value</option>
+                  <template x-for="option in valueOptionsForRule(rule)" :key="option.value">
+                    <option :value="option.value" :selected="String(rule.value ?? '') === String(option.value)" x-text="option.label"></option>
+                  </template>
+                </select>
+              </template>
+              <template x-if="usesDateValueMode(rule)">
+                <div class="space-y-2">
+                  <select
+                  :value="dateValueMode(rule)"
+                  @change="setDateValueMode(rule, $event.target.value)"
+                  class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  :disabled="operatorWithoutValue(rule.operator)"
+                >
+                    <option value="date" :selected="dateValueMode(rule) === 'date'">Specific date</option>
+                    <option value="today" :selected="dateValueMode(rule) === 'today'">Today</option>
+                  </select>
+                  <input
+                    x-show="dateValueMode(rule) === 'date' && !operatorWithoutValue(rule.operator)"
+                    type="date"
+                    x-model="rule.value"
+                    class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  >
+                </div>
+              </template>
+              <template x-if="!usesDropdownValue(rule) && !usesDateValueMode(rule)">
+                <input
+                  :type="inputTypeForRule(rule)"
+                  x-model="rule.value"
+                  :disabled="operatorWithoutValue(rule.operator)"
+                  class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  placeholder="Value"
+                >
+              </template>
+            </div>
+            <button
+              @click="removeRule(idx)"
+              class="text-gray-400 hover:text-red-500 px-2 py-2 text-sm transition-colors"
+            >Remove</button>
+          </div>
+        </div>
+      </template>
+
+      <button
+        @click="addRule()"
+        class="text-sm text-blue-600 hover:text-blue-700 font-medium"
+      >+ Add rule</button>
+    </div>
+
+    <div class="flex justify-end gap-2 border-t pt-4 mt-5">
+      <button @click="cancelEdit()" class="text-gray-500 hover:text-gray-700 px-4 py-2 text-sm">Cancel</button>
+      <button @click="saveFilter()" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">Save Filter</button>
+    </div>
+  </div>
+  </template>
+
+  <div class="space-y-3">
+    <template x-for="savedFilter in filters" :key="savedFilter.id">
+      <div class="bg-white rounded-xl shadow p-4 flex items-center gap-4">
+        <div class="flex-1 min-w-0">
+          <div class="font-medium text-gray-800 text-sm" x-text="savedFilter.name"></div>
+          <div class="text-xs text-gray-400 mt-0.5" x-text="filterSummary(savedFilter)"></div>
+        </div>
+        <button @click="startEdit(savedFilter)" class="text-sm text-blue-600 hover:text-blue-700 transition-colors">Edit</button>
+        <button @click="deleteFilter(savedFilter)" class="text-sm text-red-400 hover:text-red-600 transition-colors">Delete</button>
+      </div>
+    </template>
+
+    <p x-show="filters.length === 0" class="text-white text-center opacity-70 py-8">
+      No filters yet. Create one to drive log stages.
+    </p>
+  </div>
+
+</div>
+
+<script>
+function filtersPage() {
+  return {
+    boardId: {{ board.id }},
+    filters: [],
+    taskTypes: [],
+    editingFilter: null,
+    nextRuleUid: 1,
+
+    async init() {
+      await this.load();
+    },
+
+    async load() {
+      const [filtersRes, taskTypesRes] = await Promise.all([
+        fetch('/api/filters?board_id=' + this.boardId),
+        fetch('/api/task-types?board_id=' + this.boardId),
+      ]);
+      this.filters = await filtersRes.json();
+      this.taskTypes = await taskTypesRes.json();
+    },
+
+    get availableFields() {
+      const fields = [
+        {key: 'title', label: 'Title', type: 'text'},
+        {key: 'description', label: 'Description', type: 'text'},
+        {key: 'done', label: 'Status', type: 'status'},
+        {key: 'due_date', label: 'Due Date', type: 'date'},
+        {key: 'color', label: 'Color', type: 'text'},
+        {key: 'has_parent_task', label: 'Has Quest', type: 'boolean'},
+      ];
+      const selectedType = this.selectedTaskType();
+      if (selectedType) {
+        for (const field of selectedType.custom_fields || []) {
+          fields.push({key: `custom:${field.id}`, label: `Custom: ${field.name}`, type: field.field_type, options: field.options || []});
+        }
+      }
+      return fields;
+    },
+
+    selectedTaskType() {
+      if (!this.editingFilter?.definition?.selected_task_type_id) return null;
+      return this.taskTypes.find(tt => String(tt.id) === String(this.editingFilter.definition.selected_task_type_id)) || null;
+    },
+
+    operatorsForField(fieldKey) {
+      const field = this.availableFields.find(entry => entry.key === fieldKey);
+      const type = field?.type || 'text';
+      if (type === 'status' || type === 'boolean' || type === 'dropdown') {
+        return [
+          {value: 'eq', label: 'is'},
+          {value: 'neq', label: 'is not'},
+          {value: 'empty', label: 'is empty'},
+          {value: 'not_empty', label: 'is not empty'},
+        ];
+      }
+      if (type === 'date' || type === 'number') {
+        return [
+          {value: 'eq', label: 'equals'},
+          {value: 'lt', label: 'less than'},
+          {value: 'lte', label: 'less than or equal'},
+          {value: 'gt', label: 'greater than'},
+          {value: 'gte', label: 'greater than or equal'},
+          {value: 'empty', label: 'is empty'},
+          {value: 'not_empty', label: 'is not empty'},
+        ];
+      }
+      return [
+        {value: 'contains', label: 'contains'},
+        {value: 'eq', label: 'equals'},
+        {value: 'neq', label: 'does not equal'},
+        {value: 'empty', label: 'is empty'},
+        {value: 'not_empty', label: 'is not empty'},
+      ];
+    },
+
+    operatorsForRule(rule) {
+      return this.operatorsForField(rule.field);
+    },
+
+    valueOptionsForRule(rule) {
+      const field = this.availableFields.find(entry => entry.key === rule.field);
+      if (!field) return [];
+      if (field.type === 'status') {
+        return [
+          {value: 'True', label: 'Done'},
+          {value: 'False', label: 'Open'},
+        ];
+      }
+      if (field.type === 'boolean') {
+        return [
+          {value: 'True', label: 'Yes'},
+          {value: 'False', label: 'No'},
+        ];
+      }
+      if (field.type === 'dropdown') {
+        return (field.options || []).map(option => ({value: option, label: option}));
+      }
+      return [];
+    },
+
+    usesDropdownValue(rule) {
+      const field = this.availableFields.find(entry => entry.key === rule.field);
+      return !!field && ['status', 'boolean', 'dropdown'].includes(field.type) && !this.operatorWithoutValue(rule.operator);
+    },
+
+    usesDateValueMode(rule) {
+      const field = this.availableFields.find(entry => entry.key === rule.field);
+      return !!field && field.type === 'date';
+    },
+
+    inputTypeForRule(rule) {
+      const field = this.availableFields.find(entry => entry.key === rule.field);
+      return field?.type === 'date' ? 'date' : (field?.type === 'number' ? 'number' : 'text');
+    },
+
+    operatorWithoutValue(operator) {
+      return operator === 'empty' || operator === 'not_empty';
+    },
+
+    dateValueMode(rule) {
+      return rule.value === 'today' ? 'today' : 'date';
+    },
+
+    setDateValueMode(rule, mode) {
+      if (mode === 'today') {
+        rule.value = 'today';
+        return;
+      }
+      if (rule.value === 'today') {
+        rule.value = '';
+      }
+    },
+
+    normalizeRule(rule) {
+      const normalized = {
+        uid: rule.uid || this.nextRuleUid++,
+        field: rule.field || (this.availableFields[0]?.key || 'title'),
+        operator: rule.operator || 'contains',
+        value: rule.value ?? '',
+      };
+      const field = this.availableFields.find(entry => entry.key === normalized.field);
+      if (!field) return normalized;
+      if (['status', 'boolean', 'dropdown'].includes(field.type) && normalized.value !== '' && normalized.value !== null) {
+        normalized.value = String(normalized.value);
+      }
+      const validOperators = this.operatorsForField(normalized.field).map(entry => entry.value);
+      if (!validOperators.includes(normalized.operator)) {
+        normalized.operator = validOperators[0];
+      }
+      if (this.operatorWithoutValue(normalized.operator)) {
+        normalized.value = '';
+      }
+      return normalized;
+    },
+
+    blankFilter() {
+      return {
+        id: null,
+        name: '',
+        definition: {
+          op: 'and',
+          selected_task_type_id: '',
+          rules: [],
+        },
+      };
+    },
+
+    addRule() {
+      const fallbackField = this.availableFields[0]?.key || 'title';
+      this.editingFilter.definition.rules.push(this.normalizeRule({field: fallbackField, operator: this.operatorsForField(fallbackField)[0].value, value: ''}));
+    },
+
+    removeRule(idx) {
+      this.editingFilter.definition.rules.splice(idx, 1);
+    },
+
+    resetRuleForField(rule) {
+      rule.operator = this.operatorsForField(rule.field)[0].value;
+      rule.value = '';
+    },
+
+    handleSelectedTypeChange() {
+      const allowedKeys = new Set(this.availableFields.map(field => field.key));
+      this.editingFilter.definition.rules = this.editingFilter.definition.rules
+        .filter(rule => !rule.field.startsWith('custom:') || allowedKeys.has(rule.field))
+        .map(rule => this.normalizeRule(rule));
+    },
+
+    startCreate() {
+      this.editingFilter = this.blankFilter();
+    },
+
+    startEdit(savedFilter) {
+      this.editingFilter = JSON.parse(JSON.stringify(savedFilter));
+      this.editingFilter.definition.selected_task_type_id = this.editingFilter.definition.selected_task_type_id ? String(this.editingFilter.definition.selected_task_type_id) : '';
+      this.editingFilter.definition.rules = (this.editingFilter.definition.rules || []).map(rule => this.normalizeRule(rule));
+    },
+
+    cancelEdit() {
+      this.editingFilter = null;
+    },
+
+    normalizedDefinition() {
+      return {
+        op: this.editingFilter.definition.op,
+        selected_task_type_id: this.editingFilter.definition.selected_task_type_id ? parseInt(this.editingFilter.definition.selected_task_type_id, 10) : null,
+        rules: this.editingFilter.definition.rules.map(rule => ({
+          field: rule.field,
+          operator: rule.operator,
+          value: this.operatorWithoutValue(rule.operator) ? null : rule.value,
+        })),
+      };
+    },
+
+    async saveFilter() {
+      if (!this.editingFilter.name.trim()) return;
+      const payload = {
+        name: this.editingFilter.name.trim(),
+        definition: this.normalizedDefinition(),
+      };
+      if (this.editingFilter.id) {
+        await fetch(`/api/filters/${this.editingFilter.id}`, {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload),
+        });
+      } else {
+        await fetch('/api/filters', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({...payload, board_id: this.boardId}),
+        });
+      }
+      this.editingFilter = null;
+      await this.load();
+    },
+
+    async deleteFilter(savedFilter) {
+      if (!confirm(`Delete filter "${savedFilter.name}"?`)) return;
+      await fetch(`/api/filters/${savedFilter.id}`, {method: 'DELETE'});
+      this.filters = this.filters.filter(entry => entry.id !== savedFilter.id);
+      if (this.editingFilter?.id === savedFilter.id) this.editingFilter = null;
+    },
+
+    filterSummary(savedFilter) {
+      const definition = savedFilter.definition || {op: 'and', selected_task_type_id: null, rules: []};
+      const taskType = definition.selected_task_type_id
+        ? this.taskTypes.find(tt => tt.id === definition.selected_task_type_id)
+        : null;
+      const ruleCount = (definition.rules || []).length;
+      const parts = [];
+      if (taskType) parts.push(`Type: ${taskType.name}`);
+      parts.push(`${ruleCount} rule${ruleCount === 1 ? '' : 's'}`);
+      parts.push(definition.op?.toUpperCase() || 'AND');
+      return parts.join(' • ');
+    },
+  };
+}
+</script>
+
+{% endblock %}

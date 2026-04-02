@@ -1,0 +1,32 @@
+/* Minimal extras — Tailwind handles most styling */
+
+* {
+  box-sizing: border-box;
+}
+
+/* Smooth scrollbar for board */
+.overflow-x-auto {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.3) transparent;
+}
+
+.overflow-x-auto::-webkit-scrollbar {
+  height: 6px;
+}
+.overflow-x-auto::-webkit-scrollbar-track {
+  background: transparent;
+}
+.overflow-x-auto::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.3);
+  border-radius: 3px;
+}
+
+/* Sortable drag ghost */
+.sortable-ghost {
+  opacity: 0.35;
+}
+
+.sortable-drag {
+  opacity: 1;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+}

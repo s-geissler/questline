@@ -1,0 +1,319 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div x-data="automationsPage()" x-init="init()" x-cloak class="max-w-3xl mx-auto p-6">
+
+  <div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-bold text-white">Automations</h1>
+    <button
+      @click="showCreateForm = !showCreateForm"
+      class="bg-white text-blue-700 font-semibold px-4 py-2 rounded-lg hover:bg-blue-50 transition-colors shadow"
+    >+ New Automation</button>
+  </div>
+
+  <p class="text-blue-200 text-sm mb-5">
+    Automations run automatically when a trigger condition is met.
+    Supported triggers now include creation, completion, stage moves, and checklist completion.
+  </p>
+
+  <!-- Create form -->
+  <div x-show="showCreateForm" class="bg-white rounded-xl shadow p-5 mb-5">
+    <h2 class="font-semibold text-gray-700 mb-4">New Automation</h2>
+
+    <div class="mb-3">
+      <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Automation Name</label>
+      <input
+        x-model="newAuto.name"
+        placeholder="e.g. Move done objectives to Done stage"
+        class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+      >
+    </div>
+
+    <div class="grid grid-cols-2 gap-4 mb-4">
+      <div class="bg-orange-50 rounded-xl p-4">
+        <div class="text-xs font-semibold text-orange-600 uppercase tracking-wide mb-3">⚡ Trigger</div>
+        <div class="mb-3">
+          <label class="block text-xs text-gray-500 mb-1">When...</label>
+          <select
+            x-model="newAuto.trigger_type"
+            class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white"
+          >
+            <option value="task_created">An objective is created</option>
+            <option value="task_done">An objective is marked as done</option>
+            <option value="task_moved_to_stage">An objective is moved into a stage</option>
+            <option value="checklist_completed">A checklist is fully completed</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Stage filter (optional — leave blank for any)</label>
+          <select
+            x-model="newAuto.trigger_stage_id"
+            class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white"
+          >
+            <option value="">Any stage</option>
+            <template x-for="stage in stages" :key="stage.id">
+              <option :value="stage.id" x-text="stage.name"></option>
+            </template>
+          </select>
+        </div>
+      </div>
+
+      <div class="bg-green-50 rounded-xl p-4">
+        <div class="text-xs font-semibold text-green-600 uppercase tracking-wide mb-3">→ Action</div>
+        <div class="mb-3">
+          <label class="block text-xs text-gray-500 mb-1">Then...</label>
+          <select
+            x-model="newAuto.action_type"
+            class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400 bg-white"
+          >
+            <option value="move_to_stage">Move objective to stage</option>
+            <option value="set_done">Mark objective as done</option>
+            <option value="set_task_type">Set objective type</option>
+            <option value="set_color">Set objective color</option>
+            <option value="set_due_in_days">Set due date in N days</option>
+          </select>
+        </div>
+        <div x-show="newAuto.action_type === 'move_to_stage'">
+          <label class="block text-xs text-gray-500 mb-1">Target stage</label>
+          <select
+            x-model="newAuto.action_stage_id"
+            class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400 bg-white"
+          >
+            <option value="">Select a stage...</option>
+            <template x-for="stage in stages" :key="stage.id">
+              <option :value="stage.id" x-text="stage.name"></option>
+            </template>
+          </select>
+        </div>
+        <div x-show="newAuto.action_type === 'set_task_type'">
+          <label class="block text-xs text-gray-500 mb-1">Target type</label>
+          <select
+            x-model="newAuto.action_task_type_id"
+            class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400 bg-white"
+          >
+            <option value="">Select a type...</option>
+            <template x-for="taskType in taskTypes" :key="taskType.id">
+              <option :value="taskType.id" x-text="taskType.name"></option>
+            </template>
+          </select>
+        </div>
+        <div x-show="newAuto.action_type === 'set_due_in_days'">
+          <label class="block text-xs text-gray-500 mb-1">Days from trigger</label>
+          <input
+            type="number"
+            x-model="newAuto.action_days_offset"
+            class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+            placeholder="e.g. 7"
+          >
+        </div>
+        <div x-show="newAuto.action_type === 'set_color'">
+          <label class="block text-xs text-gray-500 mb-1">Card color</label>
+          <div class="flex flex-wrap gap-2">
+            <template x-for="c in PRESET_COLORS" :key="c">
+              <button
+                @click="newAuto.action_color = c"
+                class="w-6 h-6 rounded-full border border-black/10"
+                :style="'background:' + c"
+                :class="newAuto.action_color === c ? 'ring-2 ring-offset-2 ring-gray-500' : ''"
+              ></button>
+            </template>
+            <button
+              @click="newAuto.action_color = null"
+              class="w-6 h-6 rounded-full bg-gray-100 border border-dashed border-gray-300 flex items-center justify-center text-gray-400 text-xs"
+              :class="!newAuto.action_color ? 'ring-2 ring-offset-2 ring-gray-500' : ''"
+            >✕</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="flex gap-2">
+      <button
+        @click="createAuto()"
+        class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+      >Create Automation</button>
+      <button
+        @click="showCreateForm = false"
+        class="text-gray-500 hover:text-gray-700 px-3 py-2 text-sm"
+      >Cancel</button>
+    </div>
+  </div>
+
+  <!-- Automations list -->
+  <div class="space-y-3">
+    <template x-for="auto in automations" :key="auto.id">
+      <div
+        class="bg-white rounded-xl shadow p-4 flex items-center gap-4"
+        :class="auto.enabled ? '' : 'opacity-60'"
+      >
+        <!-- Enable toggle -->
+        <button
+          @click="toggleEnabled(auto)"
+          class="flex-shrink-0 w-10 h-6 rounded-full transition-colors relative"
+          :class="auto.enabled ? 'bg-blue-500' : 'bg-gray-300'"
+          :title="auto.enabled ? 'Disable' : 'Enable'"
+        >
+          <span
+            class="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"
+            :class="auto.enabled ? 'translate-x-4' : 'translate-x-0'"
+          ></span>
+        </button>
+
+        <!-- Description -->
+        <div class="flex-1 min-w-0">
+          <div class="font-medium text-gray-800 text-sm" x-text="auto.name"></div>
+          <div class="text-xs text-gray-400 mt-0.5">
+            <span class="text-orange-500 font-medium">When</span>
+            <span x-text="triggerLabel(auto)"></span>
+            <span class="mx-1 text-gray-300">→</span>
+            <span class="text-green-600 font-medium">Then</span>
+            <span x-text="actionLabel(auto)"></span>
+          </div>
+        </div>
+
+        <!-- Delete -->
+        <button
+          @click="deleteAuto(auto)"
+          class="text-gray-300 hover:text-red-500 transition-colors text-xl leading-none flex-shrink-0"
+          title="Delete automation"
+        >×</button>
+      </div>
+    </template>
+
+    <p
+      x-show="automations.length === 0"
+      class="text-white text-center opacity-70 py-8"
+    >No automations yet. Create one to automate your workflow.</p>
+  </div>
+
+</div>
+
+<script>
+function automationsPage() {
+  return {
+    boardId: {{ board.id }},
+    automations: [],
+    stages: [],
+    taskTypes: [],
+    showCreateForm: false,
+    newAuto: {
+      name: '',
+      trigger_type: 'task_created',
+      trigger_stage_id: '',
+      action_type: 'move_to_stage',
+      action_stage_id: '',
+      action_task_type_id: '',
+      action_color: null,
+      action_days_offset: 7,
+    },
+
+    async init() {
+      const [autoRes, stageRes, taskTypesRes] = await Promise.all([
+        fetch('/api/automations?board_id=' + this.boardId),
+        fetch('/api/stages?board_id=' + this.boardId),
+        fetch('/api/task-types?board_id=' + this.boardId),
+      ]);
+      this.automations = await autoRes.json();
+      this.stages = await stageRes.json();
+      this.taskTypes = await taskTypesRes.json();
+    },
+
+    triggerLabel(auto) {
+      const labels = {
+        task_created: ' an objective is created',
+        task_done: ' an objective is marked done',
+        task_moved_to_stage: ' an objective moves into a stage',
+        checklist_completed: ' a checklist is fully completed',
+      };
+      let label = labels[auto.trigger_type] || ' an automation event occurs';
+      if (auto.trigger_stage_id) {
+        const stage = this.stages.find(s => s.id === auto.trigger_stage_id);
+        if (stage) label += ` in "${stage.name}"`;
+      }
+      return label;
+    },
+
+    actionLabel(auto) {
+      if (auto.action_type === 'move_to_stage') {
+        let label = ' move to ';
+        const stage = this.stages.find(s => s.id === auto.action_stage_id);
+        label += stage ? `"${stage.name}"` : 'unknown stage';
+        return label;
+      }
+      if (auto.action_type === 'set_done') return ' mark the objective as done';
+      if (auto.action_type === 'set_task_type') {
+        const taskType = this.taskTypes.find(t => t.id === auto.action_task_type_id);
+        return ` set type to ${taskType ? `"${taskType.name}"` : 'unknown type'}`;
+      }
+      if (auto.action_type === 'set_color') return ` set card color`;
+      if (auto.action_type === 'set_due_in_days') return ` set due date to ${auto.action_days_offset ?? 0} day(s) from then`;
+      return ' perform an action';
+    },
+
+    async createAuto() {
+      if (!this.newAuto.name.trim()) {
+        alert('Please enter a name for the automation.');
+        return;
+      }
+      if (this.newAuto.action_type === 'move_to_stage' && !this.newAuto.action_stage_id) {
+        alert('Please select a target stage for the action.');
+        return;
+      }
+      if (this.newAuto.action_type === 'set_task_type' && !this.newAuto.action_task_type_id) {
+        alert('Please select a target type for the action.');
+        return;
+      }
+      if (this.newAuto.action_type === 'set_due_in_days' && (this.newAuto.action_days_offset === '' || this.newAuto.action_days_offset === null)) {
+        alert('Please enter a number of days.');
+        return;
+      }
+      const res = await fetch('/api/automations', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          name: this.newAuto.name.trim(),
+          trigger_type: this.newAuto.trigger_type,
+          trigger_stage_id: this.newAuto.trigger_stage_id ? parseInt(this.newAuto.trigger_stage_id) : null,
+          action_type: this.newAuto.action_type,
+          action_stage_id: this.newAuto.action_stage_id ? parseInt(this.newAuto.action_stage_id) : null,
+          action_task_type_id: this.newAuto.action_task_type_id ? parseInt(this.newAuto.action_task_type_id) : null,
+          action_color: this.newAuto.action_color || null,
+          action_days_offset: this.newAuto.action_type === 'set_due_in_days' ? parseInt(this.newAuto.action_days_offset) : null,
+          board_id: this.boardId,
+        }),
+      });
+      const auto = await res.json();
+      this.automations.push(auto);
+      this.newAuto = {
+        name: '',
+        trigger_type: 'task_created',
+        trigger_stage_id: '',
+        action_type: 'move_to_stage',
+        action_stage_id: '',
+        action_task_type_id: '',
+        action_color: null,
+        action_days_offset: 7,
+      };
+      this.showCreateForm = false;
+    },
+
+    async toggleEnabled(auto) {
+      const res = await fetch(`/api/automations/${auto.id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({enabled: !auto.enabled}),
+      });
+      const updated = await res.json();
+      auto.enabled = updated.enabled;
+    },
+
+    async deleteAuto(auto) {
+      if (!confirm(`Delete automation "${auto.name}"?`)) return;
+      await fetch(`/api/automations/${auto.id}`, {method: 'DELETE'});
+      this.automations = this.automations.filter(a => a.id !== auto.id);
+    },
+  };
+}
+</script>
+
+{% endblock %}

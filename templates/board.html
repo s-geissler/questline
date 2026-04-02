@@ -1,0 +1,1181 @@
+{% extends "base.html" %}
+
+{% block nav_extra %}
+<button x-data @click="$dispatch('open-board-settings')"
+        class="text-white/70 hover:text-white text-sm px-3 py-1.5 rounded hover:bg-black/20 transition-colors">
+  ⚙ Settings
+</button>
+{% endblock %}
+
+{% block content %}
+
+<div x-data="board()" x-init="init()" x-cloak @open-board-settings.window="showSettings = true">
+
+  <!-- Board -->
+  <div id="stages-container" class="flex gap-3 p-4 overflow-x-auto items-start min-h-[calc(100vh-48px)]">
+
+    <!-- Stages -->
+    <template x-for="stage in stages" :key="`${stage.id}-${stage.position}`">
+      <div
+        class="rounded-xl shadow w-72 flex-shrink-0 flex flex-col overflow-hidden"
+        :class="stage.is_log ? 'log-stage' : 'bg-gray-100'"
+        :data-stage-column-id="stage.id"
+      >
+
+        <!-- Stage header -->
+        <div
+          class="flex items-center justify-between px-3 pt-3 pb-2 border-b"
+          :class="stage.is_log ? 'log-stage-header' : 'border-transparent'"
+        >
+          <div class="min-w-0 flex-1">
+            <input
+              x-model="stage.name"
+              @blur="saveStageName(stage)"
+              @keydown.enter="$el.blur()"
+              class="stage-title-input font-semibold bg-transparent w-full rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400 text-sm"
+              :class="stage.is_log ? 'log-stage-title' : 'text-gray-700 hover:bg-black/5 focus:bg-black/5'"
+            >
+            <div x-show="stage.is_log" class="mt-1 px-1 space-y-1">
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <span class="log-stage-badge text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded-full font-semibold">Filter Log</span>
+                <span class="log-stage-summary text-[10px] font-medium">⌕ Read-only view</span>
+              </div>
+              <div class="log-stage-summary text-[11px] leading-snug" x-text="logStageSummary(stage)"></div>
+            </div>
+          </div>
+          <div x-data="{ open: false }" @click.outside="open = false" class="relative ml-2 flex-shrink-0">
+            <button
+              @click="open = !open"
+              class="text-gray-400 hover:text-gray-700 px-2 py-1 rounded hover:bg-white transition-colors text-lg leading-none"
+              title="Stage actions"
+            >☰</button>
+            <div
+              x-show="open"
+              x-cloak
+              x-transition:enter="transition ease-out duration-100"
+              x-transition:enter-start="opacity-0 scale-95"
+              x-transition:enter-end="opacity-100 scale-100"
+              x-transition:leave="transition ease-in duration-75"
+              x-transition:leave-start="opacity-100 scale-100"
+              x-transition:leave-end="opacity-0 scale-95"
+              class="absolute top-full right-0 mt-1 bg-white text-gray-800 shadow-xl rounded-xl py-1 min-w-[170px] z-20"
+            >
+              <button
+                @click="openLogConfig(stage); open = false"
+                class="block w-full text-left text-xs text-gray-600 hover:text-sky-600 px-3 py-2 hover:bg-gray-100 transition-colors"
+              >Configure log</button>
+              <button
+                @click="sortStageByDueDate(stage); open = false"
+                class="block w-full text-left text-xs text-gray-600 hover:text-blue-600 px-3 py-2 hover:bg-gray-100 transition-colors"
+                title="Sort dated objectives by due date"
+                x-show="!stage.is_log"
+              >Sort by due date</button>
+              <button
+                @click="clearCompletedStage(stage); open = false"
+                class="block w-full text-left text-xs text-gray-600 hover:text-amber-600 px-3 py-2 hover:bg-gray-100 transition-colors"
+                title="Clear completed objectives"
+                x-show="!stage.is_log"
+              >Clear completed</button>
+            </div>
+            <button
+              @click="deleteStage(stage.id)"
+              class="text-gray-400 hover:text-red-500 flex-shrink-0 text-lg leading-none"
+              title="Delete stage"
+            >×</button>
+          </div>
+        </div>
+
+        <!-- Task cards -->
+        <div
+          class="px-2 pb-1 space-y-2 min-h-[8px]"
+          :class="stage.is_log ? 'log-stage-body' : ''"
+          :id="'stage-' + stage.id"
+          :data-stage-id="stage.id"
+        >
+          <template x-for="task in stage.tasks" :key="`${task.id}-${task.position}`">
+            <div
+              class="bg-white rounded-lg p-2.5 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+              :class="task.done ? 'opacity-60' : ''"
+              :style="'border-left: 4px solid ' + (task.color || '#e2e8f0')"
+              @click="openTask(task)"
+              :data-task-id="task.id"
+            >
+              <div class="flex items-start gap-1">
+                <span
+                  x-show="task.done"
+                  class="text-green-500 text-sm mt-0.5 flex-shrink-0"
+                >✓</span>
+                <span
+                  class="text-sm text-gray-800 leading-snug"
+                  :class="task.done ? 'line-through text-gray-400' : ''"
+                  x-text="task.title"
+                ></span>
+              </div>
+              <div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                <template x-if="task.task_type">
+                  <span
+                    class="text-xs px-2 py-0.5 rounded-full font-medium"
+                    :style="taskTypeBadgeStyle(task.task_type)"
+                    x-text="task.task_type.name"
+                  ></span>
+                </template>
+                <template x-if="task.parent_task">
+                  <span
+                    class="text-xs px-2 py-0.5 rounded-full font-medium bg-violet-100 text-violet-700"
+                    x-text="'Quest: ' + task.parent_task.title"
+                  ></span>
+                </template>
+                <template x-if="hasDueDate(task.due_date)">
+                  <span
+                    class="text-xs px-2 py-0.5 rounded-full font-medium"
+                    :style="dueDateStyle(task.due_date)"
+                    x-text="dueDateLabel(task.due_date)"
+                  ></span>
+                </template>
+                <span
+                  x-show="task.checklist && task.checklist.length > 0"
+                  class="text-xs text-gray-400 flex items-center gap-0.5"
+                >
+                  <span>☑</span>
+                  <span x-text="checklistProgress(task)"></span>
+                </span>
+                <template x-if="stage.is_log">
+                  <span
+                    class="text-xs px-2 py-0.5 rounded-full font-medium bg-slate-100 text-slate-600"
+                    x-text="'In ' + sourceStageName(task)"
+                  ></span>
+                </template>
+              </div>
+              <template x-if="shouldShowDescriptionOnCard(task)">
+                <div
+                  class="mt-1.5 text-xs text-gray-500 leading-snug prose prose-sm max-w-none"
+                  x-html="marked.parse(task.description)"
+                ></div>
+              </template>
+              <!-- Custom fields marked show_on_card -->
+              <template x-if="task.task_type && task.task_type.custom_fields">
+                <div class="flex flex-col gap-1 mt-1.5">
+                  <template x-for="field in task.task_type.custom_fields.filter(f => f.show_on_card)" :key="field.id">
+                    <template x-if="hasCustomFieldValue(task.custom_field_values[String(field.id)])">
+                      <span
+                        class="text-xs px-1.5 py-0.5 rounded font-medium self-start"
+                        :style="chipStyle(field)"
+                        x-text="field.name + ': ' + task.custom_field_values[String(field.id)]"
+                      ></span>
+                    </template>
+                  </template>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
+
+        <!-- Add card form -->
+        <div class="px-2 pb-2 pt-1" x-show="!stage.is_log">
+          <div x-show="showNewTask[stage.id] !== true">
+            <button
+              @click="showNewTask = {...showNewTask, [stage.id]: true}; newTaskTitles = {...newTaskTitles, [stage.id]: ''}; $nextTick(() => document.getElementById('new-task-input-' + stage.id)?.focus())"
+              class="text-gray-500 hover:text-gray-800 text-sm w-full text-left px-1 py-1 rounded hover:bg-gray-200 transition-colors"
+            >+ Add an objective</button>
+          </div>
+          <div x-show="showNewTask[stage.id] === true">
+            <input
+              :id="'new-task-input-' + stage.id"
+              :value="newTaskTitles[stage.id] || ''"
+              @input="newTaskTitles = {...newTaskTitles, [stage.id]: $event.target.value}"
+              @keydown.enter="createTask(stage.id)"
+              @keydown.escape="showNewTask = {...showNewTask, [stage.id]: false}"
+              placeholder="Objective title..."
+              class="w-full border rounded-lg px-2 py-1.5 text-sm mb-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400"
+            >
+            <div class="flex gap-1.5">
+              <button
+                @click="createTask(stage.id)"
+                class="bg-blue-500 hover:bg-blue-600 text-white text-sm px-3 py-1 rounded-lg transition-colors"
+              >Add</button>
+              <button
+                @click="showNewTask = {...showNewTask, [stage.id]: false}"
+                class="text-gray-500 hover:text-gray-700 text-sm px-2 py-1"
+              >✕</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </template>
+
+    <!-- Add stage -->
+    <div class="w-72 flex-shrink-0">
+      <div x-show="!showNewStage">
+        <button
+          @click="showNewStage = true; $nextTick(() => $refs.newStageInput.focus())"
+          class="bg-white bg-opacity-20 hover:bg-opacity-30 text-white font-medium w-full text-left px-3 py-2 rounded-xl transition-colors"
+        >+ Add another stage</button>
+      </div>
+      <div x-show="showNewStage" class="bg-gray-100 rounded-xl p-3 shadow">
+        <input
+          x-ref="newStageInput"
+          x-model="newStageName"
+          @keydown.enter="createStage()"
+          @keydown.escape="showNewStage = false"
+          placeholder="Stage title..."
+          class="w-full border rounded-lg px-2 py-1.5 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
+        >
+        <div class="flex gap-1.5">
+          <button
+            @click="createStage()"
+            class="bg-blue-500 hover:bg-blue-600 text-white text-sm px-3 py-1 rounded-lg transition-colors"
+          >Add stage</button>
+          <button
+            @click="showNewStage = false"
+            class="text-gray-600 hover:text-gray-800 text-sm px-2 py-1"
+          >✕</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ===== Settings Modal ===== -->
+  <div
+    x-show="showSettings"
+    x-transition:enter="transition ease-out duration-150"
+    x-transition:enter-start="opacity-0"
+    x-transition:enter-end="opacity-100"
+    x-transition:leave="transition ease-in duration-100"
+    x-transition:leave-start="opacity-100"
+    x-transition:leave-end="opacity-0"
+    class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+    @click.self="showSettings = false"
+    @keydown.escape.window="if (showSettings) showSettings = false"
+  >
+    <div
+      x-transition:enter="transition ease-out duration-150"
+      x-transition:enter-start="opacity-0 scale-95"
+      x-transition:enter-end="opacity-100 scale-100"
+      class="bg-white rounded-2xl shadow-2xl w-full max-w-md"
+      @click.stop
+    >
+      <div class="p-6">
+        <div class="flex items-center justify-between mb-5">
+          <h2 class="text-lg font-bold text-gray-800">Hub Settings</h2>
+          <button @click="showSettings = false" class="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+        </div>
+
+        <!-- Board name -->
+        <div class="mb-5">
+          <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Hub Name</label>
+          <input
+            x-model="settingsBoardName"
+            @keydown.enter="saveSettings()"
+            class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+          >
+        </div>
+
+        <!-- Board color -->
+        <div class="mb-6">
+          <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Hub Color</label>
+          <div class="flex flex-wrap gap-2 mb-3">
+            <template x-for="c in PRESET_COLORS" :key="c">
+              <button
+                @click="settingsBoardColor = c"
+                class="w-8 h-8 rounded-full hover:scale-110 transition-transform border-2 border-black/10"
+                :style="'background:' + c"
+                :class="settingsBoardColor === c ? 'ring-2 ring-offset-2 ring-gray-600 scale-110' : ''"
+              ></button>
+            </template>
+            <button
+              @click="settingsBoardColor = null"
+              class="w-8 h-8 rounded-full bg-gray-100 border-2 border-dashed border-gray-300 flex items-center justify-center text-gray-400 hover:bg-gray-200 transition-colors"
+              :class="!settingsBoardColor ? 'ring-2 ring-offset-2 ring-gray-400' : ''"
+              title="No color"
+            >✕</button>
+          </div>
+          <div class="h-6 rounded-lg transition-colors" :style="'background:' + (settingsBoardColor || '#2563eb')"></div>
+        </div>
+
+        <div class="flex justify-end gap-2 border-t pt-4">
+          <button @click="showSettings = false" class="text-gray-500 hover:text-gray-700 px-4 py-2 text-sm">Cancel</button>
+          <button
+            @click="saveSettings()"
+            class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+          >Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Task Modal ===== -->
+  <div
+    x-show="showModal"
+    x-transition:enter="transition ease-out duration-150"
+    x-transition:enter-start="opacity-0"
+    x-transition:enter-end="opacity-100"
+    x-transition:leave="transition ease-in duration-100"
+    x-transition:leave-start="opacity-100"
+    x-transition:leave-end="opacity-0"
+    class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+    @click.self="closeModal()"
+    @keydown.escape.window="closeModal()"
+  >
+    <div
+      x-show="selectedTask"
+      x-transition:enter="transition ease-out duration-150"
+      x-transition:enter-start="opacity-0 scale-95"
+      x-transition:enter-end="opacity-100 scale-100"
+      class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+      @click.stop
+    >
+      <template x-if="selectedTask">
+        <div class="p-6">
+
+          <!-- Title row -->
+          <div class="flex items-start gap-3 mb-5">
+            <div class="flex-1">
+              <input
+                x-model="selectedTask.title"
+                @blur="updateTaskField('title', selectedTask.title)"
+                @keydown.enter="$el.blur()"
+                class="text-xl font-bold w-full border-b-2 border-transparent hover:border-gray-200 focus:border-blue-400 focus:outline-none py-0.5 transition-colors"
+              >
+            </div>
+            <button
+              @click="toggleDone()"
+              class="flex-shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+              :class="selectedTask.done
+                ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'"
+              x-text="selectedTask.done ? '✓ Done' : 'Mark Done'"
+            ></button>
+            <button @click="closeModal()" class="text-gray-400 hover:text-gray-600 text-xl leading-none flex-shrink-0">×</button>
+          </div>
+
+          <!-- Type + Stage + Due Date + Color row -->
+          <div class="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_auto] gap-4 mb-5 items-end">
+            <div>
+              <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Objective Type</label>
+              <select
+                x-model="selectedTask.task_type_id"
+                @change="updateTaskType()"
+                class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              >
+                <option value="" :selected="!selectedTask.task_type_id">Objective (default)</option>
+                <template x-for="tt in taskTypes" :key="tt.id">
+                  <option
+                    :value="String(tt.id)"
+                    :selected="String(selectedTask.task_type_id || '') === String(tt.id)"
+                    x-text="tt.name + (tt.is_epic ? ' ⚡ Quest' : '')"
+                  ></option>
+                </template>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Stage</label>
+              <select
+                x-model="selectedTask.stage_id"
+                @change="moveTask()"
+                class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              >
+                <template x-for="stage in realStages" :key="stage.id">
+                  <option :value="stage.id" x-text="stage.name"></option>
+                </template>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Due Date</label>
+              <input
+                type="date"
+                x-model="selectedTask.due_date"
+                @change="updateTaskField('due_date', selectedTask.due_date || null)"
+                class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              >
+            </div>
+            <div x-data="{showColorPicker: false}" @click.outside="showColorPicker = false" class="relative pb-0.5">
+              <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Color</label>
+              <button
+                @click="showColorPicker = !showColorPicker"
+                class="w-8 h-8 rounded-full border-2 border-gray-200 hover:scale-110 transition-transform shadow-sm"
+                :style="selectedTask.color ? 'background:' + selectedTask.color : 'background:#e5e7eb'"
+                title="Pick color"
+              ></button>
+              <div x-show="showColorPicker" x-cloak
+                   class="absolute top-full right-0 mt-1 bg-white shadow-xl rounded-xl p-3 z-30 w-48">
+                <div class="flex flex-wrap gap-2">
+                  <template x-for="c in PRESET_COLORS" :key="c">
+                    <button
+                      @click="selectedTask.color = c; updateTaskField('color', c); showColorPicker = false"
+                      class="w-6 h-6 rounded-full hover:scale-110 transition-transform border border-black/10"
+                      :style="'background:' + c"
+                      :class="selectedTask.color === c ? 'ring-2 ring-offset-1 ring-gray-500' : ''"
+                    ></button>
+                  </template>
+                  <button
+                    @click="selectedTask.color = null; updateTaskField('color', null); showColorPicker = false"
+                    class="w-6 h-6 rounded-full bg-gray-100 border border-dashed border-gray-300 flex items-center justify-center text-gray-400 text-xs hover:bg-gray-200"
+                    title="No color"
+                  >✕</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <template x-if="selectedTask.parent_task">
+            <div class="mb-5">
+              <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Quest</label>
+              <button
+                @click="openParentTask()"
+                class="w-full text-left border rounded-lg px-3 py-2 text-sm hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400"
+              >
+                <span class="text-blue-600 font-medium" x-text="selectedTask.parent_task.title"></span>
+              </button>
+            </div>
+          </template>
+
+          <!-- Description -->
+          <div class="mb-5">
+            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Description</label>
+            <div class="mb-2">
+              <select
+                :value="descriptionVisibilityValue(selectedTask)"
+                @change="updateDescriptionVisibility($event.target.value)"
+                class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              >
+                <option value="default">Use type default</option>
+                <option value="show">Show on card</option>
+                <option value="hide">Hide on card</option>
+              </select>
+            </div>
+            <!-- Rendered preview (click to edit) -->
+            <div
+              x-show="!descriptionEditing"
+              @click="descriptionEditing = true; $nextTick(() => $refs.descriptionTextarea.focus())"
+              class="min-h-[60px] cursor-text rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 border border-transparent hover:border-gray-200 transition-colors prose prose-sm max-w-none"
+            >
+              <template x-if="selectedTask.description">
+                <div x-html="marked.parse(selectedTask.description)"></div>
+              </template>
+              <template x-if="!selectedTask.description">
+                <span class="text-gray-400 italic">Add a description...</span>
+              </template>
+            </div>
+            <!-- Edit textarea -->
+            <textarea
+              x-show="descriptionEditing"
+              x-ref="descriptionTextarea"
+              x-model="selectedTask.description"
+              @blur="descriptionEditing = false; updateTaskField('description', selectedTask.description)"
+              @keydown.escape="descriptionEditing = false; updateTaskField('description', selectedTask.description)"
+              rows="5"
+              placeholder="Add a description... (supports Markdown)"
+              class="w-full border rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400"
+            ></textarea>
+          </div>
+
+          <!-- Custom Fields -->
+          <template x-if="selectedTaskType && selectedTaskType.custom_fields && selectedTaskType.custom_fields.length > 0">
+            <div class="mb-5">
+              <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Custom Fields</label>
+              <div class="space-y-2">
+                <template x-for="field in selectedTaskType.custom_fields" :key="field.id">
+                  <div class="flex items-center gap-3">
+                    <label class="text-sm text-gray-600 w-1/3 flex-shrink-0" x-text="field.name"></label>
+                    <template x-if="field.field_type === 'dropdown'">
+                      <select
+                        :value="selectedTask.custom_field_values[String(field.id)] || ''"
+                        @change="updateCustomField(field.id, $event.target.value)"
+                        class="flex-1 border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      >
+                        <option value="">— select —</option>
+                        <template x-for="opt in (field.options || [])" :key="opt">
+                          <option
+                            :value="opt"
+                            x-text="opt"
+                            :selected="selectedTask.custom_field_values[String(field.id)] === opt"
+                          ></option>
+                        </template>
+                      </select>
+                    </template>
+                    <template x-if="field.field_type !== 'dropdown'">
+                      <input
+                        :type="field.field_type === 'number' ? 'number' : (field.field_type === 'date' ? 'date' : 'text')"
+                        :value="selectedTask.custom_field_values[String(field.id)] || ''"
+                        @change="updateCustomField(field.id, $event.target.value)"
+                        :placeholder="field.name"
+                        class="flex-1 border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      >
+                    </template>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+
+          <!-- Checklist -->
+          <div class="mb-5">
+            <div class="flex items-center justify-between mb-2">
+              <label class="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                Checklist
+                <span
+                  x-show="selectedTask.checklist && selectedTask.checklist.length > 0"
+                  class="ml-1 normal-case font-normal text-gray-400"
+                  x-text="'(' + checklistProgress(selectedTask) + ')'"
+                ></span>
+              </label>
+              <span
+                x-show="selectedTaskType && selectedTaskType.is_epic"
+                class="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-medium"
+              >⚡ Items spawn objectives</span>
+            </div>
+
+            <!-- Checklist progress bar -->
+            <template x-if="selectedTask.checklist && selectedTask.checklist.length > 0">
+              <div class="mb-2 bg-gray-200 rounded-full h-1.5">
+                <div
+                  class="bg-green-500 h-1.5 rounded-full transition-all"
+                  :style="`width: ${checklistPercent(selectedTask)}%`"
+                ></div>
+              </div>
+            </template>
+
+            <div class="space-y-1.5 mb-2">
+              <template x-for="item in selectedTask.checklist" :key="item.id">
+                <div class="flex items-center gap-2 group">
+                  <input
+                    type="checkbox"
+                    :checked="item.done"
+                    @change="toggleChecklistItem(item)"
+                    class="h-4 w-4 rounded accent-blue-500 flex-shrink-0"
+                  >
+                  <span
+                    class="text-sm flex-1"
+                    :class="[
+                      item.done ? 'line-through text-gray-400' : 'text-gray-700',
+                      item.spawned_task_id ? 'cursor-pointer hover:text-blue-600 hover:underline' : ''
+                    ]"
+                    @click="item.spawned_task_id && openSpawnedTask(item.spawned_task_id)"
+                    x-text="item.title"
+                    :title="item.spawned_task_id ? 'Open linked objective' : ''"
+                  ></span>
+                  <button
+                    @click="deleteChecklistItem(item)"
+                    class="text-gray-200 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                    title="Delete item"
+                  >×</button>
+                </div>
+              </template>
+            </div>
+
+            <div class="flex gap-2">
+              <input
+                x-model="newChecklistItem"
+                @keydown.enter="addChecklistItem()"
+                @keydown.escape="newChecklistItem = ''"
+                placeholder="Add an item..."
+                class="flex-1 border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              >
+              <button
+                @click="addChecklistItem()"
+                class="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm px-3 py-1.5 rounded-lg transition-colors"
+              >Add</button>
+            </div>
+          </div>
+
+          <!-- Footer -->
+          <div class="border-t pt-4 flex justify-end">
+            <button
+              @click="deleteTask()"
+              class="text-red-400 hover:text-red-600 text-sm transition-colors"
+            >Delete objective</button>
+          </div>
+
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- ===== Log Config Modal ===== -->
+  <div
+    x-show="showLogConfig"
+    x-transition:enter="transition ease-out duration-150"
+    x-transition:enter-start="opacity-0"
+    x-transition:enter-end="opacity-100"
+    x-transition:leave="transition ease-in duration-100"
+    x-transition:leave-start="opacity-100"
+    x-transition:leave-end="opacity-0"
+    class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+    @click.self="showLogConfig = false"
+  >
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md" @click.stop>
+      <template x-if="logConfigStage">
+        <div class="p-6">
+          <div class="flex items-center justify-between mb-5">
+            <h2 class="text-lg font-bold text-gray-800">Stage Settings</h2>
+            <button @click="showLogConfig = false" class="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+          </div>
+
+          <label class="flex items-center gap-2 text-sm text-gray-700 mb-4">
+            <input type="checkbox" x-model="logConfigStage.is_log" class="h-4 w-4 rounded accent-sky-500">
+            Log stage
+          </label>
+
+          <div x-show="logConfigStage.is_log" class="space-y-3">
+            <div>
+              <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Saved Filter</label>
+              <select :key="`log-filter-${logConfigStage.id}-${logConfigStage.filter_id || 'all'}`" x-model="logConfigStage.filter_id" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400">
+                <option value="" :selected="!logConfigStage.filter_id">All objectives</option>
+                <template x-for="savedFilter in savedFilters" :key="savedFilter.id">
+                  <option :value="String(savedFilter.id)" :selected="String(logConfigStage.filter_id || '') === String(savedFilter.id)" x-text="savedFilter.name"></option>
+                </template>
+              </select>
+              <a :href="`/board/${boardId}/filters`" class="inline-block mt-2 text-xs text-sky-600 hover:text-sky-700">Manage filters</a>
+              <p x-show="savedFilters.length === 0" class="mt-2 text-xs text-gray-400">No saved filters yet.</p>
+            </div>
+          </div>
+
+          <div class="flex justify-end gap-2 border-t pt-4 mt-5">
+            <button @click="showLogConfig = false" class="text-gray-500 hover:text-gray-700 px-4 py-2 text-sm">Cancel</button>
+            <button @click="saveLogConfig()" class="bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">Save</button>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function board() {
+  return {
+    boardId: {{ board.id }},
+    stages: [],
+    taskTypes: [],
+    savedFilters: [],
+    showNewStage: false,
+    newStageName: '',
+    showNewTask: {},
+    newTaskTitles: {},
+    showModal: false,
+    showSettings: false,
+    showLogConfig: false,
+    logConfigStage: null,
+    settingsBoardName: {{ board.name | tojson }},
+    settingsBoardColor: {{ (board.color or '') | tojson }} || null,
+    selectedTask: null,
+    descriptionEditing: false,
+    newChecklistItem: '',
+    _sortables: [],
+
+    get selectedTaskType() {
+      if (!this.selectedTask || !this.selectedTask.task_type_id) return null;
+      return this.taskTypes.find(t => String(t.id) === String(this.selectedTask.task_type_id)) || null;
+    },
+
+    get realStages() {
+      return this.stages.filter(stage => !stage.is_log);
+    },
+
+    async init() {
+      await this.loadData();
+      const taskId = this.getRequestedTaskId();
+      if (taskId) {
+        await this.openTaskById(taskId);
+      }
+    },
+
+    async loadData() {
+      const [stagesRes, typesRes, filtersRes] = await Promise.all([
+        fetch('/api/stages?board_id=' + this.boardId),
+        fetch('/api/task-types?board_id=' + this.boardId),
+        fetch('/api/filters?board_id=' + this.boardId),
+      ]);
+      this.stages = await stagesRes.json();
+      this.taskTypes = await typesRes.json();
+      this.savedFilters = await filtersRes.json();
+      this.$nextTick(() => this.initSortable());
+    },
+
+    checklistProgress(task) {
+      if (!task.checklist || !task.checklist.length) return '';
+      const done = task.checklist.filter(i => i.done).length;
+      return `${done}/${task.checklist.length}`;
+    },
+
+    checklistPercent(task) {
+      if (!task.checklist || !task.checklist.length) return 0;
+      return Math.round(task.checklist.filter(i => i.done).length / task.checklist.length * 100);
+    },
+
+    initSortable() {
+      this._sortables.forEach(s => s.destroy());
+      this._sortables = [];
+
+        const stagesContainer = document.getElementById('stages-container');
+        if (stagesContainer) {
+          const stageSortable = Sortable.create(stagesContainer, {
+            animation: 150,
+            draggable: '[data-stage-column-id]',
+            ghostClass: 'task-ghost',
+            onEnd: async () => {
+              const stageEls = Array.from(stagesContainer.querySelectorAll('[data-stage-column-id]'));
+              const ids = stageEls.map(el => parseInt(el.dataset.stageColumnId));
+              const stageById = new Map(this.stages.map(stage => [stage.id, stage]));
+              this.stages = ids
+                .map(id => stageById.get(id))
+                .filter(Boolean)
+                .map((stage, index) => ({...stage, position: index}));
+              await fetch('/api/stages/reorder', {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ids}),
+              });
+              await this.loadData();
+            },
+          });
+          this._sortables.push(stageSortable);
+        }
+
+      this.stages.forEach(stage => {
+        const el = document.getElementById('stage-' + stage.id);
+        if (!el) return;
+        if (stage.is_log) return;
+        const s = Sortable.create(el, {
+          group: 'tasks',
+          animation: 150,
+          ghostClass: 'task-ghost',
+          onEnd: async (evt) => {
+            const newStageId = parseInt(evt.to.dataset.stageId);
+            const taskEls = Array.from(evt.to.querySelectorAll('[data-task-id]'));
+            const ids = taskEls.map(el => parseInt(el.dataset.taskId));
+            const movedTaskId = parseInt(evt.item.dataset.taskId);
+            const stageMap = new Map(this.stages.map(stage => [stage.id, {
+              ...stage,
+              tasks: stage.tasks.filter(task => task.id !== movedTaskId),
+            }]));
+            const movedTask = this.stages.flatMap(stage => stage.tasks).find(task => task.id === movedTaskId);
+            const targetStage = stageMap.get(newStageId);
+            if (movedTask && targetStage) {
+              const taskMap = new Map(this.stages.flatMap(stage => stage.tasks).map(task => [task.id, task]));
+              targetStage.tasks = ids
+                .map((id, index) => {
+                  const task = taskMap.get(id);
+                  if (!task) return null;
+                  return {...task, stage_id: newStageId, position: index};
+                })
+                .filter(Boolean);
+              this.stages = this.stages.map(stage => {
+                const updatedStage = stageMap.get(stage.id);
+                if (!updatedStage) return stage;
+                if (stage.id === newStageId) return updatedStage;
+                return {
+                  ...updatedStage,
+                  tasks: updatedStage.tasks.map((task, index) => ({...task, position: index})),
+                };
+              });
+            }
+            await fetch('/api/tasks/reorder', {
+              method: 'PUT',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({stage_id: newStageId, ids}),
+            });
+            await this.loadData();
+          },
+        });
+        this._sortables.push(s);
+      });
+    },
+
+    // Stages
+    async createStage() {
+      if (!this.newStageName.trim()) return;
+      const res = await fetch('/api/stages', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: this.newStageName.trim(), board_id: this.boardId}),
+      });
+      const stage = await res.json();
+      this.stages.push(stage);
+      this.newStageName = '';
+      this.showNewStage = false;
+      this.$nextTick(() => this.initSortable());
+    },
+
+    async saveStageName(stage) {
+      if (!stage.name.trim()) return;
+      await fetch(`/api/stages/${stage.id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: stage.name.trim()}),
+      });
+    },
+
+    async deleteStage(stageId) {
+      if (!confirm('Delete this stage and all its objectives?')) return;
+      await fetch(`/api/stages/${stageId}`, {method: 'DELETE'});
+      this.stages = this.stages.filter(s => s.id !== stageId);
+    },
+
+    // Tasks
+    async createTask(stageId) {
+      const title = (this.newTaskTitles[stageId] || '').trim();
+      if (!title) return;
+      const res = await fetch('/api/tasks', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({title, stage_id: stageId}),
+      });
+      const task = await res.json();
+      const stage = this.stages.find(s => s.id === stageId);
+      if (stage) stage.tasks.push(task);
+      this.newTaskTitles = {...this.newTaskTitles, [stageId]: ''};
+      this.showNewTask = {...this.showNewTask, [stageId]: false};
+      this.$nextTick(() => this.initSortable());
+    },
+
+    openTask(task) {
+      this.selectedTask = this._normalizeSelectedTask(task);
+      this.newChecklistItem = '';
+      this.descriptionEditing = false;
+      this.showModal = true;
+    },
+
+    closeModal() {
+      this.showModal = false;
+      this.selectedTask = null;
+    },
+
+    async openSpawnedTask(taskId) {
+      await this.openTaskById(taskId);
+    },
+
+    async openTaskById(taskId) {
+      const res = await fetch(`/api/tasks/${taskId}`);
+      if (!res.ok) return;
+      const task = await res.json();
+      if (task.board_id && String(task.board_id) !== String(this.boardId)) {
+        window.location.href = `/board/${task.board_id}?task_id=${task.id}`;
+        return;
+      }
+      this.selectedTask = this._normalizeSelectedTask(task);
+      this.showModal = true;
+      this.newChecklistItem = '';
+      this.descriptionEditing = false;
+    },
+
+    async openParentTask() {
+      if (!this.selectedTask?.parent_task?.id) return;
+      const parentTask = this.selectedTask.parent_task;
+      if (parentTask.board_id && String(parentTask.board_id) !== String(this.boardId)) {
+        window.location.href = `/board/${parentTask.board_id}?task_id=${parentTask.id}`;
+        return;
+      }
+      await this.openTaskById(parentTask.id);
+    },
+
+    async updateTaskField(field, value) {
+      const body = {};
+      body[field] = value;
+      const res = await fetch(`/api/tasks/${this.selectedTask.id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+      });
+      const updated = await res.json();
+      this.selectedTask = this._normalizeSelectedTask(updated);
+      this._syncTaskInStages(updated);
+    },
+
+    async updateTaskType() {
+      const typeId = this.selectedTask.task_type_id ? parseInt(this.selectedTask.task_type_id) : null;
+      const res = await fetch(`/api/tasks/${this.selectedTask.id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({task_type_id: typeId}),
+      });
+      const updated = await res.json();
+      this.selectedTask = this._normalizeSelectedTask(updated);
+      this._syncTaskInStages(updated);
+    },
+
+    async updateCustomField(fieldDefId, value) {
+      const res = await fetch(`/api/tasks/${this.selectedTask.id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({custom_fields: {[fieldDefId]: value}}),
+      });
+      const updated = await res.json();
+      this.selectedTask.custom_field_values = updated.custom_field_values;
+      this._syncTaskInStages(updated);
+    },
+
+    async updateDescriptionVisibility(value) {
+      let nextValue = null;
+      if (value === 'show') nextValue = true;
+      if (value === 'hide') nextValue = false;
+      await this.updateTaskField('show_description_on_card', nextValue);
+    },
+
+    async toggleDone() {
+      const newDone = !this.selectedTask.done;
+      const res = await fetch(`/api/tasks/${this.selectedTask.id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({done: newDone}),
+      });
+      const updated = await res.json();
+      // Reload everything — automation may have moved the task
+      await this.loadData();
+      // Find the task in its new location and refresh modal
+      const found = this._findTaskInStages(updated.id);
+      if (found) {
+        this.selectedTask = this._normalizeSelectedTask({...updated, stage_id: found.stage_id});
+      } else {
+        this.selectedTask = this._normalizeSelectedTask(updated);
+      }
+    },
+
+    async moveTask() {
+      const newStageId = parseInt(this.selectedTask.stage_id);
+      const targetStage = this.stages.find(s => s.id === newStageId);
+      const position = targetStage ? targetStage.tasks.length : 0;
+      await fetch(`/api/tasks/${this.selectedTask.id}/move`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({stage_id: newStageId, position}),
+      });
+      await this.loadData();
+    },
+
+    async deleteTask() {
+      if (!confirm('Delete this objective?')) return;
+      const taskId = this.selectedTask.id;
+      await fetch(`/api/tasks/${taskId}`, {method: 'DELETE'});
+      for (const stage of this.stages) {
+        stage.tasks = stage.tasks.filter(t => t.id !== taskId);
+      }
+      this.closeModal();
+    },
+
+    // Checklist
+    async addChecklistItem() {
+      const title = this.newChecklistItem.trim();
+      if (!title) return;
+      const res = await fetch(`/api/tasks/${this.selectedTask.id}/checklist`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({title}),
+      });
+      const item = await res.json();
+      this.selectedTask.checklist.push(item);
+      this.newChecklistItem = '';
+      if (item.spawned_task_id) {
+        // Reload to show the spawned task on the board
+        await this.loadData();
+      }
+    },
+
+    async toggleChecklistItem(item) {
+      const res = await fetch(`/api/tasks/${this.selectedTask.id}/checklist/${item.id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({done: !item.done}),
+      });
+      const updated = await res.json();
+      const idx = this.selectedTask.checklist.findIndex(i => i.id === item.id);
+      if (idx !== -1) this.selectedTask.checklist[idx] = updated;
+      // Reload board if this item has a spawned task (automation may have moved it)
+      if (item.spawned_task_id) await this.loadData();
+    },
+
+    async deleteChecklistItem(item) {
+      await fetch(`/api/tasks/${this.selectedTask.id}/checklist/${item.id}`, {method: 'DELETE'});
+      this.selectedTask.checklist = this.selectedTask.checklist.filter(i => i.id !== item.id);
+    },
+
+    async sortStageByDueDate(stage) {
+      const datedTasks = stage.tasks.filter(task => task.due_date);
+      if (datedTasks.length < 2) return;
+
+      const sortedDated = [...datedTasks].sort((a, b) => a.due_date.localeCompare(b.due_date));
+      const sortedIds = [];
+      let datedIndex = 0;
+
+      for (const task of stage.tasks) {
+        if (task.due_date) {
+          sortedIds.push(sortedDated[datedIndex].id);
+          datedIndex += 1;
+        } else {
+          sortedIds.push(task.id);
+        }
+      }
+
+      await fetch('/api/tasks/reorder', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({stage_id: stage.id, ids: sortedIds}),
+      });
+      await this.loadData();
+    },
+
+    async clearCompletedStage(stage) {
+      if (!confirm(`Clear completed objectives from "${stage.name}"? Completed quests will also clear their spawned objectives.`)) return;
+      await fetch(`/api/stages/${stage.id}/clear-completed`, {method: 'POST'});
+      await this.loadData();
+      if (this.selectedTask) {
+        const stillExists = this._findTaskInStages(this.selectedTask.id);
+        if (!stillExists) this.closeModal();
+      }
+    },
+
+    openLogConfig(stage) {
+      this.logConfigStage = JSON.parse(JSON.stringify(stage));
+      this.logConfigStage.filter_id = this.logConfigStage.filter_id ? String(this.logConfigStage.filter_id) : '';
+      this.showLogConfig = true;
+    },
+
+    async saveLogConfig() {
+      if (!this.logConfigStage) return;
+      const payload = {
+        is_log: this.logConfigStage.is_log,
+        filter_id: this.logConfigStage.is_log && this.logConfigStage.filter_id ? parseInt(this.logConfigStage.filter_id, 10) : null,
+      };
+      await fetch(`/api/stages/${this.logConfigStage.id}/config`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+      });
+      this.showLogConfig = false;
+      this.logConfigStage = null;
+      await this.loadData();
+    },
+
+    chipStyle(field) {
+      const bg = field.color || '#6b7280';
+      const n = parseInt(bg.replace('#', ''), 16);
+      const luminance = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+      return `background:${bg}; color:${luminance > 0.55 ? '#1f2937' : '#ffffff'}`;
+    },
+
+    hasCustomFieldValue(value) {
+      if (value === null || value === undefined) return false;
+      if (typeof value === 'string') return value.trim() !== '';
+      return true;
+    },
+
+    shouldShowDescriptionOnCard(task) {
+      return !!(task?.effective_show_description_on_card && task?.description && String(task.description).trim());
+    },
+
+    descriptionVisibilityValue(task) {
+      if (!task) return 'default';
+      if (task.show_description_on_card === true) return 'show';
+      if (task.show_description_on_card === false) return 'hide';
+      return 'default';
+    },
+
+    taskTypeBadgeStyle(taskType) {
+      const bg = taskType?.color || '#6b7280';
+      const n = parseInt(bg.replace('#', ''), 16);
+      const luminance = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+      return `background:${bg}; color:${luminance > 0.55 ? '#1f2937' : '#ffffff'}`;
+    },
+
+    formatDueDate(value) {
+      if (!value) return '';
+      const date = new Date(value + 'T00:00:00');
+      if (Number.isNaN(date.getTime())) return value;
+      return date.toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
+    },
+
+    hasDueDate(value) {
+      return !!(value && String(value).trim());
+    },
+
+    dueDateLabel(value) {
+      if (!this.hasDueDate(value)) return '';
+      return 'Due ' + this.formatDueDate(value);
+    },
+
+    dueDateStyle(value) {
+      if (!this.hasDueDate(value)) return '';
+
+      const due = new Date(value + 'T00:00:00');
+      if (Number.isNaN(due.getTime())) {
+        return 'background:#fef3c7; color:#92400e';
+      }
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const diffDays = Math.floor((due.getTime() - today.getTime()) / 86400000);
+
+      if (diffDays < 0) return 'background:#fee2e2; color:#b91c1c';
+      if (diffDays === 0) return 'background:#fed7aa; color:#c2410c';
+      if (diffDays <= 7) return 'background:#fef3c7; color:#a16207';
+      return 'background:#dcfce7; color:#15803d';
+    },
+
+    sourceStageName(task) {
+      const source = this.stages.find(stage => String(stage.id) === String(task.stage_id));
+      return source ? source.name : 'another stage';
+    },
+
+    logStageSummary(stage) {
+      if (!stage?.is_log) return '';
+      const savedFilter = stage.saved_filter;
+      if (!savedFilter) return 'Showing all objectives across this hub';
+      const definition = savedFilter.definition || {};
+      const parts = [savedFilter.name];
+      const taskType = definition.selected_task_type_id
+        ? this.taskTypes.find(tt => String(tt.id) === String(definition.selected_task_type_id))
+        : null;
+      if (taskType) parts.push(taskType.name);
+      const ruleCount = (definition.rules || []).length;
+      parts.push(`${definition.op?.toUpperCase() || 'AND'} • ${ruleCount} rule${ruleCount === 1 ? '' : 's'}`);
+      return parts.join(' • ');
+    },
+
+    // Settings
+    async saveSettings() {
+      await fetch(`/api/boards/${this.boardId}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: this.settingsBoardName, color: this.settingsBoardColor}),
+      });
+      this.showSettings = false;
+      document.title = this.settingsBoardName + ' — Questline';
+      applyBoardColor(this.settingsBoardColor);
+    },
+
+    // Helpers
+    _syncTaskInStages(updated) {
+      for (const stage of this.stages) {
+        const idx = stage.tasks.findIndex(t => t.id === updated.id);
+        if (idx !== -1) { stage.tasks[idx] = updated; return; }
+      }
+    },
+
+    _findTaskInStages(taskId) {
+      for (const stage of this.stages) {
+        const t = stage.tasks.find(t => t.id === taskId);
+        if (t) return {...t, stage_id: stage.id};
+      }
+      return null;
+    },
+
+    _normalizeSelectedTask(task) {
+      const selectedTask = JSON.parse(JSON.stringify(task));
+      selectedTask.stage_id = task.stage_id;
+      const taskTypeId = task.task_type_id ?? task.task_type?.id ?? '';
+      selectedTask.task_type_id = taskTypeId === '' || taskTypeId === null ? '' : String(taskTypeId);
+      return selectedTask;
+    },
+
+    getRequestedTaskId() {
+      const params = new URLSearchParams(window.location.search);
+      const taskId = params.get('task_id');
+      return taskId ? parseInt(taskId, 10) : null;
+    },
+  };
+}
+</script>
+
+{% endblock %}
