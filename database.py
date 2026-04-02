@@ -1,8 +1,12 @@
 import os
+import logging
+import time
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 SQLALCHEMY_DATABASE_URL = os.getenv("QUESTLINE_DATABASE_URL", "sqlite:///./questline.db")
+logger = logging.getLogger("questline.db")
+SLOW_QUERY_MS = float(os.getenv("QUESTLINE_SLOW_QUERY_MS", "200"))
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
@@ -12,8 +16,27 @@ engine = create_engine(
 @event.listens_for(engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
     cursor = dbapi_connection.cursor()
-    cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.close()
+    try:
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA busy_timeout=5000")
+        if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA temp_store=MEMORY")
+    finally:
+        cursor.close()
+
+
+@event.listens_for(engine, "before_cursor_execute")
+def before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+    context._query_start_time = time.perf_counter()
+
+
+@event.listens_for(engine, "after_cursor_execute")
+def after_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+    elapsed_ms = (time.perf_counter() - context._query_start_time) * 1000
+    if elapsed_ms >= SLOW_QUERY_MS:
+        logger.warning("slow_query %.1fms %s", elapsed_ms, statement.splitlines()[0][:200])
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()

@@ -3,7 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% if board %}{{ board.name }} — Questline{% else %}Questline{% endif %}</title>
+  <title>questline</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Exo+2:ital,wght@0,400;1,400&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.5/dist/cdn.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
@@ -18,6 +23,11 @@
     }
 
     [x-cloak] { display: none !important; }
+    body {
+      font-family: "Inter", sans-serif;
+      font-style: normal;
+      font-weight: 400;
+    }
     .task-ghost { opacity: 0.4; }
     .prose h1,.prose h2,.prose h3 { font-weight: 600; margin: 0.5em 0 0.25em; }
     .prose h1 { font-size: 1.2em; }
@@ -63,6 +73,12 @@
     }
     .log-stage-summary {
       color: rgba(12, 74, 110, 0.85);
+    }
+    .brand-wordmark {
+      font-family: "Exo 2", sans-serif;
+      font-style: italic;
+      font-weight: 400;
+      letter-spacing: 0.01em;
     }
 
     :root.dark body { color: #e5e7eb; }
@@ -191,7 +207,7 @@
 <body class="min-h-screen text-gray-900">
 
   <nav id="main-nav" class="text-white px-5 py-2 flex items-center gap-1 shadow-md">
-    <a href="/" class="font-bold text-lg mr-2 hover:text-white/70 transition-colors">Questline</a>
+    <a href="/" class="brand-wordmark text-lg mr-2 hover:text-white/70 transition-colors">questline</a>
 
     {% if board %}
     <!-- Board switcher dropdown -->

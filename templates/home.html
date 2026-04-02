@@ -36,7 +36,7 @@
   <!-- Boards grid -->
   <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
     <template x-for="board in boards" :key="board.id">
-      <div class="bg-white rounded-xl shadow hover:shadow-md transition-shadow overflow-hidden flex flex-col">
+      <div class="bg-white rounded-xl shadow hover:shadow-md transition-shadow overflow-visible flex flex-col">
         <!-- Board color header -->
         <a :href="'/board/' + board.id"
            class="block p-5 h-24 flex items-end hover:opacity-90 transition-opacity"
@@ -55,8 +55,8 @@
             ></span>
           </div>
         </a>
-        <!-- Footer: rename + delete -->
-        <div class="flex items-center gap-2 px-3 py-2 border-t" x-show="board.role === 'owner'">
+        <!-- Footer: owner actions -->
+        <div class="px-3 py-2 border-t" x-show="board.role === 'owner'">
           <template x-if="board.editing">
             <input
               :id="'rename-' + board.id"
@@ -64,20 +64,37 @@
               @blur="saveBoardName(board)"
               @keydown.enter="$el.blur()"
               @keydown.escape="board.editing = false; board.editName = board.name"
-              class="flex-1 text-sm border-b border-blue-400 focus:outline-none py-0.5 bg-transparent"
+              class="w-full text-sm border-b border-blue-400 focus:outline-none py-0.5 bg-transparent"
               @click.prevent.stop
             >
           </template>
-          <template x-if="!board.editing">
+          <div x-show="!board.editing" x-data="{ open: false }" @click.outside="open = false" class="relative flex justify-end">
             <button
-              @click.prevent="startEdit(board)"
-              class="flex-1 text-xs text-gray-400 hover:text-gray-600 transition-colors text-left"
-            >Rename</button>
-          </template>
-          <button
-            @click.prevent="deleteBoard(board)"
-            class="text-xs text-gray-300 hover:text-red-500 transition-colors flex-shrink-0"
-          >Delete</button>
+              @click.prevent.stop="open = !open"
+              class="text-gray-400 hover:text-gray-600 px-2 py-1 rounded hover:bg-gray-100 transition-colors text-lg leading-none"
+              title="Hub actions"
+            >☰</button>
+            <div
+              x-show="open"
+              x-cloak
+              x-transition:enter="transition ease-out duration-100"
+              x-transition:enter-start="opacity-0 scale-95"
+              x-transition:enter-end="opacity-100 scale-100"
+              x-transition:leave="transition ease-in duration-75"
+              x-transition:leave-start="opacity-100 scale-100"
+              x-transition:leave-end="opacity-0 scale-95"
+              class="absolute top-full right-0 mt-1 bg-white text-gray-800 shadow-xl rounded-xl py-1 min-w-[140px] z-20"
+            >
+              <button
+                @click.prevent.stop="startEdit(board); open = false"
+                class="block w-full text-left text-xs text-gray-600 hover:text-blue-600 px-3 py-2 hover:bg-gray-100 transition-colors"
+              >Rename</button>
+              <button
+                @click.prevent.stop="deleteBoard(board); open = false"
+                class="block w-full text-left text-xs text-gray-600 hover:text-red-600 px-3 py-2 hover:bg-gray-100 transition-colors"
+              >Delete</button>
+            </div>
+          </div>
         </div>
       </div>
     </template>

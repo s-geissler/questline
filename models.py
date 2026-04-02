@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Text, DateTime
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Text, DateTime, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -6,6 +6,10 @@ from database import Base
 
 class Board(Base):
     __tablename__ = "boards"
+    __table_args__ = (
+        Index("ix_boards_position", "position"),
+        Index("ix_boards_owner_user_id", "owner_user_id"),
+    )
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
     color = Column(String, nullable=True)
@@ -41,6 +45,10 @@ class Board(Base):
 
 class Stage(Base):
     __tablename__ = "lists"
+    __table_args__ = (
+        Index("ix_lists_board_position", "board_id", "position"),
+        Index("ix_lists_filter_id", "filter_id"),
+    )
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
     position = Column(Integer, default=0)
@@ -60,6 +68,9 @@ class Stage(Base):
 
 class SavedFilter(Base):
     __tablename__ = "saved_filters"
+    __table_args__ = (
+        Index("ix_saved_filters_board_id", "board_id"),
+    )
     id = Column(Integer, primary_key=True)
     board_id = Column(Integer, ForeignKey("boards.id"), nullable=False)
     name = Column(String, nullable=False)
@@ -88,6 +99,10 @@ class User(Base):
 
 class UserSession(Base):
     __tablename__ = "user_sessions"
+    __table_args__ = (
+        Index("ix_user_sessions_token_hash", "token_hash"),
+        Index("ix_user_sessions_user_id", "user_id"),
+    )
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     token_hash = Column(String, nullable=False, unique=True)
@@ -97,6 +112,11 @@ class UserSession(Base):
 
 class BoardMembership(Base):
     __tablename__ = "board_memberships"
+    __table_args__ = (
+        Index("ix_board_memberships_board_user", "board_id", "user_id"),
+        Index("ix_board_memberships_user_id", "user_id"),
+        Index("ix_board_memberships_board_role", "board_id", "role"),
+    )
     id = Column(Integer, primary_key=True)
     board_id = Column(Integer, ForeignKey("boards.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
@@ -108,6 +128,10 @@ class BoardMembership(Base):
 
 class TaskType(Base):
     __tablename__ = "task_types"
+    __table_args__ = (
+        Index("ix_task_types_board_id", "board_id"),
+        Index("ix_task_types_spawn_stage_id", "spawn_list_id"),
+    )
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
     color = Column(String, nullable=True)
@@ -125,6 +149,9 @@ class TaskType(Base):
 
 class CustomFieldDef(Base):
     __tablename__ = "custom_field_defs"
+    __table_args__ = (
+        Index("ix_custom_field_defs_task_type_id", "task_type_id"),
+    )
     id = Column(Integer, primary_key=True)
     task_type_id = Column(Integer, ForeignKey("task_types.id"), nullable=False)
     name = Column(String, nullable=False)
@@ -140,6 +167,14 @@ class CustomFieldDef(Base):
 
 class Task(Base):
     __tablename__ = "tasks"
+    __table_args__ = (
+        Index("ix_tasks_stage_position", "list_id", "position"),
+        Index("ix_tasks_task_type_id", "task_type_id"),
+        Index("ix_tasks_parent_task_id", "parent_task_id"),
+        Index("ix_tasks_done", "done"),
+        Index("ix_tasks_due_date", "due_date"),
+        Index("ix_tasks_created_at", "created_at"),
+    )
     id = Column(Integer, primary_key=True)
     title = Column(String, nullable=False)
     description = Column(Text, default="")
@@ -169,6 +204,10 @@ class Task(Base):
 
 class CustomFieldValue(Base):
     __tablename__ = "custom_field_values"
+    __table_args__ = (
+        Index("ix_custom_field_values_task_field", "task_id", "field_def_id"),
+        Index("ix_custom_field_values_field_def_id", "field_def_id"),
+    )
     id = Column(Integer, primary_key=True)
     task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False)
     field_def_id = Column(Integer, ForeignKey("custom_field_defs.id"), nullable=False)
@@ -179,6 +218,10 @@ class CustomFieldValue(Base):
 
 class ChecklistItem(Base):
     __tablename__ = "checklist_items"
+    __table_args__ = (
+        Index("ix_checklist_items_task_id", "task_id"),
+        Index("ix_checklist_items_spawned_task_id", "spawned_task_id"),
+    )
     id = Column(Integer, primary_key=True)
     task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False)
     title = Column(String, nullable=False)
@@ -192,6 +235,11 @@ class ChecklistItem(Base):
 
 class Automation(Base):
     __tablename__ = "automations"
+    __table_args__ = (
+        Index("ix_automations_board_enabled_trigger", "board_id", "enabled", "trigger_type"),
+        Index("ix_automations_trigger_stage_id", "trigger_list_id"),
+        Index("ix_automations_action_stage_id", "action_list_id"),
+    )
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
     board_id = Column(Integer, ForeignKey("boards.id"), nullable=True)

@@ -39,7 +39,7 @@
               @blur="saveStageName(stage)"
               @keydown.enter="$el.blur()"
               :disabled="!canEditBoard"
-              class="stage-title-input font-semibold bg-transparent w-full rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400 text-sm"
+              class="stage-title-input font-medium bg-transparent w-full rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400 text-sm"
               :class="stage.is_log ? 'log-stage-title' : 'text-gray-700 hover:bg-black/5 focus:bg-black/5'"
             >
             <div x-show="stage.is_log" class="mt-1 px-1 space-y-1">
@@ -785,16 +785,26 @@ function board() {
     },
 
     async loadData() {
-      const [stagesRes, typesRes, filtersRes] = await Promise.all([
-        fetch('/api/stages?board_id=' + this.boardId),
+      await Promise.all([
+        this.loadStages(),
+        this.loadMetadata(),
+        this.loadBoardMembers(),
+      ]);
+    },
+
+    async loadStages() {
+      const stagesRes = await fetch('/api/stages?board_id=' + this.boardId);
+      this.stages = await stagesRes.json();
+      this.$nextTick(() => this.initSortable());
+    },
+
+    async loadMetadata() {
+      const [typesRes, filtersRes] = await Promise.all([
         fetch('/api/task-types?board_id=' + this.boardId),
         fetch('/api/filters?board_id=' + this.boardId),
       ]);
-      this.stages = await stagesRes.json();
       this.taskTypes = await typesRes.json();
       this.savedFilters = await filtersRes.json();
-      await this.loadBoardMembers();
-      this.$nextTick(() => this.initSortable());
     },
 
     async loadBoardMembers() {
@@ -840,7 +850,7 @@ function board() {
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ids}),
               });
-              await this.loadData();
+              await this.loadStages();
             },
           });
           this._sortables.push(stageSortable);
@@ -889,7 +899,7 @@ function board() {
               headers: {'Content-Type': 'application/json'},
               body: JSON.stringify({stage_id: newStageId, ids}),
             });
-            await this.loadData();
+            await this.loadStages();
           },
         });
         this._sortables.push(s);
@@ -1044,7 +1054,7 @@ function board() {
       });
       const updated = await res.json();
       // Reload everything — automation may have moved the task
-      await this.loadData();
+      await this.loadStages();
       // Find the task in its new location and refresh modal
       const found = this._findTaskInStages(updated.id);
       if (found) {
@@ -1064,7 +1074,7 @@ function board() {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({stage_id: newStageId, position}),
       });
-      await this.loadData();
+      await this.loadStages();
     },
 
     async deleteTask() {
@@ -1093,7 +1103,7 @@ function board() {
       this.newChecklistItem = '';
       if (item.spawned_task_id) {
         // Reload to show the spawned task on the board
-        await this.loadData();
+        await this.loadStages();
       }
     },
 
@@ -1108,7 +1118,7 @@ function board() {
       const idx = this.selectedTask.checklist.findIndex(i => i.id === item.id);
       if (idx !== -1) this.selectedTask.checklist[idx] = updated;
       // Reload board if this item has a spawned task (automation may have moved it)
-      if (item.spawned_task_id) await this.loadData();
+      if (item.spawned_task_id) await this.loadStages();
     },
 
     async deleteChecklistItem(item) {
@@ -1140,14 +1150,14 @@ function board() {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({stage_id: stage.id, ids: sortedIds}),
       });
-      await this.loadData();
+      await this.loadStages();
     },
 
     async clearCompletedStage(stage) {
       if (!this.canEditBoard) return;
       if (!confirm(`Clear completed objectives from "${stage.name}"? Completed quests will also clear their spawned objectives.`)) return;
       await fetch(`/api/stages/${stage.id}/clear-completed`, {method: 'POST'});
-      await this.loadData();
+      await this.loadStages();
       if (this.selectedTask) {
         const stillExists = this._findTaskInStages(this.selectedTask.id);
         if (!stillExists) this.closeModal();
@@ -1174,7 +1184,7 @@ function board() {
       });
       this.showLogConfig = false;
       this.logConfigStage = null;
-      await this.loadData();
+      await this.loadStages();
     },
 
     chipStyle(field, value = null) {
@@ -1290,7 +1300,7 @@ function board() {
         body: JSON.stringify({name: this.settingsBoardName, color: this.settingsBoardColor}),
       });
       this.showSettings = false;
-      document.title = this.settingsBoardName + ' — Questline';
+      document.title = 'questline';
       applyBoardColor(this.settingsBoardColor);
     },
 

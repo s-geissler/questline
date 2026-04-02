@@ -1,24 +1,65 @@
 import json
-import hashlib
-import hmac
-import secrets
+import logging
+import time
 from datetime import date, timedelta
 from fastapi import FastAPI, Depends, HTTPException, Request, Response
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import text
-from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List as PyList, Union
 
 import models
 from database import engine, SessionLocal, get_db
+from authz import (
+    _authorize_board_request,
+    _board_id_for_automation,
+    _board_id_for_saved_filter,
+    _board_id_for_stage,
+    _board_id_for_task,
+    _board_id_for_task_type,
+    _boards_for_nav,
+    _clear_session_cookie,
+    _hash_session_token,
+    _normalize_email,
+    _owner_membership_count,
+    _require_stage_in_board,
+    _require_task_in_board,
+    _require_task_type_in_board,
+    _set_session_cookie,
+    board_is_shared,
+    board_membership_to_dict,
+    claim_legacy_boards_for_first_user,
+    create_user_session,
+    ensure_board_membership,
+    get_accessible_boards,
+    get_board_membership,
+    get_board_role,
+    get_optional_current_user,
+    hash_password,
+    login_redirect_response,
+    require_board_access,
+    require_current_user,
+    user_to_dict,
+    verify_password,
+)
+from filters_logic import (
+    _task_matches_filter,
+    _validated_filter_definition,
+    default_filter_definition,
+    get_stage_tasks,
+    parse_filter_definition,
+    saved_filter_to_dict,
+    stage_to_dict,
+)
 
 # ---------------------------------------------------------------------------
 # Schema migrations (add board_id columns to existing tables if missing)
 # ---------------------------------------------------------------------------
+logger = logging.getLogger("questline.app")
+
 
 def _run_column_migrations():
     migrations = [
@@ -47,6 +88,41 @@ def _run_column_migrations():
             rows = conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
             if rows and col not in [r[1] for r in rows]:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"))
+        conn.commit()
+
+
+def _run_index_migrations():
+    indexes = [
+        ("ix_boards_position", "CREATE INDEX IF NOT EXISTS ix_boards_position ON boards(position)"),
+        ("ix_boards_owner_user_id", "CREATE INDEX IF NOT EXISTS ix_boards_owner_user_id ON boards(owner_user_id)"),
+        ("ix_lists_board_position", "CREATE INDEX IF NOT EXISTS ix_lists_board_position ON lists(board_id, position)"),
+        ("ix_lists_filter_id", "CREATE INDEX IF NOT EXISTS ix_lists_filter_id ON lists(filter_id)"),
+        ("ix_saved_filters_board_id", "CREATE INDEX IF NOT EXISTS ix_saved_filters_board_id ON saved_filters(board_id)"),
+        ("ix_user_sessions_token_hash", "CREATE INDEX IF NOT EXISTS ix_user_sessions_token_hash ON user_sessions(token_hash)"),
+        ("ix_user_sessions_user_id", "CREATE INDEX IF NOT EXISTS ix_user_sessions_user_id ON user_sessions(user_id)"),
+        ("ix_board_memberships_board_user", "CREATE INDEX IF NOT EXISTS ix_board_memberships_board_user ON board_memberships(board_id, user_id)"),
+        ("ix_board_memberships_user_id", "CREATE INDEX IF NOT EXISTS ix_board_memberships_user_id ON board_memberships(user_id)"),
+        ("ix_board_memberships_board_role", "CREATE INDEX IF NOT EXISTS ix_board_memberships_board_role ON board_memberships(board_id, role)"),
+        ("ix_task_types_board_id", "CREATE INDEX IF NOT EXISTS ix_task_types_board_id ON task_types(board_id)"),
+        ("ix_task_types_spawn_stage_id", "CREATE INDEX IF NOT EXISTS ix_task_types_spawn_stage_id ON task_types(spawn_list_id)"),
+        ("ix_custom_field_defs_task_type_id", "CREATE INDEX IF NOT EXISTS ix_custom_field_defs_task_type_id ON custom_field_defs(task_type_id)"),
+        ("ix_tasks_stage_position", "CREATE INDEX IF NOT EXISTS ix_tasks_stage_position ON tasks(list_id, position)"),
+        ("ix_tasks_task_type_id", "CREATE INDEX IF NOT EXISTS ix_tasks_task_type_id ON tasks(task_type_id)"),
+        ("ix_tasks_parent_task_id", "CREATE INDEX IF NOT EXISTS ix_tasks_parent_task_id ON tasks(parent_task_id)"),
+        ("ix_tasks_done", "CREATE INDEX IF NOT EXISTS ix_tasks_done ON tasks(done)"),
+        ("ix_tasks_due_date", "CREATE INDEX IF NOT EXISTS ix_tasks_due_date ON tasks(due_date)"),
+        ("ix_tasks_created_at", "CREATE INDEX IF NOT EXISTS ix_tasks_created_at ON tasks(created_at)"),
+        ("ix_custom_field_values_task_field", "CREATE INDEX IF NOT EXISTS ix_custom_field_values_task_field ON custom_field_values(task_id, field_def_id)"),
+        ("ix_custom_field_values_field_def_id", "CREATE INDEX IF NOT EXISTS ix_custom_field_values_field_def_id ON custom_field_values(field_def_id)"),
+        ("ix_checklist_items_task_id", "CREATE INDEX IF NOT EXISTS ix_checklist_items_task_id ON checklist_items(task_id)"),
+        ("ix_checklist_items_spawned_task_id", "CREATE INDEX IF NOT EXISTS ix_checklist_items_spawned_task_id ON checklist_items(spawned_task_id)"),
+        ("ix_automations_board_enabled_trigger", "CREATE INDEX IF NOT EXISTS ix_automations_board_enabled_trigger ON automations(board_id, enabled, trigger_type)"),
+        ("ix_automations_trigger_stage_id", "CREATE INDEX IF NOT EXISTS ix_automations_trigger_stage_id ON automations(trigger_list_id)"),
+        ("ix_automations_action_stage_id", "CREATE INDEX IF NOT EXISTS ix_automations_action_stage_id ON automations(action_list_id)"),
+    ]
+    with engine.connect() as conn:
+        for _, sql in indexes:
+            conn.execute(text(sql))
         conn.commit()
 
 
@@ -105,6 +181,7 @@ def _migrate_board_memberships():
 
 models.Base.metadata.create_all(bind=engine)
 _run_column_migrations()
+_run_index_migrations()
 _migrate_orphan_data()
 _migrate_board_memberships()
 
@@ -114,6 +191,16 @@ templates = Jinja2Templates(directory="templates")
 SESSION_COOKIE = "questline_session"
 PASSWORD_HASH_ITERATIONS = 120_000
 BOARD_ROLE_ORDER = {"viewer": 1, "editor": 2, "owner": 3}
+
+
+@app.middleware("http")
+async def log_request_timing(request: Request, call_next):
+    started = time.perf_counter()
+    response = await call_next(request)
+    elapsed_ms = (time.perf_counter() - started) * 1000
+    if elapsed_ms >= 250:
+        logger.warning("slow_request %.1fms %s %s -> %s", elapsed_ms, request.method, request.url.path, response.status_code)
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -246,237 +333,6 @@ class BoardMemberUpdate(BaseModel):
     role: str
 
 
-# ---------------------------------------------------------------------------
-# Pages
-# ---------------------------------------------------------------------------
-
-def get_accessible_boards(user: Optional[models.User], db: Session):
-    if not user:
-        return []
-    return (
-        db.query(models.Board)
-        .join(models.BoardMembership, models.BoardMembership.board_id == models.Board.id)
-        .filter(models.BoardMembership.user_id == user.id)
-        .order_by(models.Board.position)
-        .all()
-    )
-
-
-def board_is_shared(board_id: int, db: Session) -> bool:
-    return (
-        db.query(models.BoardMembership)
-        .filter(models.BoardMembership.board_id == board_id)
-        .count()
-        > 1
-    )
-
-
-def _boards_for_nav(db: Session, user: Optional[models.User] = None):
-    return [
-        {
-            "id": b.id,
-            "name": b.name,
-            "color": b.color,
-            "role": get_board_role(b.id, user, db) if user else None,
-            "is_shared": board_is_shared(b.id, db),
-        }
-        for b in get_accessible_boards(user, db)
-    ]
-
-
-def login_redirect_response():
-    return RedirectResponse(url="/login", status_code=303)
-
-
-def _normalize_email(email: str) -> str:
-    return (email or "").strip().lower()
-
-
-def hash_password(password: str) -> str:
-    salt = secrets.token_hex(16)
-    digest = hashlib.pbkdf2_hmac(
-        "sha256",
-        password.encode("utf-8"),
-        salt.encode("utf-8"),
-        PASSWORD_HASH_ITERATIONS,
-    ).hex()
-    return f"pbkdf2_sha256${PASSWORD_HASH_ITERATIONS}${salt}${digest}"
-
-
-def verify_password(password: str, password_hash: str) -> bool:
-    try:
-        algorithm, iterations, salt, digest = password_hash.split("$", 3)
-    except ValueError:
-        return False
-    if algorithm != "pbkdf2_sha256":
-        return False
-    computed = hashlib.pbkdf2_hmac(
-        "sha256",
-        password.encode("utf-8"),
-        salt.encode("utf-8"),
-        int(iterations),
-    ).hex()
-    return hmac.compare_digest(computed, digest)
-
-
-def _hash_session_token(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-
-def _set_session_cookie(response: Response, token: str):
-    response.set_cookie(
-        SESSION_COOKIE,
-        token,
-        httponly=True,
-        samesite="lax",
-        secure=False,
-        path="/",
-    )
-
-
-def _clear_session_cookie(response: Response):
-    response.delete_cookie(SESSION_COOKIE, path="/")
-
-
-def create_user_session(user: models.User, db: Session) -> str:
-    token = secrets.token_urlsafe(32)
-    session = models.UserSession(user_id=user.id, token_hash=_hash_session_token(token))
-    db.add(session)
-    db.commit()
-    return token
-
-
-def ensure_board_membership(board: models.Board, user: models.User, role: str, db: Session):
-    existing = (
-        db.query(models.BoardMembership)
-        .filter(
-            models.BoardMembership.board_id == board.id,
-            models.BoardMembership.user_id == user.id,
-        )
-        .first()
-    )
-    if existing:
-        existing.role = role
-        return existing
-    membership = models.BoardMembership(board_id=board.id, user_id=user.id, role=role)
-    db.add(membership)
-    return membership
-
-
-def claim_legacy_boards_for_first_user(user: models.User, db: Session):
-    if db.query(models.User).count() != 1:
-        return
-    legacy_boards = db.query(models.Board).filter(models.Board.owner_user_id.is_(None)).all()
-    for board in legacy_boards:
-        board.owner_user_id = user.id
-        ensure_board_membership(board, user, "owner", db)
-    db.commit()
-
-
-def get_optional_current_user(request: Request, db: Session) -> Optional[models.User]:
-    token = request.cookies.get(SESSION_COOKIE)
-    if not token:
-        return None
-    session = (
-        db.query(models.UserSession)
-        .filter(models.UserSession.token_hash == _hash_session_token(token))
-        .first()
-    )
-    return session.user if session else None
-
-
-def require_current_user(request: Request, db: Session) -> models.User:
-    user = get_optional_current_user(request, db)
-    if not user:
-        raise HTTPException(status_code=401, detail="Authentication required")
-    return user
-
-
-def get_board_membership(board_id: int, user: models.User, db: Session) -> Optional[models.BoardMembership]:
-    return (
-        db.query(models.BoardMembership)
-        .filter(
-            models.BoardMembership.board_id == board_id,
-            models.BoardMembership.user_id == user.id,
-        )
-        .first()
-    )
-
-
-def get_board_role(board_id: int, user: models.User, db: Session) -> Optional[str]:
-    membership = get_board_membership(board_id, user, db)
-    return membership.role if membership else None
-
-
-def require_board_access(board_id: int, user: models.User, db: Session, min_role: str = "viewer") -> str:
-    role = get_board_role(board_id, user, db)
-    if not role:
-        raise HTTPException(status_code=403, detail="Board access denied")
-    if BOARD_ROLE_ORDER.get(role, 0) < BOARD_ROLE_ORDER.get(min_role, 0):
-        raise HTTPException(status_code=403, detail="Board access denied")
-    return role
-
-
-def _authorize_board_request(request: Optional[Request], db: Session, board_id: int, min_role: str = "viewer"):
-    if request is None:
-        return None
-    user = require_current_user(request, db)
-    require_board_access(board_id, user, db, min_role)
-    return user
-
-
-def _board_id_for_stage(stage_id: int, db: Session) -> Optional[int]:
-    stage = db.query(models.Stage).filter(models.Stage.id == stage_id).first()
-    return stage.board_id if stage else None
-
-
-def _board_id_for_task(task_id: int, db: Session) -> Optional[int]:
-    task = db.query(models.Task).filter(models.Task.id == task_id).first()
-    return task.stage.board_id if task and task.stage else None
-
-
-def _board_id_for_task_type(type_id: int, db: Session) -> Optional[int]:
-    task_type = db.query(models.TaskType).filter(models.TaskType.id == type_id).first()
-    return task_type.board_id if task_type else None
-
-
-def _board_id_for_saved_filter(filter_id: int, db: Session) -> Optional[int]:
-    saved_filter = db.query(models.SavedFilter).filter(models.SavedFilter.id == filter_id).first()
-    return saved_filter.board_id if saved_filter else None
-
-
-def _board_id_for_automation(auto_id: int, db: Session) -> Optional[int]:
-    automation = db.query(models.Automation).filter(models.Automation.id == auto_id).first()
-    return automation.board_id if automation else None
-
-
-def _require_stage_in_board(stage_id: int, board_id: int, db: Session) -> models.Stage:
-    stage = db.query(models.Stage).filter(models.Stage.id == stage_id).first()
-    if not stage:
-        raise HTTPException(status_code=404, detail="Stage not found")
-    if stage.board_id != board_id:
-        raise HTTPException(status_code=400, detail="Stage belongs to a different board")
-    return stage
-
-
-def _require_task_in_board(task_id: int, board_id: int, db: Session) -> models.Task:
-    task = db.query(models.Task).filter(models.Task.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    if not task.stage or task.stage.board_id != board_id:
-        raise HTTPException(status_code=400, detail="Task belongs to a different board")
-    return task
-
-
-def _require_task_type_in_board(task_type_id: int, board_id: int, db: Session) -> models.TaskType:
-    task_type = db.query(models.TaskType).filter(models.TaskType.id == task_type_id).first()
-    if not task_type:
-        raise HTTPException(status_code=404, detail="Task type not found")
-    if task_type.board_id != board_id:
-        raise HTTPException(status_code=400, detail="Task type belongs to a different board")
-    return task_type
-
-
 def _validate_custom_fields_for_task(
     custom_fields: dict,
     effective_task_type_id: Optional[int],
@@ -502,188 +358,9 @@ def _validate_custom_fields_for_task(
             raise HTTPException(status_code=400, detail="Custom field belongs to a different board")
 
 
-def default_filter_definition():
-    return {"op": "and", "selected_task_type_id": None, "source_board_ids": [], "rules": []}
-
-
-def parse_filter_definition(definition: str | None) -> dict:
-    parsed = default_filter_definition()
-    if not definition:
-        return parsed
-    try:
-        raw = json.loads(definition)
-    except json.JSONDecodeError:
-        return parsed
-    if not isinstance(raw, dict):
-        return parsed
-    parsed["op"] = raw.get("op") if raw.get("op") in {"and", "or"} else "and"
-    parsed["selected_task_type_id"] = raw.get("selected_task_type_id")
-    source_board_ids = raw.get("source_board_ids") if isinstance(raw.get("source_board_ids"), list) else []
-    parsed["source_board_ids"] = [
-        int(board_id)
-        for board_id in source_board_ids
-        if isinstance(board_id, int) or (isinstance(board_id, str) and board_id.isdigit())
-    ]
-    rules = raw.get("rules") if isinstance(raw.get("rules"), list) else []
-    parsed["rules"] = [
-        {
-            "field": rule.get("field"),
-            "operator": rule.get("operator"),
-            "value": rule.get("value"),
-        }
-        for rule in rules
-        if isinstance(rule, dict) and rule.get("field") and rule.get("operator")
-    ]
-    return parsed
-
-
-def _validated_filter_definition(
-    definition: dict | None,
-    owning_board_id: int,
-    db: Session,
-    user: Optional[models.User] = None,
-) -> dict:
-    parsed = parse_filter_definition(json.dumps(definition or default_filter_definition()))
-    if parsed["selected_task_type_id"] is not None:
-        _require_task_type_in_board(parsed["selected_task_type_id"], owning_board_id, db)
-
-    validated_source_board_ids = []
-    for board_id in parsed.get("source_board_ids") or []:
-        board = db.query(models.Board).filter(models.Board.id == board_id).first()
-        if not board:
-            raise HTTPException(status_code=400, detail="Invalid source board")
-        if user is not None:
-            require_board_access(board_id, user, db, "viewer")
-        validated_source_board_ids.append(board_id)
-    parsed["source_board_ids"] = list(dict.fromkeys(validated_source_board_ids))
-
-    for rule in parsed.get("rules") or []:
-        if rule["field"].startswith("custom:"):
-            field_id = int(rule["field"].split(":", 1)[1])
-            field_def = db.query(models.CustomFieldDef).filter(models.CustomFieldDef.id == field_id).first()
-            if not field_def or not field_def.task_type or field_def.task_type.board_id != owning_board_id:
-                raise HTTPException(status_code=400, detail="Invalid custom field rule")
-            if parsed["selected_task_type_id"] is not None and field_def.task_type_id != parsed["selected_task_type_id"]:
-                raise HTTPException(status_code=400, detail="Custom field rule does not match selected type")
-    return parsed
-
-
-def saved_filter_to_dict(saved_filter: models.SavedFilter) -> dict:
-    return {
-        "id": saved_filter.id,
-        "board_id": saved_filter.board_id,
-        "name": saved_filter.name,
-        "definition": parse_filter_definition(saved_filter.definition),
-    }
-
-
-def stage_to_dict(stage: models.Stage) -> dict:
-    return {
-        "id": stage.id,
-        "name": stage.name,
-        "position": stage.position,
-        "is_log": stage.is_log,
-        "filter_id": stage.filter_id,
-        "saved_filter": saved_filter_to_dict(stage.saved_filter) if stage.saved_filter else None,
-    }
-
-
-def _task_field_value(task: models.Task, field: str):
-    if field == "title":
-        return task.title or ""
-    if field == "description":
-        return task.description or ""
-    if field == "done":
-        return task.done
-    if field == "due_date":
-        return task.due_date
-    if field == "color":
-        return task.color or ""
-    if field == "task_type_id":
-        return task.task_type_id
-    if field == "has_parent_task":
-        return bool(task.parent_task_id)
-    if field.startswith("custom:"):
-        field_id = int(field.split(":", 1)[1])
-        for cfv in task.custom_field_values:
-            if cfv.field_def_id == field_id:
-                return cfv.value
-        return None
-    return None
-
-
-def _rule_matches(task: models.Task, rule: dict) -> bool:
-    value = _task_field_value(task, rule["field"])
-    operator = rule["operator"]
-    expected = rule.get("value")
-
-    if expected == "today":
-        expected = date.today().isoformat()
-
-    if rule["field"] in {"done", "has_parent_task"}:
-        if isinstance(expected, str):
-            expected = expected.lower() == "true"
-
-    if operator == "contains":
-        return expected is not None and str(expected).lower() in str(value or "").lower()
-    if operator == "eq":
-        return value == expected if isinstance(expected, bool) else str(value) == str(expected)
-    if operator == "neq":
-        return value != expected if isinstance(expected, bool) else str(value) != str(expected)
-    if operator == "empty":
-        return value is None or str(value).strip() == ""
-    if operator == "not_empty":
-        return value is not None and str(value).strip() != ""
-    if operator == "lt":
-        return value is not None and expected is not None and str(value) < str(expected)
-    if operator == "gt":
-        return value is not None and expected is not None and str(value) > str(expected)
-    if operator == "lte":
-        return value is not None and expected is not None and str(value) <= str(expected)
-    if operator == "gte":
-        return value is not None and expected is not None and str(value) >= str(expected)
-    return False
-
-
-def _task_matches_filter(task: models.Task, definition: dict) -> bool:
-    if definition.get("selected_task_type_id"):
-        if task.task_type_id != definition["selected_task_type_id"]:
-            return False
-    rules = definition.get("rules") or []
-    if not rules:
-        return True
-    matches = [_rule_matches(task, rule) for rule in rules]
-    return all(matches) if definition.get("op") != "or" else any(matches)
-
-
-def get_stage_tasks(stage: models.Stage, db: Session, current_user: Optional[models.User] = None):
-    if not stage.is_log:
-        return (
-            db.query(models.Task)
-            .filter(models.Task.stage_id == stage.id)
-            .order_by(models.Task.position)
-            .all()
-        )
-
-    definition = parse_filter_definition(stage.saved_filter.definition) if stage.saved_filter else default_filter_definition()
-    source_board_ids = definition.get("source_board_ids") or [stage.board_id]
-    if current_user is not None:
-        accessible_board_ids = {board.id for board in get_accessible_boards(current_user, db)}
-        source_board_ids = [board_id for board_id in source_board_ids if board_id in accessible_board_ids]
-    if not source_board_ids:
-        return []
-    query = (
-        db.query(models.Task)
-        .join(models.Stage, models.Task.stage_id == models.Stage.id)
-        .filter(
-            models.Stage.board_id.in_(source_board_ids),
-            models.Stage.id != stage.id,
-            or_(models.Stage.is_log == False, models.Stage.is_log.is_(None)),
-        )
-        .order_by(models.Task.created_at.desc(), models.Task.id.desc())
-    )
-    return [task for task in query.all() if _task_matches_filter(task, definition)]
-
+# ---------------------------------------------------------------------------
+# Pages
+# ---------------------------------------------------------------------------
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request, db: Session = Depends(get_db)):
@@ -923,38 +600,10 @@ def run_automations(task: models.Task, event_type: str, db: Session):
 # Authentication API
 # ---------------------------------------------------------------------------
 
-def user_to_dict(user: models.User) -> dict:
-    return {
-        "id": user.id,
-        "email": user.email,
-        "display_name": user.display_name,
-    }
-
-
-def board_membership_to_dict(membership: models.BoardMembership) -> dict:
-    return {
-        "user_id": membership.user_id,
-        "email": membership.user.email,
-        "display_name": membership.user.display_name,
-        "role": membership.role,
-    }
-
-
 def _validate_membership_role(role: str) -> str:
     if role not in BOARD_ROLE_ORDER:
         raise HTTPException(status_code=400, detail="Invalid membership role")
     return role
-
-
-def _owner_membership_count(board_id: int, db: Session) -> int:
-    return (
-        db.query(models.BoardMembership)
-        .filter(
-            models.BoardMembership.board_id == board_id,
-            models.BoardMembership.role == "owner",
-        )
-        .count()
-    )
 
 
 @app.get("/api/auth/me")
