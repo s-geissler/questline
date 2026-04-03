@@ -326,7 +326,7 @@
 
   <div x-show="boardView === 'calendar'" class="p-4 pt-24">
     <div class="mx-auto max-w-7xl rounded-2xl bg-white/85 shadow-lg overflow-hidden">
-      <div class="grid grid-cols-7 border-b border-slate-200 bg-slate-50/90">
+      <div class="calendar-header-strip grid grid-cols-7 border-b">
         <template x-for="weekday in calendarWeekdayLabels" :key="weekday">
           <div class="px-3 py-2 text-xs font-semibold uppercase tracking-wide calendar-weekday-label" x-text="weekday"></div>
         </template>
@@ -337,6 +337,7 @@
           <div
             class="min-h-[11rem] border-b border-r border-slate-200 p-2.5 flex flex-col gap-2"
             :class="day.inCurrentMonth ? 'calendar-current-month' : 'calendar-other-month'"
+            :data-calendar-date="day.date"
             @dblclick="openCalendarCreate(day, $event)"
           >
             <div class="flex items-center justify-between gap-2">
@@ -345,39 +346,41 @@
                 :class="day.isToday ? 'bg-slate-900 text-white' : (day.inCurrentMonth ? 'calendar-day-number' : 'calendar-day-number-muted')"
                 x-text="day.dayNumber"
               ></span>
-              <span x-show="day.tasks.length" class="text-[11px] font-medium calendar-day-count" x-text="`${day.tasks.length} objective${day.tasks.length === 1 ? '' : 's'}`"></span>
+              <span x-show="day.entries.length" class="text-[11px] font-medium calendar-day-count" x-text="calendarDayCountLabel(day.entries)"></span>
             </div>
 
-            <div class="space-y-2">
-              <template x-for="task in day.tasks" :key="`calendar-task-${day.date}-${task.id}`">
+            <div class="space-y-2 flex-1 min-h-[6rem]" data-calendar-dropzone="true">
+              <template x-for="entry in day.entries" :key="entry.key">
                 <div
-                  @click="openTask(task)"
-                  @keydown.enter.prevent="openTask(task)"
-                  @keydown.space.prevent="openTask(task)"
+                  @click="openTask(entry)"
+                  @keydown.enter.prevent="openTask(entry)"
+                  @keydown.space.prevent="openTask(entry)"
                   data-calendar-task="true"
+                  :data-task-id="entry.is_calendar_preview ? null : entry.id"
+                  :data-calendar-draggable="entry.is_calendar_preview ? 'false' : 'true'"
                   role="button"
                   tabindex="0"
                   class="w-full rounded-lg px-2.5 py-2 bg-white shadow-sm hover:shadow-md transition-all cursor-pointer"
-                  :class="calendarTaskCardClass(task, day.date)"
-                  :style="'border-left: 4px solid ' + (task.color || '#e2e8f0')"
+                  :class="calendarTaskCardClass(entry, day.date)"
+                  :style="'border-left: 4px solid ' + (entry.color || '#e2e8f0')"
                 >
                   <div class="flex items-start justify-between gap-2">
-                    <span class="text-sm font-medium leading-snug" :class="task.done ? 'line-through opacity-70' : ''" x-text="task.title"></span>
-                    <span x-show="task.recurrence" class="text-[10px] font-semibold uppercase tracking-wide opacity-70">↻</span>
+                    <span class="text-sm font-medium leading-snug" :class="entry.done ? 'line-through opacity-70' : ''" x-text="entry.title"></span>
+                    <span x-show="entry.recurrence" class="text-[10px] font-semibold uppercase tracking-wide opacity-70">↻</span>
                   </div>
                   <div class="mt-1.5 flex items-center gap-1.5 flex-wrap">
-                    <template x-if="task.task_type">
+                    <template x-if="entry.task_type">
                       <span
                         class="text-[11px] px-1.5 py-0.5 rounded-full font-medium"
-                        :style="taskTypeBadgeStyle(task.task_type)"
-                        x-text="task.task_type.name"
+                        :style="taskTypeBadgeStyle(entry.task_type)"
+                        x-text="entry.task_type.name"
                       ></span>
                     </template>
                     <span
                       class="text-[11px] px-1.5 py-0.5 rounded-full font-medium bg-slate-100 text-slate-600"
-                      x-text="calendarStageLabel(task)"
+                      x-text="calendarStageLabel(entry)"
                     ></span>
-                    <span x-show="task.calendar_date_source === 'recurrence'" class="text-[11px] text-blue-600 font-medium">Next occurrence</span>
+                    <span x-show="entry.is_calendar_preview" class="text-[11px] text-blue-600 font-medium">Next occurrence</span>
                   </div>
                 </div>
               </template>
@@ -1173,18 +1176,30 @@ function board() {
       );
     },
 
-    get calendarTasks() {
-      return this.allBoardTasks
-        .map(task => {
-          const calendarDate = this.taskCalendarDate(task);
-          if (!calendarDate) return null;
-          return {
+    get calendarEntries() {
+      return this.allBoardTasks.flatMap(task => {
+        const entries = [];
+        const primaryDate = this.taskCalendarDate(task);
+        if (primaryDate) {
+          entries.push({
             ...task,
-            calendar_date: calendarDate,
+            key: `task-${task.id}-${primaryDate}`,
+            calendar_date: primaryDate,
             calendar_date_source: task.due_date ? 'due_date' : 'recurrence',
-          };
-        })
-        .filter(Boolean);
+            is_calendar_preview: false,
+          });
+        }
+        if (this.shouldShowRecurrencePreview(task)) {
+          entries.push({
+            ...task,
+            key: `preview-${task.id}-${task.recurrence.next_run_on}`,
+            calendar_date: task.recurrence.next_run_on,
+            calendar_date_source: 'recurrence_preview',
+            is_calendar_preview: true,
+          });
+        }
+        return entries;
+      });
     },
 
     get calendarMonthLabel() {
@@ -1199,13 +1214,14 @@ function board() {
 
       const todayKey = this.formatDateKey(new Date());
       const taskMap = new Map();
-      for (const task of this.calendarTasks) {
-        const key = task.calendar_date;
+      for (const entry of this.calendarEntries) {
+        const key = entry.calendar_date;
         if (!taskMap.has(key)) taskMap.set(key, []);
-        taskMap.get(key).push(task);
+        taskMap.get(key).push(entry);
       }
-      for (const tasks of taskMap.values()) {
-        tasks.sort((a, b) => {
+      for (const entries of taskMap.values()) {
+        entries.sort((a, b) => {
+          if (!!a.is_calendar_preview !== !!b.is_calendar_preview) return a.is_calendar_preview ? 1 : -1;
           if (!!a.done !== !!b.done) return a.done ? 1 : -1;
           return String(a.title || '').localeCompare(String(b.title || ''));
         });
@@ -1221,7 +1237,7 @@ function board() {
           dayNumber: current.getDate(),
           inCurrentMonth: current.getMonth() === this.calendarCursor.getMonth(),
           isToday: key === todayKey,
-          tasks: taskMap.get(key) || [],
+          entries: taskMap.get(key) || [],
         });
       }
       return days;
@@ -1249,7 +1265,7 @@ function board() {
       const stagesRes = await fetch('/api/stages?board_id=' + this.boardId);
       this.stages = await stagesRes.json();
       this.$nextTick(() => {
-        if (this.boardView === 'stages') this.initSortable();
+        this.initSortable();
       });
     },
 
@@ -1285,6 +1301,10 @@ function board() {
       this._sortables.forEach(s => s.destroy());
       this._sortables = [];
       if (!this.canEditBoard) return;
+      if (this.boardView === 'calendar') {
+        this.initCalendarSortable();
+        return;
+      }
       if (this.boardView !== 'stages') return;
 
         const stagesContainer = document.getElementById('stages-container');
@@ -1359,6 +1379,31 @@ function board() {
           },
         });
         this._sortables.push(s);
+      });
+    },
+
+    initCalendarSortable() {
+      const dayContainers = Array.from(document.querySelectorAll('[data-calendar-date]'));
+      dayContainers.forEach(dayEl => {
+        const taskList = dayEl.querySelector('[data-calendar-dropzone]');
+        if (!taskList) return;
+        const sortable = Sortable.create(taskList, {
+          group: 'calendar-tasks',
+          animation: 150,
+          ghostClass: 'task-ghost',
+          draggable: '[data-calendar-draggable="true"]',
+          onEnd: async (evt) => {
+            const taskId = parseInt(evt.item.dataset.taskId, 10);
+            const targetDate = evt.to.closest('[data-calendar-date]')?.dataset.calendarDate;
+            const sourceDate = evt.from.closest('[data-calendar-date]')?.dataset.calendarDate;
+            if (!taskId || !targetDate || targetDate === sourceDate) {
+              await this.loadStages();
+              return;
+            }
+            await this.handleCalendarTaskDrop(taskId, targetDate);
+          },
+        });
+        this._sortables.push(sortable);
       });
     },
 
@@ -1920,7 +1965,7 @@ function board() {
       this.boardView = view === 'calendar' ? 'calendar' : 'stages';
       this.updateBoardUrlState();
       this.$nextTick(() => {
-        if (this.boardView === 'stages') this.initSortable();
+        this.initSortable();
       });
     },
 
@@ -1959,6 +2004,14 @@ function board() {
       return date.toLocaleDateString(undefined, {weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'});
     },
 
+    calendarDayCountLabel(entries) {
+      const realCount = (entries || []).filter(entry => !entry.is_calendar_preview).length;
+      const previewCount = (entries || []).filter(entry => entry.is_calendar_preview).length;
+      if (realCount && previewCount) return `${realCount} objective${realCount === 1 ? '' : 's'} + ${previewCount} next`;
+      if (realCount) return `${realCount} objective${realCount === 1 ? '' : 's'}`;
+      return `${previewCount} next`;
+    },
+
     async createTaskFromCalendar() {
       if (!this.canEditBoard) return;
       const stageId = parseInt(this.calendarCreateStageId, 10);
@@ -1984,15 +2037,48 @@ function board() {
       this.openTask(task);
     },
 
+    async handleCalendarTaskDrop(taskId, targetDate) {
+      const task = this.allBoardTasks.find(entry => entry.id === taskId);
+      if (!task) {
+        await this.loadStages();
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/tasks/${taskId}`, {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({due_date: targetDate}),
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.detail || 'Unable to update due date');
+        }
+      } catch (error) {
+        alert(error.message || 'Unable to move objective');
+      } finally {
+        await this.loadStages();
+      }
+    },
+
     taskCalendarDate(task) {
       if (this.hasDueDate(task?.due_date)) return task.due_date;
       if (task?.recurrence?.next_run_on) return task.recurrence.next_run_on;
       return null;
     },
 
+    shouldShowRecurrencePreview(task) {
+      return !!(
+        task?.recurrence?.next_run_on &&
+        this.hasDueDate(task?.due_date) &&
+        task.recurrence.next_run_on !== task.due_date
+      );
+    },
+
     calendarTaskCardClass(task, dayKey) {
-      if (task.done) return 'opacity-60 calendar-pill-text-done border-slate-200';
-      return 'calendar-pill-text border-slate-200';
+      if (task.is_calendar_preview) return 'opacity-60 border border-dashed calendar-pill-text-done border-slate-400';
+      if (task.done) return 'opacity-60 calendar-pill-text-done border border-slate-200';
+      return 'calendar-pill-text border border-slate-200';
     },
 
     calendarStageLabel(task) {
