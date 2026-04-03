@@ -660,18 +660,24 @@ def automations_page(request: Request, board_id: int, db: Session = Depends(get_
 
 
 @app.get("/admin", response_class=HTMLResponse)
-def admin_page(request: Request, db: Session = Depends(get_db)):
+def admin_page(request: Request, db: Session = Depends(get_db), board_id: Optional[int] = None):
     current_user = get_optional_current_user(request, db)
     if not current_user:
         return login_redirect_response()
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin access denied")
     instance_settings = get_instance_settings(db)
+    nav_board = None
+    if board_id is not None:
+        board = db.query(models.Board).filter(models.Board.id == board_id).first()
+        if board:
+            require_board_access(board_id, current_user, db, "viewer")
+            nav_board = {"id": board.id, "name": board.name, "color": board.color}
     return templates.TemplateResponse(
         request,
         "admin.html",
         {
-            "board": None,
+            "board": nav_board,
             "boards": _boards_for_nav(db, current_user),
             "current_user": current_user,
             "page_theme_color": instance_settings["instance_theme_color"],
