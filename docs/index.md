@@ -2,6 +2,8 @@
 
 Questline is a self-hosted project management tool built around a kanban-style board. Work is organized into **Hubs** (boards), **Stages** (columns), and **Objectives** (tasks). Objectives can be grouped under **Quests** (epics) whose checklist items automatically spawn child objectives.
 
+Objectives can also be configured to **repeat on a schedule**. Recurrence is attached to an individual objective, generates future copies into an explicit start stage, and is processed by a background worker.
+
 ## Quick Start
 
 ```bash

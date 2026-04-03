@@ -147,6 +147,11 @@
                     x-text="'@ ' + task.assignee.display_name"
                   ></span>
                 </template>
+                <template x-if="task.recurrence">
+                  <span
+                    class="text-xs px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-700"
+                  >↻ Recurring</span>
+                </template>
                 <template x-if="hasDueDate(task.due_date)">
                   <span
                     class="text-xs px-2 py-0.5 rounded-full font-medium"
@@ -489,6 +494,18 @@
                 </div>
                 <div class="border-t pt-3">
                   <button
+                    x-show="!selectedTask.recurrence"
+                    @click="enableRecurrence(); open = false"
+                    class="w-full text-left text-sm text-blue-600 hover:text-blue-800 transition-colors"
+                  >Make this a recurring objective</button>
+                  <button
+                    x-show="selectedTask.recurrence"
+                    @click="disableRecurrence(); open = false"
+                    class="w-full text-left text-sm text-amber-600 hover:text-amber-800 transition-colors"
+                  >Stop this objective from recurring</button>
+                </div>
+                <div class="border-t pt-3">
+                  <button
                     @click="deleteTask(); open = false"
                     class="w-full text-left text-sm text-red-500 hover:text-red-700 transition-colors"
                   >Delete objective</button>
@@ -572,6 +589,103 @@
               </button>
             </div>
           </template>
+
+          <div
+            x-show="selectedTask.recurrence"
+            class="mb-5 border rounded-xl bg-gray-50"
+            :class="recurrenceExpanded ? 'p-4' : 'px-4 py-2.5'"
+          >
+            <div class="flex items-center justify-between gap-3" :class="recurrenceExpanded ? 'mb-3' : ''">
+              <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide">Recurrence</label>
+              </div>
+              <div class="flex items-center gap-2">
+                <button
+                  @click="recurrenceExpanded = !recurrenceExpanded"
+                  class="text-sm text-gray-500 hover:text-gray-700 px-3 py-1.5"
+                  x-text="recurrenceExpanded ? 'Hide details' : 'Show details'"
+                ></button>
+                <button
+                  @click="disableRecurrence()"
+                  x-show="canEditBoard"
+                  class="text-sm text-amber-600 hover:text-amber-800 px-3 py-1.5"
+                >Stop repeating</button>
+              </div>
+            </div>
+
+            <div x-show="recurrenceExpanded" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Behavior</label>
+                <select
+                  x-model="selectedTask.recurrence.mode"
+                  :disabled="!canEditBoard"
+                  class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                >
+                  <option value="create_new">Create a new objective</option>
+                  <option value="reuse_existing">Reuse this objective</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Frequency</label>
+                <select
+                  x-model="selectedTask.recurrence.frequency"
+                  :disabled="!canEditBoard"
+                  class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                >
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Every</label>
+                <div class="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    x-model.number="selectedTask.recurrence.interval"
+                    :disabled="!canEditBoard"
+                    class="w-24 border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  >
+                  <span class="text-sm text-gray-500" x-text="recurrenceUnitLabel(selectedTask.recurrence.frequency, selectedTask.recurrence.interval)"></span>
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Next Occurrence</label>
+                <input
+                  type="date"
+                  x-model="selectedTask.recurrence.next_run_on"
+                  :disabled="!canEditBoard"
+                  class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                >
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Start Stage</label>
+                <select
+                  x-model="selectedTask.recurrence.spawn_stage_id"
+                  :disabled="!canEditBoard"
+                  class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                >
+                  <template x-for="stage in realStages" :key="`recurrence-stage-${stage.id}`">
+                    <option :value="String(stage.id)" x-text="stage.name"></option>
+                  </template>
+                </select>
+              </div>
+            </div>
+
+            <div x-show="recurrenceExpanded" class="flex justify-end gap-2 mt-4">
+              <button
+                @click="saveRecurrence()"
+                x-show="canEditBoard"
+                class="bg-blue-500 hover:bg-blue-600 text-white text-sm px-3 py-1.5 rounded-lg transition-colors"
+              >Save recurrence</button>
+            </div>
+          </div>
 
           <!-- Description -->
           <div class="mb-5">
@@ -846,6 +960,7 @@ function board() {
     shareRole: 'viewer',
     shareError: '',
     selectedTask: null,
+    recurrenceExpanded: false,
     descriptionEditing: false,
     newChecklistItem: '',
     _sortables: [],
@@ -1058,6 +1173,7 @@ function board() {
 
     openTask(task) {
       this.selectedTask = this._normalizeSelectedTask(task);
+      this.recurrenceExpanded = false;
       this.newChecklistItem = '';
       this.descriptionEditing = false;
       this.showModal = true;
@@ -1066,6 +1182,7 @@ function board() {
     closeModal() {
       this.showModal = false;
       this.selectedTask = null;
+      this.recurrenceExpanded = false;
     },
 
     async openSpawnedTask(taskId) {
@@ -1081,6 +1198,7 @@ function board() {
         return;
       }
       this.selectedTask = this._normalizeSelectedTask(task);
+      this.recurrenceExpanded = false;
       this.showModal = true;
       this.newChecklistItem = '';
       this.descriptionEditing = false;
@@ -1535,7 +1653,89 @@ function board() {
       selectedTask.task_type_id = taskTypeId === '' || taskTypeId === null ? '' : String(taskTypeId);
       const assigneeUserId = task.assignee_user_id ?? task.assignee?.id ?? '';
       selectedTask.assignee_user_id = assigneeUserId === '' || assigneeUserId === null ? '' : String(assigneeUserId);
+      if (selectedTask.recurrence) {
+        selectedTask.recurrence.spawn_stage_id = String(selectedTask.recurrence.spawn_stage_id || selectedTask.stage_id);
+        selectedTask.recurrence._persisted = true;
+      }
       return selectedTask;
+    },
+
+    recurrenceUnitLabel(frequency, interval) {
+      const amount = Number(interval || 1);
+      if (frequency === 'daily') return amount === 1 ? 'day' : 'days';
+      if (frequency === 'weekly') return amount === 1 ? 'week' : 'weeks';
+      return amount === 1 ? 'month' : 'months';
+    },
+
+    defaultRecurrenceForTask(task) {
+      return {
+        enabled: true,
+        mode: 'create_new',
+        frequency: 'weekly',
+        interval: 1,
+        next_run_on: task?.due_date || new Date().toISOString().slice(0, 10),
+        spawn_stage_id: String(task?.stage_id || ''),
+        _persisted: false,
+      };
+    },
+
+    enableRecurrence() {
+      if (!this.canEditBoard) return;
+      this.selectedTask.recurrence = this.selectedTask.recurrence || this.defaultRecurrenceForTask(this.selectedTask);
+      this.recurrenceExpanded = true;
+    },
+
+    async disableRecurrence() {
+      if (!this.canEditBoard) return;
+      await this.deleteRecurrence();
+    },
+
+    async saveRecurrence() {
+      if (!this.canEditBoard || !this.selectedTask?.recurrence) return;
+      const payload = {
+        enabled: true,
+        mode: this.selectedTask.recurrence.mode || 'create_new',
+        frequency: this.selectedTask.recurrence.frequency,
+        interval: parseInt(this.selectedTask.recurrence.interval, 10) || 1,
+        next_run_on: this.selectedTask.recurrence.next_run_on,
+        spawn_stage_id: parseInt(this.selectedTask.recurrence.spawn_stage_id, 10),
+      };
+      const res = await fetch(`/api/tasks/${this.selectedTask.id}/recurrence`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        alert(data.detail || 'Unable to save recurrence');
+        return;
+      }
+      this.selectedTask.recurrence = await res.json();
+      this.selectedTask.recurrence.spawn_stage_id = String(this.selectedTask.recurrence.spawn_stage_id);
+      this.selectedTask.recurrence._persisted = true;
+      this._syncTaskInStages(this.selectedTask);
+    },
+
+    async deleteRecurrence() {
+      if (!this.canEditBoard || !this.selectedTask) return;
+      if (!this.selectedTask.recurrence) return;
+      if (!this.selectedTask.recurrence._persisted) {
+        this.selectedTask.recurrence = null;
+        this.recurrenceExpanded = false;
+        this._syncTaskInStages(this.selectedTask);
+        return;
+      }
+      const res = await fetch(`/api/tasks/${this.selectedTask.id}/recurrence`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        alert(data.detail || 'Unable to delete recurrence');
+        return;
+      }
+      this.selectedTask.recurrence = null;
+      this.recurrenceExpanded = false;
+      this._syncTaskInStages(this.selectedTask);
     },
 
     getRequestedTaskId() {

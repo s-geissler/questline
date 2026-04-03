@@ -156,6 +156,7 @@ def test_admin_can_update_instance_settings_and_board_defaults(app_env):
     assert settings["default_board_color"]
     assert settings["new_accounts_active_by_default"] is True
     assert settings["instance_theme_color"] == "#1d4ed8"
+    assert settings["recurrence_worker_interval_seconds"] == 60
 
     updated = main.update_admin_settings(
         main.AdminSettingsUpdate(
@@ -163,6 +164,7 @@ def test_admin_can_update_instance_settings_and_board_defaults(app_env):
             default_board_color="#10b981",
             new_accounts_active_by_default=False,
             instance_theme_color="#0f766e",
+            recurrence_worker_interval_seconds=45,
         ),
         main.Request(request_with_cookie(path="/api/admin/settings", cookie=admin_cookie)),
         db,
@@ -171,6 +173,7 @@ def test_admin_can_update_instance_settings_and_board_defaults(app_env):
     assert updated["default_board_color"] == "#10b981"
     assert updated["new_accounts_active_by_default"] is False
     assert updated["instance_theme_color"] == "#0f766e"
+    assert updated["recurrence_worker_interval_seconds"] == 45
 
     board = main.create_board(
         main.BoardCreate(name="Green Hub"),
@@ -193,6 +196,7 @@ def test_registration_can_be_disabled_after_first_user(app_env):
             default_board_color="#2563eb",
             new_accounts_active_by_default=True,
             instance_theme_color="#1d4ed8",
+            recurrence_worker_interval_seconds=60,
         ),
         main.Request(request_with_cookie(path="/api/admin/settings", cookie=admin_cookie)),
         db,
@@ -225,6 +229,7 @@ def test_admin_settings_require_admin(app_env):
         db,
     )
     assert settings["registration_enabled"] is True
+    assert settings["recurrence_worker_interval_seconds"] == 60
 
     try:
         main.get_admin_settings(
@@ -234,6 +239,29 @@ def test_admin_settings_require_admin(app_env):
         assert False, "Expected non-admin settings access to be denied"
     except main.HTTPException as exc:
         assert exc.status_code == 403
+
+
+def test_admin_settings_validate_recurrence_worker_interval(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+
+    _, admin_cookie = register_and_cookie(main, db, "admin11@example.com", "Admin")
+
+    try:
+        main.update_admin_settings(
+            main.AdminSettingsUpdate(
+                registration_enabled=True,
+                default_board_color="#2563eb",
+                new_accounts_active_by_default=True,
+                instance_theme_color="#1d4ed8",
+                recurrence_worker_interval_seconds=1,
+            ),
+            main.Request(request_with_cookie(path="/api/admin/settings", cookie=admin_cookie)),
+            db,
+        )
+        assert False, "Expected too-small recurrence worker interval to be rejected"
+    except main.HTTPException as exc:
+        assert exc.status_code == 400
 
 
 def test_admin_can_activate_and_deactivate_accounts(app_env):

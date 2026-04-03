@@ -28,7 +28,7 @@ When `trigger_stage_id` is set, the automation only fires when the task is in (o
 |---|---|---|
 | `move_to_stage` | Move the objective to a different stage | `action_stage_id` (required) |
 | `set_done` | Mark the objective as complete | — |
-| `set_due_date` | Set the due date relative to today | `action_days_offset` (int, may be negative) |
+| `set_due_in_days` | Set the due date relative to today | `action_days_offset` (int, may be negative) |
 | `set_task_type` | Change the objective's task type | `action_task_type_id` (required) |
 | `set_color` | Change the objective's color | `action_color` (hex string) |
 
@@ -52,7 +52,7 @@ Multiple automations can match a single event; they all run in the order they ar
 
 **Set due date 7 days out when created**
 - Trigger: `task_created`
-- Action: `set_due_date`, offset = `7`
+- Action: `set_due_in_days`, offset = `7`
 
 **Move to "In Review" when checklist completes**
 - Trigger: `checklist_completed`

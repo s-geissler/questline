@@ -10,6 +10,7 @@ Instance
     │       ├── Checklist Items
     │       │   └── spawned Objective (if Quest type)
     │       └── Custom Field Values
+    │       └── Recurrence Rule
     ├── Task Types (define shape of Objectives)
     │   └── Custom Field Definitions
     ├── Saved Filters
@@ -67,6 +68,10 @@ tasks
   position, color, due_date, done, show_description_on_card, show_checklist_on_card,
   created_at
 
+task_recurrences
+  id, task_id → tasks (UNIQUE), enabled, mode, frequency, interval,
+  next_run_on, spawn_stage_id → lists, created_at
+
 custom_field_values
   id, task_id → tasks, field_def_id → custom_field_defs, value
 
@@ -80,7 +85,7 @@ automations
   action_color, action_days_offset
 
 notifications
-  id, user_id → users, notification_type, title, body,
+  id, user_id → users, type, title, body,
   link_url, board_id, task_id, read_at, created_at, dedupe_key (UNIQUE)
 
 instance_settings
@@ -93,6 +98,7 @@ instance_settings
 - Foreign keys are enforced via `PRAGMA foreign_keys=ON`.
 - Schema migrations run automatically at startup via `_run_column_migrations()` — `ALTER TABLE ... ADD COLUMN` for any missing columns.
 - The `lists` table name is the physical name for Stages (legacy); the application layer uses "stage" terminology.
+- Recurring objectives are processed by a background worker that polls due recurrence rows and creates new tasks from the source objective.
 
 ## Request Lifecycle
 

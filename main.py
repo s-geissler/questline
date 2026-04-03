@@ -1,6 +1,7 @@
 import json
 import logging
 import time
+import threading
 from datetime import date, datetime, timedelta
 from fastapi import FastAPI, Depends, HTTPException, Request, Response
 from fastapi.templating import Jinja2Templates
@@ -90,6 +91,9 @@ def _run_column_migrations():
         ("board_memberships", "role", "VARCHAR"),
         ("users", "role", "VARCHAR"),
         ("users", "is_active", "BOOLEAN"),
+        ("instance_settings", "key", "VARCHAR"),
+        ("instance_settings", "value", "TEXT"),
+        ("task_recurrences", "mode", "VARCHAR"),
     ]
     with engine.connect() as conn:
         for table, col, col_type in migrations:
@@ -132,6 +136,9 @@ def _run_index_migrations():
         ("uq_board_memberships_board_user", "CREATE UNIQUE INDEX IF NOT EXISTS uq_board_memberships_board_user ON board_memberships(board_id, user_id)"),
         ("ix_notifications_user_read_created", "CREATE INDEX IF NOT EXISTS ix_notifications_user_read_created ON notifications(user_id, read_at, created_at)"),
         ("ix_notifications_dedupe_key", "CREATE UNIQUE INDEX IF NOT EXISTS ix_notifications_dedupe_key ON notifications(dedupe_key) WHERE dedupe_key IS NOT NULL"),
+        ("ix_task_recurrences_next_run_on", "CREATE INDEX IF NOT EXISTS ix_task_recurrences_next_run_on ON task_recurrences(enabled, next_run_on)"),
+        ("ix_task_recurrences_spawn_stage_id", "CREATE INDEX IF NOT EXISTS ix_task_recurrences_spawn_stage_id ON task_recurrences(spawn_stage_id)"),
+        ("uq_task_recurrences_task_id", "CREATE UNIQUE INDEX IF NOT EXISTS uq_task_recurrences_task_id ON task_recurrences(task_id)"),
     ]
     with engine.connect() as conn:
         for _, sql in indexes:
@@ -262,7 +269,14 @@ INSTANCE_SETTINGS_DEFAULTS = {
     "default_board_color": "#2563eb",
     "new_accounts_active_by_default": "true",
     "instance_theme_color": "#1d4ed8",
+    "recurrence_worker_interval_seconds": "60",
 }
+
+RECURRENCE_FREQUENCIES = {"daily", "weekly", "monthly"}
+RECURRENCE_MODES = {"create_new", "reuse_existing"}
+RECURRENCE_MIN_INTERVAL_SECONDS = 5
+recurrence_worker_stop_event = threading.Event()
+recurrence_worker_thread = None
 
 
 @app.middleware("http")
@@ -273,6 +287,25 @@ async def log_request_timing(request: Request, call_next):
     if elapsed_ms >= 250:
         logger.warning("slow_request %.1fms %s %s -> %s", elapsed_ms, request.method, request.url.path, response.status_code)
     return response
+
+
+@app.on_event("startup")
+def start_recurrence_worker():
+    global recurrence_worker_thread
+    recurrence_worker_stop_event.clear()
+    if recurrence_worker_thread and recurrence_worker_thread.is_alive():
+        return
+    recurrence_worker_thread = threading.Thread(
+        target=recurrence_worker_loop,
+        name="questline-recurrence-worker",
+        daemon=True,
+    )
+    recurrence_worker_thread.start()
+
+
+@app.on_event("shutdown")
+def stop_recurrence_worker():
+    recurrence_worker_stop_event.set()
 
 
 # ---------------------------------------------------------------------------
@@ -318,6 +351,14 @@ class TaskUpdate(BaseModel):
     show_checklist_on_card: Optional[bool] = None
     done: Optional[bool] = None
     custom_fields: Optional[dict] = None
+
+class TaskRecurrenceUpdate(BaseModel):
+    enabled: bool = True
+    mode: str = "create_new"
+    frequency: str
+    interval: int = 1
+    next_run_on: str
+    spawn_stage_id: int
 
 class TaskMove(BaseModel):
     stage_id: int
@@ -424,6 +465,7 @@ class AdminSettingsUpdate(BaseModel):
     default_board_color: Optional[str] = None
     new_accounts_active_by_default: bool
     instance_theme_color: Optional[str] = None
+    recurrence_worker_interval_seconds: int = 60
 
 
 def _validate_custom_fields_for_task(
@@ -468,6 +510,46 @@ def _validate_assignee_for_task(board_id: int, assignee_user_id: Optional[int], 
     if not membership:
         raise HTTPException(status_code=400, detail="Assignee must be a board member")
     return assignee
+
+
+def _parse_iso_date(value: str, detail: str = "Invalid date") -> date:
+    try:
+        return date.fromisoformat((value or "").strip())
+    except ValueError:
+        raise HTTPException(status_code=400, detail=detail)
+
+
+def _advance_recurrence_date(current: date, frequency: str, interval: int) -> date:
+    if frequency == "daily":
+        return current + timedelta(days=interval)
+    if frequency == "weekly":
+        return current + timedelta(weeks=interval)
+    if frequency == "monthly":
+        month_index = current.month - 1 + interval
+        year = current.year + month_index // 12
+        month = month_index % 12 + 1
+        month_lengths = [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        day = min(current.day, month_lengths[month - 1])
+        return date(year, month, day)
+    raise HTTPException(status_code=400, detail="Invalid recurrence frequency")
+
+
+def _validate_task_recurrence_input(task: models.Task, data: TaskRecurrenceUpdate, db: Session) -> models.Stage:
+    if data.mode not in RECURRENCE_MODES:
+        raise HTTPException(status_code=400, detail="Invalid recurrence mode")
+    if data.frequency not in RECURRENCE_FREQUENCIES:
+        raise HTTPException(status_code=400, detail="Invalid recurrence frequency")
+    if data.interval < 1:
+        raise HTTPException(status_code=400, detail="Recurrence interval must be at least 1")
+    _parse_iso_date(data.next_run_on, "Recurrence next run date must be YYYY-MM-DD")
+    spawn_stage = db.query(models.Stage).filter(models.Stage.id == data.spawn_stage_id).first()
+    if not spawn_stage:
+        raise HTTPException(status_code=404, detail="Stage not found")
+    if spawn_stage.board_id != task.stage.board_id:
+        raise HTTPException(status_code=400, detail="Recurrence stage belongs to a different board")
+    if spawn_stage.is_log:
+        raise HTTPException(status_code=400, detail="Cannot recur into a log stage")
+    return spawn_stage
 
 
 # ---------------------------------------------------------------------------
@@ -613,6 +695,10 @@ def get_instance_settings(db: Session) -> dict:
         "default_board_color": (values.get("default_board_color") or INSTANCE_SETTINGS_DEFAULTS["default_board_color"]).strip(),
         "new_accounts_active_by_default": str(values.get("new_accounts_active_by_default", "true")).lower() == "true",
         "instance_theme_color": (values.get("instance_theme_color") or INSTANCE_SETTINGS_DEFAULTS["instance_theme_color"]).strip(),
+        "recurrence_worker_interval_seconds": max(
+            RECURRENCE_MIN_INTERVAL_SECONDS,
+            int(str(values.get("recurrence_worker_interval_seconds", INSTANCE_SETTINGS_DEFAULTS["recurrence_worker_interval_seconds"])).strip() or INSTANCE_SETTINGS_DEFAULTS["recurrence_worker_interval_seconds"]),
+        ),
     }
 
 
@@ -645,6 +731,19 @@ def notification_to_dict(notification: models.Notification) -> dict:
         "task_id": notification.task_id,
         "read_at": notification.read_at.isoformat() if notification.read_at else None,
         "created_at": notification.created_at.isoformat() if notification.created_at else None,
+    }
+
+
+def recurrence_to_dict(recurrence: Optional[models.TaskRecurrence]) -> Optional[dict]:
+    if not recurrence:
+        return None
+    return {
+        "enabled": recurrence.enabled,
+        "mode": recurrence.mode,
+        "frequency": recurrence.frequency,
+        "interval": recurrence.interval,
+        "next_run_on": recurrence.next_run_on,
+        "spawn_stage_id": recurrence.spawn_stage_id,
     }
 
 
@@ -801,7 +900,159 @@ def task_to_dict(task: models.Task) -> dict:
         "done": task.done,
         "custom_field_values": custom_values,
         "checklist": checklist,
+        "recurrence": recurrence_to_dict(task.recurrence),
     }
+
+
+def _create_checklist_item_internal(task: models.Task, title: str, db: Session) -> models.ChecklistItem:
+    item = models.ChecklistItem(task_id=task.id, title=title)
+    db.add(item)
+    db.flush()
+
+    if task.task_type and task.task_type.is_epic:
+        target_stage_id = task.task_type.spawn_stage_id or task.stage_id
+        target_stage = db.query(models.Stage).filter(models.Stage.id == target_stage_id).first()
+        if target_stage and target_stage.is_log:
+            raise HTTPException(status_code=400, detail="Cannot spawn tasks into a log stage")
+        new_pos = (
+            db.query(models.Task).filter(models.Task.stage_id == target_stage_id).count()
+        )
+        spawned = models.Task(
+            title=title,
+            stage_id=target_stage_id,
+            position=new_pos,
+            color=task.task_type.color,
+            parent_task_id=task.id,
+        )
+        db.add(spawned)
+        db.flush()
+        item.spawned_task_id = spawned.id
+    return item
+
+
+def _resolve_recurrence_stage(source_task: models.Task, recurrence: models.TaskRecurrence, db: Session) -> Optional[models.Stage]:
+    target_stage = db.query(models.Stage).filter(models.Stage.id == recurrence.spawn_stage_id).first()
+    if not target_stage or target_stage.is_log or target_stage.board_id != source_task.stage.board_id:
+        recurrence.enabled = False
+        db.commit()
+        logger.warning(
+            "disabled_recurrence task_id=%s recurrence_stage_id=%s",
+            source_task.id,
+            recurrence.spawn_stage_id,
+        )
+        return None
+    return target_stage
+
+
+def _clone_task_from_recurrence(source_task: models.Task, recurrence: models.TaskRecurrence, db: Session) -> models.Task:
+    target_stage = _resolve_recurrence_stage(source_task, recurrence, db)
+    if target_stage is None:
+        return None
+
+    occurrence_date = _parse_iso_date(recurrence.next_run_on, "Invalid recurrence next run date")
+    new_pos = db.query(models.Task).filter(models.Task.stage_id == target_stage.id).count()
+    cloned_task = models.Task(
+        title=source_task.title,
+        description=source_task.description,
+        due_date=occurrence_date.isoformat(),
+        stage_id=target_stage.id,
+        task_type_id=source_task.task_type_id,
+        assignee_user_id=source_task.assignee_user_id,
+        position=new_pos,
+        color=source_task.color,
+        show_description_on_card=source_task.show_description_on_card,
+        show_checklist_on_card=source_task.show_checklist_on_card,
+        done=False,
+    )
+    db.add(cloned_task)
+    db.flush()
+
+    for cfv in source_task.custom_field_values:
+        db.add(
+            models.CustomFieldValue(
+                task_id=cloned_task.id,
+                field_def_id=cfv.field_def_id,
+                value=cfv.value,
+            )
+        )
+
+    source_checklist_titles = [item.title for item in source_task.checklist_items]
+    for title in source_checklist_titles:
+        _create_checklist_item_internal(cloned_task, title, db)
+
+    recurrence.next_run_on = _advance_recurrence_date(
+        occurrence_date,
+        recurrence.frequency,
+        recurrence.interval,
+    ).isoformat()
+    db.commit()
+    db.refresh(cloned_task)
+    run_automations(cloned_task, "task_created", db)
+    db.commit()
+    return cloned_task
+
+
+def _reuse_task_from_recurrence(source_task: models.Task, recurrence: models.TaskRecurrence, db: Session) -> models.Task:
+    target_stage = _resolve_recurrence_stage(source_task, recurrence, db)
+    if target_stage is None:
+        return None
+
+    occurrence_date = _parse_iso_date(recurrence.next_run_on, "Invalid recurrence next run date")
+    new_pos = db.query(models.Task).filter(models.Task.stage_id == target_stage.id).count()
+    source_task.stage_id = target_stage.id
+    source_task.position = new_pos
+    source_task.done = False
+    source_task.due_date = occurrence_date.isoformat()
+    for checklist_item in source_task.checklist_items:
+        checklist_item.done = False
+    recurrence.next_run_on = _advance_recurrence_date(
+        occurrence_date,
+        recurrence.frequency,
+        recurrence.interval,
+    ).isoformat()
+    db.commit()
+    db.refresh(source_task)
+    return source_task
+
+
+def process_due_recurrences(db: Session, today: Optional[date] = None) -> int:
+    today = today or date.today()
+    due_recurrences = (
+        db.query(models.TaskRecurrence)
+        .join(models.Task, models.TaskRecurrence.task_id == models.Task.id)
+        .join(models.Stage, models.Task.stage_id == models.Stage.id)
+        .filter(
+            models.TaskRecurrence.enabled == True,
+            models.TaskRecurrence.next_run_on <= today.isoformat(),
+        )
+        .order_by(models.TaskRecurrence.next_run_on.asc(), models.TaskRecurrence.id.asc())
+        .all()
+    )
+    created_count = 0
+    for recurrence in due_recurrences:
+        if not recurrence.task or not recurrence.task.stage:
+            continue
+        if recurrence.mode == "reuse_existing":
+            processed_task = _reuse_task_from_recurrence(recurrence.task, recurrence, db)
+        else:
+            processed_task = _clone_task_from_recurrence(recurrence.task, recurrence, db)
+        if processed_task is not None:
+            created_count += 1
+    return created_count
+
+
+def recurrence_worker_loop():
+    while not recurrence_worker_stop_event.is_set():
+        db = SessionLocal()
+        interval_seconds = RECURRENCE_MIN_INTERVAL_SECONDS
+        try:
+            interval_seconds = get_instance_settings(db)["recurrence_worker_interval_seconds"]
+            process_due_recurrences(db)
+        except Exception:
+            logger.exception("recurrence_worker_failed")
+        finally:
+            db.close()
+        recurrence_worker_stop_event.wait(max(RECURRENCE_MIN_INTERVAL_SECONDS, interval_seconds))
 
 def apply_automation(task: models.Task, automation: models.Automation, db: Session):
     if automation.action_type == "move_to_stage" and automation.action_stage_id:
@@ -1140,6 +1391,11 @@ def update_admin_settings(data: AdminSettingsUpdate, request: Request, db: Sessi
         INSTANCE_SETTINGS_DEFAULTS["instance_theme_color"],
         "Instance theme color must be a valid hex color",
     )
+    if data.recurrence_worker_interval_seconds < RECURRENCE_MIN_INTERVAL_SECONDS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Recurrence worker interval must be at least {RECURRENCE_MIN_INTERVAL_SECONDS} seconds",
+        )
     return set_instance_settings(
         db,
         {
@@ -1147,6 +1403,7 @@ def update_admin_settings(data: AdminSettingsUpdate, request: Request, db: Sessi
             "default_board_color": default_board_color,
             "new_accounts_active_by_default": "true" if data.new_accounts_active_by_default else "false",
             "instance_theme_color": instance_theme_color,
+            "recurrence_worker_interval_seconds": str(data.recurrence_worker_interval_seconds),
         },
     )
 
@@ -1736,6 +1993,55 @@ def delete_task(task_id: int, db: Session = Depends(get_db), request: Request = 
     return {"ok": True}
 
 
+@app.put("/api/tasks/{task_id}/recurrence")
+def upsert_task_recurrence(
+    task_id: int,
+    data: TaskRecurrenceUpdate,
+    db: Session = Depends(get_db),
+    request: Request = None,
+):
+    board_id = _board_id_for_task(task_id, db)
+    if board_id is not None:
+        _authorize_board_request(request, db, board_id, "editor")
+    task = db.query(models.Task).filter(models.Task.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if not task.stage:
+        raise HTTPException(status_code=400, detail="Task has no stage")
+
+    _validate_task_recurrence_input(task, data, db)
+    recurrence = task.recurrence
+    if recurrence is None:
+        recurrence = models.TaskRecurrence(task_id=task.id)
+        db.add(recurrence)
+    recurrence.enabled = data.enabled
+    recurrence.mode = data.mode
+    recurrence.frequency = data.frequency
+    recurrence.interval = data.interval
+    recurrence.next_run_on = data.next_run_on
+    recurrence.spawn_stage_id = data.spawn_stage_id
+    db.commit()
+    db.refresh(task)
+    return recurrence_to_dict(task.recurrence)
+
+
+@app.delete("/api/tasks/{task_id}/recurrence")
+def delete_task_recurrence(task_id: int, db: Session = Depends(get_db), request: Request = None):
+    board_id = _board_id_for_task(task_id, db)
+    if board_id is not None:
+        _authorize_board_request(request, db, board_id, "editor")
+    recurrence = (
+        db.query(models.TaskRecurrence)
+        .filter(models.TaskRecurrence.task_id == task_id)
+        .first()
+    )
+    if not recurrence:
+        raise HTTPException(status_code=404, detail="Task recurrence not found")
+    db.delete(recurrence)
+    db.commit()
+    return {"ok": True}
+
+
 # ---------------------------------------------------------------------------
 # Checklist API
 # ---------------------------------------------------------------------------
@@ -1750,29 +2056,7 @@ def add_checklist_item(
     task = db.query(models.Task).filter(models.Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-
-    item = models.ChecklistItem(task_id=task_id, title=data.title)
-    db.add(item)
-    db.flush()
-
-    if task.task_type and task.task_type.is_epic:
-        target_stage_id = task.task_type.spawn_stage_id or task.stage_id
-        target_stage = db.query(models.Stage).filter(models.Stage.id == target_stage_id).first()
-        if target_stage and target_stage.is_log:
-            raise HTTPException(status_code=400, detail="Cannot spawn tasks into a log stage")
-        new_pos = (
-            db.query(models.Task).filter(models.Task.stage_id == target_stage_id).count()
-        )
-        spawned = models.Task(
-            title=data.title,
-            stage_id=target_stage_id,
-            position=new_pos,
-            color=task.task_type.color,
-            parent_task_id=task.id,
-        )
-        db.add(spawned)
-        db.flush()
-        item.spawned_task_id = spawned.id
+    item = _create_checklist_item_internal(task, data.title, db)
 
     db.commit()
     if item.spawned_task_id:

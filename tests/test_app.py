@@ -303,6 +303,193 @@ def test_checklist_completed_automation_can_mark_task_done(app_env):
     assert final_task["done"] is True
 
 
+def test_recurring_task_generates_new_task_in_configured_stage(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+    board = create_board(main, db)
+    backlog = create_stage(main, db, board["id"], "Backlog")
+    done = create_stage(main, db, board["id"], "Done")
+    task = create_task(main, db, backlog["id"], "Payroll review", due_date="2026-04-03")
+
+    recurrence = main.upsert_task_recurrence(
+        task["id"],
+        main.TaskRecurrenceUpdate(
+            enabled=True,
+            mode="create_new",
+            frequency="weekly",
+            interval=1,
+            next_run_on="2026-04-03",
+            spawn_stage_id=backlog["id"],
+        ),
+        db,
+    )
+    assert recurrence["spawn_stage_id"] == backlog["id"]
+
+    main.move_task(task["id"], main.TaskMove(stage_id=done["id"], position=0), db)
+    created = main.process_due_recurrences(db, today=main.date(2026, 4, 3))
+    assert created == 1
+
+    stages = main.get_stages(board["id"], db)
+    backlog_stage = next(stage for stage in stages if stage["id"] == backlog["id"])
+    done_stage = next(stage for stage in stages if stage["id"] == done["id"])
+    spawned = next(t for t in backlog_stage["tasks"] if t["title"] == "Payroll review" and t["id"] != task["id"])
+
+    assert spawned["stage_id"] == backlog["id"]
+    assert spawned["due_date"] == "2026-04-03"
+    assert all(t["id"] != spawned["id"] for t in done_stage["tasks"])
+
+
+def test_recurring_task_is_deleted_with_source_task(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+    models = app_env["models"]
+    board = create_board(main, db)
+    backlog = create_stage(main, db, board["id"], "Backlog")
+    task = create_task(main, db, backlog["id"], "Delete me later")
+
+    main.upsert_task_recurrence(
+        task["id"],
+        main.TaskRecurrenceUpdate(
+            enabled=True,
+            mode="create_new",
+            frequency="weekly",
+            interval=1,
+            next_run_on="2026-04-03",
+            spawn_stage_id=backlog["id"],
+        ),
+        db,
+    )
+
+    main.delete_task(task["id"], db)
+    assert db.query(models.TaskRecurrence).count() == 0
+    assert main.process_due_recurrences(db, today=main.date(2026, 4, 3)) == 0
+
+
+def test_recurring_task_copies_custom_fields_and_checklist(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+    board = create_board(main, db)
+    backlog = create_stage(main, db, board["id"], "Backlog")
+    task_type = create_task_type(main, db, board["id"], name="Routine")
+    field = add_custom_field(main, db, task_type["id"], "Priority")
+    task = create_task(main, db, backlog["id"], "Monthly close", task_type_id=task_type["id"])
+    main.update_task(task["id"], main.TaskUpdate(custom_fields={str(field["id"]): "High"}), db)
+    main.add_checklist_item(task["id"], main.ChecklistItemCreate(title="Review"), db)
+    main.add_checklist_item(task["id"], main.ChecklistItemCreate(title="Approve"), db)
+
+    main.upsert_task_recurrence(
+        task["id"],
+        main.TaskRecurrenceUpdate(
+            enabled=True,
+            mode="create_new",
+            frequency="monthly",
+            interval=1,
+            next_run_on="2026-04-03",
+            spawn_stage_id=backlog["id"],
+        ),
+        db,
+    )
+
+    assert main.process_due_recurrences(db, today=main.date(2026, 4, 3)) == 1
+    stages = main.get_stages(board["id"], db)
+    copies = [t for t in next(stage for stage in stages if stage["id"] == backlog["id"])["tasks"] if t["title"] == "Monthly close"]
+    cloned = max(copies, key=lambda t: t["id"])
+
+    assert cloned["custom_field_values"][str(field["id"])] == "High"
+    assert [item["title"] for item in cloned["checklist"]] == ["Review", "Approve"]
+    assert all(item["done"] is False for item in cloned["checklist"])
+
+
+def test_recurring_task_next_run_advances_after_generation(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+    models = app_env["models"]
+    board = create_board(main, db)
+    backlog = create_stage(main, db, board["id"], "Backlog")
+    task = create_task(main, db, backlog["id"], "Weekly sync")
+
+    main.upsert_task_recurrence(
+        task["id"],
+        main.TaskRecurrenceUpdate(
+            enabled=True,
+            mode="create_new",
+            frequency="weekly",
+            interval=2,
+            next_run_on="2026-04-03",
+            spawn_stage_id=backlog["id"],
+        ),
+        db,
+    )
+
+    assert main.process_due_recurrences(db, today=main.date(2026, 4, 3)) == 1
+    recurrence = db.query(models.TaskRecurrence).filter(models.TaskRecurrence.task_id == task["id"]).first()
+    assert recurrence.next_run_on == "2026-04-17"
+
+
+def test_recurring_task_can_reuse_existing_objective(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+    board = create_board(main, db)
+    backlog = create_stage(main, db, board["id"], "Backlog")
+    done = create_stage(main, db, board["id"], "Done")
+    task = create_task(main, db, backlog["id"], "Daily standup", due_date="2026-04-02")
+    item = main.add_checklist_item(task["id"], main.ChecklistItemCreate(title="Prepare notes"), db)
+    main.update_checklist_item(task["id"], item["id"], main.ChecklistItemUpdate(done=True), db)
+    main.update_task(task["id"], main.TaskUpdate(done=True), db)
+    main.move_task(task["id"], main.TaskMove(stage_id=done["id"], position=0), db)
+
+    recurrence = main.upsert_task_recurrence(
+        task["id"],
+        main.TaskRecurrenceUpdate(
+            enabled=True,
+            mode="reuse_existing",
+            frequency="daily",
+            interval=1,
+            next_run_on="2026-04-03",
+            spawn_stage_id=backlog["id"],
+        ),
+        db,
+    )
+    assert recurrence["mode"] == "reuse_existing"
+
+    processed = main.process_due_recurrences(db, today=main.date(2026, 4, 3))
+    assert processed == 1
+
+    refreshed = main.get_task(task["id"], db)
+    assert refreshed["id"] == task["id"]
+    assert refreshed["done"] is False
+    assert refreshed["stage_id"] == backlog["id"]
+    assert refreshed["due_date"] == "2026-04-03"
+    assert refreshed["checklist"][0]["done"] is False
+
+
+def test_recurring_reuse_existing_does_not_create_second_task(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+    models = app_env["models"]
+    board = create_board(main, db)
+    backlog = create_stage(main, db, board["id"], "Backlog")
+    task = create_task(main, db, backlog["id"], "Monthly inventory")
+
+    main.upsert_task_recurrence(
+        task["id"],
+        main.TaskRecurrenceUpdate(
+            enabled=True,
+            mode="reuse_existing",
+            frequency="monthly",
+            interval=1,
+            next_run_on="2026-04-03",
+            spawn_stage_id=backlog["id"],
+        ),
+        db,
+    )
+
+    before_count = db.query(models.Task).count()
+    assert main.process_due_recurrences(db, today=main.date(2026, 4, 3)) == 1
+    after_count = db.query(models.Task).count()
+    assert after_count == before_count
+
+
 def test_marking_quest_done_marks_checklist_items_and_spawned_children_done(app_env):
     main = app_env["main"]
     db = app_env["db"]

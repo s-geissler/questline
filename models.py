@@ -247,6 +247,33 @@ class Task(Base):
         cascade="all, delete-orphan",
         foreign_keys="ChecklistItem.task_id",
     )
+    recurrence = relationship(
+        "TaskRecurrence",
+        back_populates="task",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+
+
+class TaskRecurrence(Base):
+    __tablename__ = "task_recurrences"
+    __table_args__ = (
+        Index("ix_task_recurrences_next_run_on", "enabled", "next_run_on"),
+        Index("ix_task_recurrences_spawn_stage_id", "spawn_stage_id"),
+        UniqueConstraint("task_id", name="uq_task_recurrences_task_id"),
+    )
+    id = Column(Integer, primary_key=True)
+    task_id = Column(Integer, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False)
+    enabled = Column(Boolean, nullable=False, default=True)
+    mode = Column(String, nullable=False, default="create_new")
+    frequency = Column(String, nullable=False, default="weekly")
+    interval = Column(Integer, nullable=False, default=1)
+    next_run_on = Column(String, nullable=False)
+    spawn_stage_id = Column(Integer, ForeignKey("lists.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    task = relationship("Task", back_populates="recurrence", foreign_keys=[task_id])
+    spawn_stage = relationship("Stage", foreign_keys=[spawn_stage_id])
 
 
 class CustomFieldValue(Base):

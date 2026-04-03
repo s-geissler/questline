@@ -42,6 +42,8 @@ Custom fields can be used as filter conditions in Saved Filters. The filter rule
 | `contains` | String contains (case-insensitive) |
 | `empty` | Field has no value |
 | `not_empty` | Field has a value |
+| `lt` | Less than |
+| `gt` | Greater than |
 | `lte` | Less than or equal (lexicographic for dates) |
 | `gte` | Greater than or equal |
 
