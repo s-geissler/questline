@@ -1,0 +1,98 @@
+# Development
+
+## Prerequisites
+
+- Python 3.8+
+- pip
+
+## Setup
+
+```bash
+git clone <repo>
+cd Questline
+
+# Create a virtualenv (recommended)
+python -m venv .venv
+source .venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Start the dev server
+uvicorn main:app --reload --port 8000
+```
+
+The database (`questline.db`) is created automatically on first run. Schema migrations also run automatically at startup — no manual migration step is needed.
+
+## Project Layout
+
+```
+Questline/
+├── main.py            # FastAPI app + all route handlers
+├── models.py          # SQLAlchemy ORM models
+├── authz.py           # Auth, session, RBAC helpers
+├── filters_logic.py   # Filter parsing and Log Stage task resolution
+├── database.py        # DB engine, session factory, slow-query logging
+├── templates/         # Jinja2 HTML templates
+│   ├── board.html
+│   ├── task_types.html
+│   ├── automations.html
+│   ├── filters.html
+│   └── admin.html
+├── static/            # CSS, JavaScript, images
+├── tests/             # pytest test suite
+└── docs/              # This documentation
+```
+
+## Running Tests
+
+```bash
+pytest
+```
+
+Tests use an in-memory SQLite database and do not require a running server. The test suite covers:
+
+- Authentication and session management
+- Authorization and board access control
+- Board membership and sharing
+- Notification creation
+- API security checks
+
+To run a specific test file:
+
+```bash
+pytest tests/test_auth.py -v
+```
+
+## Logging
+
+Questline uses Python's standard `logging` module. Loggers:
+
+| Logger | What it covers |
+|---|---|
+| `questline.app` | Application-level events |
+| `questline.db` | Slow SQL queries (threshold: `QUESTLINE_SLOW_QUERY_MS`) |
+| `questline.logs` | Slow Log Stage filter evaluations (threshold: 150 ms) |
+
+To enable DEBUG output during development:
+
+```bash
+uvicorn main:app --reload --log-level debug
+```
+
+## Interactive API Docs
+
+FastAPI auto-generates OpenAPI docs at:
+
+- `http://localhost:8000/docs` — Swagger UI
+- `http://localhost:8000/redoc` — ReDoc
+
+## Adding a New API Endpoint
+
+1. Define a Pydantic request model near the top of `main.py`.
+2. Add the route handler, using `_authorize_board_request()` to gate access.
+3. Write a test in `tests/`.
+
+## Adding a Schema Column
+
+Add an entry to `_run_column_migrations()` in `main.py` — the column will be added to existing databases on next startup. Also add the column to the corresponding SQLAlchemy model in `models.py`.
