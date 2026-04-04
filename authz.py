@@ -15,10 +15,39 @@ SESSION_COOKIE = "questline_session"
 CSRF_COOKIE = "questline_csrf"
 PASSWORD_HASH_ITERATIONS = 120_000
 BOARD_ROLE_ORDER = {"viewer": 1, "editor": 2, "owner": 3, "admin": 4}
-SESSION_COOKIE_SECURE = os.getenv("QUESTLINE_SESSION_COOKIE_SECURE", "").lower() in {"1", "true", "yes", "on"}
+
+
+def _env_flag(name: str) -> Optional[bool]:
+    value = os.getenv(name)
+    if value is None:
+        return None
+    return value.lower() in {"1", "true", "yes", "on"}
+
+
+QUESTLINE_ENV = (os.getenv("QUESTLINE_ENV") or "production").strip().lower()
+_session_cookie_secure_override = _env_flag("QUESTLINE_SESSION_COOKIE_SECURE")
+_allow_insecure_cookies = _env_flag("QUESTLINE_ALLOW_INSECURE_COOKIES")
+
+if _session_cookie_secure_override is not None:
+    SESSION_COOKIE_SECURE = _session_cookie_secure_override
+else:
+    SESSION_COOKIE_SECURE = not bool(_allow_insecure_cookies)
+
 SESSION_COOKIE_SAMESITE = os.getenv("QUESTLINE_SESSION_COOKIE_SAMESITE", "lax").lower()
 if SESSION_COOKIE_SAMESITE not in {"lax", "strict", "none"}:
     SESSION_COOKIE_SAMESITE = "lax"
+
+
+def validate_runtime_security_config():
+    if QUESTLINE_ENV == "production":
+        if _allow_insecure_cookies:
+            raise RuntimeError(
+                "QUESTLINE_ALLOW_INSECURE_COOKIES must be disabled when QUESTLINE_ENV=production"
+            )
+        if not SESSION_COOKIE_SECURE:
+            raise RuntimeError(
+                "Secure session cookies are required when QUESTLINE_ENV=production"
+            )
 
 
 def get_accessible_boards(user: Optional[models.User], db: Session):

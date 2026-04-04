@@ -12,6 +12,8 @@ if str(ROOT) not in sys.path:
 def _load_modules(tmp_path, monkeypatch):
     db_path = tmp_path / "test.db"
     monkeypatch.setenv("QUESTLINE_DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("QUESTLINE_ENV", "development")
+    monkeypatch.setenv("QUESTLINE_ALLOW_INSECURE_COOKIES", "true")
 
     for module_name in ("main", "models", "database", "authz", "filters_logic"):
         sys.modules.pop(module_name, None)

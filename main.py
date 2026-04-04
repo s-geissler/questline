@@ -50,6 +50,7 @@ from authz import (
     require_board_access,
     require_current_user,
     user_to_dict,
+    validate_runtime_security_config,
     verify_password,
 )
 from filters_logic import (
@@ -394,6 +395,7 @@ async def log_request_timing(request: Request, call_next):
 @app.on_event("startup")
 def start_recurrence_worker():
     global recurrence_worker_thread
+    validate_runtime_security_config()
     recurrence_worker_stop_event.clear()
     if recurrence_worker_thread and recurrence_worker_thread.is_alive():
         return

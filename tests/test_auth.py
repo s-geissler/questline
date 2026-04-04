@@ -306,10 +306,9 @@ def test_inactive_new_accounts_require_admin_activation(app_env):
     assert relogin["is_active"] is True
 
 
-def test_session_cookie_flags_can_be_configured(tmp_path, monkeypatch):
+def test_session_cookie_flags_are_secure_by_default(tmp_path, monkeypatch):
     db_path = tmp_path / "cookie-test.db"
     monkeypatch.setenv("QUESTLINE_DATABASE_URL", f"sqlite:///{db_path}")
-    monkeypatch.setenv("QUESTLINE_SESSION_COOKIE_SECURE", "true")
     monkeypatch.setenv("QUESTLINE_SESSION_COOKIE_SAMESITE", "strict")
 
     for module_name in ("main", "models", "database", "authz"):
@@ -333,3 +332,62 @@ def test_session_cookie_flags_can_be_configured(tmp_path, monkeypatch):
         assert "SameSite=strict" in cookie_header
     finally:
         db.close()
+
+
+def test_session_cookie_flags_can_allow_local_insecure_override(tmp_path, monkeypatch):
+    db_path = tmp_path / "cookie-test-insecure.db"
+    monkeypatch.setenv("QUESTLINE_DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("QUESTLINE_ENV", "development")
+    monkeypatch.setenv("QUESTLINE_ALLOW_INSECURE_COOKIES", "true")
+    monkeypatch.setenv("QUESTLINE_SESSION_COOKIE_SAMESITE", "lax")
+
+    for module_name in ("main", "models", "database", "authz"):
+        sys.modules.pop(module_name, None)
+
+    main = importlib.import_module("main")
+    db = importlib.import_module("database").SessionLocal()
+    try:
+        response = main.Response()
+        main.auth_register(
+            main.RegisterRequest(
+                email="cookie-insecure@example.com",
+                password="supersecret",
+                display_name="Cookie User",
+            ),
+            response,
+            db,
+        )
+        cookie_header = response.headers.get("set-cookie")
+        assert "Secure" not in cookie_header
+        assert "SameSite=lax" in cookie_header
+    finally:
+        db.close()
+
+
+def test_runtime_security_defaults_to_production(tmp_path, monkeypatch):
+    db_path = tmp_path / "cookie-default-env.db"
+    monkeypatch.setenv("QUESTLINE_DATABASE_URL", f"sqlite:///{db_path}")
+
+    for module_name in ("main", "models", "database", "authz"):
+        sys.modules.pop(module_name, None)
+
+    authz = importlib.import_module("authz")
+    assert authz.QUESTLINE_ENV == "production"
+    assert authz.SESSION_COOKIE_SECURE is True
+
+
+def test_runtime_security_rejects_insecure_cookies_in_production(tmp_path, monkeypatch):
+    db_path = tmp_path / "cookie-prod-guard.db"
+    monkeypatch.setenv("QUESTLINE_DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("QUESTLINE_ALLOW_INSECURE_COOKIES", "true")
+
+    for module_name in ("main", "models", "database", "authz"):
+        sys.modules.pop(module_name, None)
+
+    main = importlib.import_module("main")
+
+    try:
+        main.start_recurrence_worker()
+        assert False, "Expected insecure production cookies to fail startup validation"
+    except RuntimeError as exc:
+        assert "QUESTLINE_ALLOW_INSECURE_COOKIES" in str(exc)

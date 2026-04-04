@@ -846,3 +846,36 @@ def test_log_stage_can_filter_overdue_tasks_relative_to_today(app_env):
     stages = main.get_stages(board["id"], db)
     rendered_log = next(stage for stage in stages if stage["id"] == log_stage["id"])
     assert [task["id"] for task in rendered_log["tasks"]] == [overdue_task["id"]]
+
+
+def test_log_stage_can_filter_by_objective_type_rule(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+    board = create_board(main, db)
+    backlog = create_stage(main, db, board["id"], "Backlog")
+    log_stage = create_stage(main, db, board["id"], "Bugs Only")
+    bug_type = create_task_type(main, db, board["id"], name="Bug")
+    feature_type = create_task_type(main, db, board["id"], name="Feature", color="#22c55e")
+
+    bug_task = create_task(main, db, backlog["id"], "Fix login", task_type_id=bug_type["id"])
+    create_task(main, db, backlog["id"], "Ship dashboard", task_type_id=feature_type["id"])
+    create_task(main, db, backlog["id"], "Untyped task")
+
+    saved_filter = create_saved_filter(
+        main,
+        db,
+        board["id"],
+        name="Bug Tasks",
+        definition={
+            "op": "and",
+            "selected_task_type_id": None,
+            "rules": [
+                {"field": "task_type_id", "operator": "eq", "value": str(bug_type["id"])},
+            ],
+        },
+    )
+    main.update_stage_config(log_stage["id"], main.StageConfigUpdate(is_log=True, filter_id=saved_filter["id"]), db)
+
+    stages = main.get_stages(board["id"], db)
+    rendered_log = next(stage for stage in stages if stage["id"] == log_stage["id"])
+    assert [task["id"] for task in rendered_log["tasks"]] == [bug_task["id"]]

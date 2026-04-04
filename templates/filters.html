@@ -147,13 +147,44 @@
                 </div>
               </template>
               <template x-if="!usesDropdownValue(rule) && !usesDateValueMode(rule)">
-                <input
-                  :type="inputTypeForRule(rule)"
-                  x-model="rule.value"
-                  :disabled="operatorWithoutValue(rule.operator)"
-                  class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  placeholder="Value"
-                >
+                <template x-if="!usesColorValue(rule)">
+                  <input
+                    :type="inputTypeForRule(rule)"
+                    x-model="rule.value"
+                    :disabled="operatorWithoutValue(rule.operator)"
+                    class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    placeholder="Value"
+                  >
+                </template>
+              </template>
+              <template x-if="usesColorValue(rule)">
+                <div class="space-y-2">
+                  <div class="flex flex-wrap gap-2">
+                    <template x-for="color in PRESET_COLORS" :key="color">
+                      <button
+                        type="button"
+                        @click="rule.value = color"
+                        :disabled="operatorWithoutValue(rule.operator)"
+                        class="h-7 w-7 rounded-full border border-black/10 transition-transform hover:scale-110 disabled:opacity-50 disabled:hover:scale-100"
+                        :style="'background:' + color"
+                        :class="String(rule.value || '') === String(color) ? 'ring-2 ring-offset-2 ring-gray-500' : ''"
+                        :title="color"
+                      ></button>
+                    </template>
+                    <button
+                      type="button"
+                      @click="rule.value = ''"
+                      :disabled="operatorWithoutValue(rule.operator)"
+                      class="h-7 w-7 rounded-full border border-dashed border-gray-300 bg-gray-100 text-xs text-gray-400 transition-colors hover:bg-gray-200 disabled:opacity-50"
+                      :class="!rule.value ? 'ring-2 ring-offset-2 ring-gray-400' : ''"
+                      title="No color"
+                    >✕</button>
+                  </div>
+                  <div class="text-xs text-gray-500" x-show="!operatorWithoutValue(rule.operator)">
+                    <span x-show="rule.value" x-text="'Selected: ' + rule.value"></span>
+                    <span x-show="!rule.value">Choose a color</span>
+                  </div>
+                </div>
               </template>
             </div>
             <button
@@ -228,9 +259,10 @@ function filtersPage() {
       const fields = [
         {key: 'title', label: 'Title', type: 'text'},
         {key: 'description', label: 'Description', type: 'text'},
+        {key: 'task_type_id', label: 'Objective Type', type: 'task_type'},
         {key: 'done', label: 'Status', type: 'status'},
         {key: 'due_date', label: 'Due Date', type: 'date'},
-        {key: 'color', label: 'Color', type: 'text'},
+        {key: 'color', label: 'Color', type: 'color'},
         {key: 'has_parent_task', label: 'Has Quest', type: 'boolean'},
       ];
       const selectedType = this.selectedTaskType();
@@ -250,7 +282,15 @@ function filtersPage() {
     operatorsForField(fieldKey) {
       const field = this.availableFields.find(entry => entry.key === fieldKey);
       const type = field?.type || 'text';
-      if (type === 'status' || type === 'boolean' || type === 'dropdown') {
+      if (type === 'status' || type === 'boolean' || type === 'dropdown' || type === 'task_type') {
+        return [
+          {value: 'eq', label: 'is'},
+          {value: 'neq', label: 'is not'},
+          {value: 'empty', label: 'is empty'},
+          {value: 'not_empty', label: 'is not empty'},
+        ];
+      }
+      if (type === 'color') {
         return [
           {value: 'eq', label: 'is'},
           {value: 'neq', label: 'is not'},
@@ -300,17 +340,25 @@ function filtersPage() {
       if (field.type === 'dropdown') {
         return (field.options || []).map(option => ({value: option, label: option}));
       }
+      if (field.type === 'task_type') {
+        return this.taskTypes.map(taskType => ({value: String(taskType.id), label: taskType.name}));
+      }
       return [];
     },
 
     usesDropdownValue(rule) {
       const field = this.availableFields.find(entry => entry.key === rule.field);
-      return !!field && ['status', 'boolean', 'dropdown'].includes(field.type) && !this.operatorWithoutValue(rule.operator);
+      return !!field && ['status', 'boolean', 'dropdown', 'task_type'].includes(field.type) && !this.operatorWithoutValue(rule.operator);
     },
 
     usesDateValueMode(rule) {
       const field = this.availableFields.find(entry => entry.key === rule.field);
       return !!field && field.type === 'date';
+    },
+
+    usesColorValue(rule) {
+      const field = this.availableFields.find(entry => entry.key === rule.field);
+      return !!field && field.type === 'color' && !this.operatorWithoutValue(rule.operator);
     },
 
     inputTypeForRule(rule) {
@@ -345,7 +393,7 @@ function filtersPage() {
       };
       const field = this.availableFields.find(entry => entry.key === normalized.field);
       if (!field) return normalized;
-      if (['status', 'boolean', 'dropdown'].includes(field.type) && normalized.value !== '' && normalized.value !== null) {
+      if (['status', 'boolean', 'dropdown', 'task_type', 'color'].includes(field.type) && normalized.value !== '' && normalized.value !== null) {
         normalized.value = String(normalized.value);
       }
       const validOperators = this.operatorsForField(normalized.field).map(entry => entry.value);

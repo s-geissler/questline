@@ -71,6 +71,12 @@ def _validated_filter_definition(
     parsed["source_board_ids"] = list(dict.fromkeys(validated_source_board_ids))
 
     for rule in parsed.get("rules") or []:
+        if rule["field"] == "task_type_id" and rule.get("value") not in {None, ""}:
+            try:
+                task_type_id = int(rule["value"])
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail="Invalid task type rule")
+            _require_task_type_in_board(task_type_id, owning_board_id, db)
         if rule["field"].startswith("custom:"):
             try:
                 field_id = int(rule["field"].split(":", 1)[1])
@@ -205,8 +211,17 @@ def _prefilter_log_query(query, definition: dict):
                     query = query.filter(column >= expected)
                 elif operator == "eq":
                     query = query.filter(column == expected)
-        elif field == "task_type_id" and operator == "eq" and value is not None:
-            query = query.filter(models.Task.task_type_id == int(value))
+        elif field == "task_type_id":
+            if operator == "empty":
+                query = query.filter(models.Task.task_type_id.is_(None))
+            elif operator == "not_empty":
+                query = query.filter(models.Task.task_type_id.is_not(None))
+            elif operator in {"eq", "neq"} and value not in {None, ""}:
+                expected = int(value)
+                if operator == "eq":
+                    query = query.filter(models.Task.task_type_id == expected)
+                else:
+                    query = query.filter(or_(models.Task.task_type_id.is_(None), models.Task.task_type_id != expected))
         elif field == "has_parent_task" and operator in {"eq", "neq"}:
             expected = value if isinstance(value, bool) else str(value).lower() == "true"
             condition = models.Task.parent_task_id.is_not(None) if expected else models.Task.parent_task_id.is_(None)
