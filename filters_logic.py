@@ -6,13 +6,27 @@ from typing import Optional
 
 from fastapi import HTTPException
 from sqlalchemy import or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 import models
 from authz import get_accessible_boards, require_board_access, _require_task_type_in_board
 
 logger = logging.getLogger("questline.logs")
 SLOW_LOG_STAGE_MS = 150.0
+
+
+def _task_detail_load_options():
+    return (
+        joinedload(models.Task.stage).joinedload(models.Stage.board),
+        joinedload(models.Task.task_type).selectinload(models.TaskType.custom_fields),
+        joinedload(models.Task.parent_task)
+        .joinedload(models.Task.stage)
+        .joinedload(models.Stage.board),
+        joinedload(models.Task.assignee),
+        selectinload(models.Task.custom_field_values),
+        selectinload(models.Task.checklist_items),
+        joinedload(models.Task.recurrence),
+    )
 
 
 def default_filter_definition():
@@ -280,6 +294,7 @@ def get_stage_tasks(stage: models.Stage, db: Session, current_user: Optional[mod
     if not stage.is_log:
         return (
             db.query(models.Task)
+            .options(*_task_detail_load_options())
             .filter(models.Task.stage_id == stage.id)
             .order_by(models.Task.position)
             .all()
@@ -295,6 +310,7 @@ def get_stage_tasks(stage: models.Stage, db: Session, current_user: Optional[mod
         return []
     query = (
         db.query(models.Task)
+        .options(*_task_detail_load_options())
         .join(models.Stage, models.Task.stage_id == models.Stage.id)
         .filter(
             models.Stage.board_id.in_(source_board_ids),
