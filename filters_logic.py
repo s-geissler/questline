@@ -77,6 +77,31 @@ def _validated_filter_definition(
             except (TypeError, ValueError):
                 raise HTTPException(status_code=400, detail="Invalid task type rule")
             _require_task_type_in_board(task_type_id, owning_board_id, db)
+        if rule["field"] == "assignee_user_id" and rule.get("value") not in {None, ""}:
+            if rule["value"] == "__me__":
+                if user is None:
+                    raise HTTPException(status_code=400, detail="Invalid assignee rule")
+            else:
+                try:
+                    assignee_user_id = int(rule["value"])
+                except (TypeError, ValueError):
+                    raise HTTPException(status_code=400, detail="Invalid assignee rule")
+                assignee = db.query(models.User).filter(models.User.id == assignee_user_id).first()
+                has_board_access = (
+                    assignee is not None
+                    and (
+                        assignee.role == "admin"
+                        or db.query(models.BoardMembership)
+                        .filter(
+                            models.BoardMembership.board_id == owning_board_id,
+                            models.BoardMembership.user_id == assignee_user_id,
+                        )
+                        .first()
+                        is not None
+                    )
+                )
+                if not has_board_access:
+                    raise HTTPException(status_code=400, detail="Invalid assignee rule")
         if rule["field"].startswith("custom:"):
             try:
                 field_id = int(rule["field"].split(":", 1)[1])
@@ -123,6 +148,8 @@ def _task_field_value(task: models.Task, field: str):
         return task.color or ""
     if field == "task_type_id":
         return task.task_type_id
+    if field == "assignee_user_id":
+        return task.assignee_user_id
     if field == "has_parent_task":
         return bool(task.parent_task_id)
     if field.startswith("custom:"):
@@ -137,10 +164,16 @@ def _task_field_value(task: models.Task, field: str):
     return None
 
 
-def _rule_matches(task: models.Task, rule: dict) -> bool:
+def _resolve_dynamic_filter_value(expected, current_user: Optional[models.User]):
+    if expected == "__me__":
+        return current_user.id if current_user is not None else None
+    return expected
+
+
+def _rule_matches(task: models.Task, rule: dict, current_user: Optional[models.User] = None) -> bool:
     value = _task_field_value(task, rule["field"])
     operator = rule["operator"]
-    expected = rule.get("value")
+    expected = _resolve_dynamic_filter_value(rule.get("value"), current_user)
 
     if expected == "today":
         expected = date.today().isoformat()
@@ -170,18 +203,18 @@ def _rule_matches(task: models.Task, rule: dict) -> bool:
     return False
 
 
-def _task_matches_filter(task: models.Task, definition: dict) -> bool:
+def _task_matches_filter(task: models.Task, definition: dict, current_user: Optional[models.User] = None) -> bool:
     if definition.get("selected_task_type_id"):
         if task.task_type_id != definition["selected_task_type_id"]:
             return False
     rules = definition.get("rules") or []
     if not rules:
         return True
-    matches = [_rule_matches(task, rule) for rule in rules]
+    matches = [_rule_matches(task, rule, current_user) for rule in rules]
     return all(matches) if definition.get("op") != "or" else any(matches)
 
 
-def _prefilter_log_query(query, definition: dict):
+def _prefilter_log_query(query, definition: dict, current_user: Optional[models.User] = None):
     if definition.get("selected_task_type_id") is not None:
         query = query.filter(models.Task.task_type_id == definition["selected_task_type_id"])
 
@@ -222,6 +255,19 @@ def _prefilter_log_query(query, definition: dict):
                     query = query.filter(models.Task.task_type_id == expected)
                 else:
                     query = query.filter(or_(models.Task.task_type_id.is_(None), models.Task.task_type_id != expected))
+        elif field == "assignee_user_id":
+            if operator == "empty":
+                query = query.filter(models.Task.assignee_user_id.is_(None))
+            elif operator == "not_empty":
+                query = query.filter(models.Task.assignee_user_id.is_not(None))
+            elif operator in {"eq", "neq"} and value not in {None, ""}:
+                expected = _resolve_dynamic_filter_value(value, current_user)
+                if expected is None:
+                    query = query.filter(models.Task.id == -1)
+                elif operator == "eq":
+                    query = query.filter(models.Task.assignee_user_id == expected)
+                else:
+                    query = query.filter(or_(models.Task.assignee_user_id.is_(None), models.Task.assignee_user_id != expected))
         elif field == "has_parent_task" and operator in {"eq", "neq"}:
             expected = value if isinstance(value, bool) else str(value).lower() == "true"
             condition = models.Task.parent_task_id.is_not(None) if expected else models.Task.parent_task_id.is_(None)
@@ -257,8 +303,8 @@ def get_stage_tasks(stage: models.Stage, db: Session, current_user: Optional[mod
         )
         .order_by(models.Task.created_at.desc(), models.Task.id.desc())
     )
-    query = _prefilter_log_query(query, definition)
-    tasks = [task for task in query.all() if _task_matches_filter(task, definition)]
+    query = _prefilter_log_query(query, definition, current_user)
+    tasks = [task for task in query.all() if _task_matches_filter(task, definition, current_user)]
     elapsed_ms = (time.perf_counter() - started) * 1000
     if elapsed_ms >= SLOW_LOG_STAGE_MS:
         logger.warning("slow_log_stage %.1fms stage_id=%s source_boards=%s matched=%s", elapsed_ms, stage.id, source_board_ids, len(tasks))

@@ -739,10 +739,35 @@ def filters_page(request: Request, board_id: int, db: Session = Depends(get_db))
     if not board:
         raise HTTPException(status_code=404, detail="Board not found")
     board_role = require_board_access(board_id, current_user, db, "viewer")
+    memberships = (
+        db.query(models.BoardMembership)
+        .filter(models.BoardMembership.board_id == board_id)
+        .order_by(models.BoardMembership.created_at, models.BoardMembership.id)
+        .all()
+    )
+    assignee_options = [
+        {
+            "user_id": membership.user_id,
+            "display_name": membership.user.display_name,
+            "email": membership.user.email,
+        }
+        for membership in memberships
+    ]
+    if current_user.role == "admin" and not any(option["user_id"] == current_user.id for option in assignee_options):
+        assignee_options.insert(
+            0,
+            {
+                "user_id": current_user.id,
+                "display_name": current_user.display_name,
+                "email": current_user.email,
+            },
+        )
     return templates.TemplateResponse(request, "filters.html", {
         "board": {"id": board.id, "name": board.name, "color": board.color},
         "boards": _boards_for_nav(db, current_user),
         "current_user": current_user,
+        "filter_current_user": user_to_dict(current_user),
+        "filter_assignee_options": assignee_options,
         "board_role": board_role,
     })
 

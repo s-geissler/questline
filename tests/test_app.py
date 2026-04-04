@@ -4,6 +4,18 @@ import pytest
 from fastapi import HTTPException
 
 
+def request_with_cookie(path="/", cookie=None):
+    headers = []
+    if cookie:
+        headers.append((b"cookie", cookie.encode("utf-8")))
+    return {
+        "type": "http",
+        "method": "GET",
+        "path": path,
+        "headers": headers,
+    }
+
+
 def create_board(main, db, name="Test Board", color="#3b82f6"):
     return main.create_board(main.BoardCreate(name=name, color=color), db)
 
@@ -879,3 +891,122 @@ def test_log_stage_can_filter_by_objective_type_rule(app_env):
     stages = main.get_stages(board["id"], db)
     rendered_log = next(stage for stage in stages if stage["id"] == log_stage["id"])
     assert [task["id"] for task in rendered_log["tasks"]] == [bug_task["id"]]
+
+
+def test_log_stage_can_filter_assigned_to_me(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+    models = app_env["models"]
+    board = create_board(main, db)
+    backlog = create_stage(main, db, board["id"], "Backlog")
+    log_stage = create_stage(main, db, board["id"], "My Work")
+
+    current_user = models.User(
+        email="me@example.com",
+        password_hash="x",
+        display_name="Me",
+        is_active=True,
+    )
+    teammate = models.User(
+        email="teammate@example.com",
+        password_hash="x",
+        display_name="Teammate",
+        is_active=True,
+    )
+    db.add_all([current_user, teammate])
+    db.commit()
+
+    board_row = db.query(models.Board).filter(models.Board.id == board["id"]).first()
+    main.ensure_board_membership(board_row, current_user, "editor", db)
+    main.ensure_board_membership(board_row, teammate, "viewer", db)
+    db.commit()
+
+    my_task = create_task(main, db, backlog["id"], "Mine")
+    their_task = create_task(main, db, backlog["id"], "Theirs")
+    unassigned_task = create_task(main, db, backlog["id"], "Unassigned")
+
+    main.update_task(my_task["id"], main.TaskUpdate(assignee_user_id=current_user.id), db)
+    main.update_task(their_task["id"], main.TaskUpdate(assignee_user_id=teammate.id), db)
+
+    session_token, _ = main.create_user_session(current_user, db)
+    saved_filter = main.create_saved_filter(
+        main.SavedFilterCreate(
+            name="Assigned to Me",
+            board_id=board["id"],
+            definition={
+                "op": "and",
+                "selected_task_type_id": None,
+                "rules": [
+                    {"field": "assignee_user_id", "operator": "eq", "value": "__me__"},
+                ],
+            },
+        ),
+        db,
+        main.Request(request_with_cookie(path="/api/filters", cookie=f"{main.SESSION_COOKIE}={session_token}")),
+    )
+    main.update_stage_config(log_stage["id"], main.StageConfigUpdate(is_log=True, filter_id=saved_filter["id"]), db)
+
+    request = main.Request(request_with_cookie(path=f"/api/stages?board_id={board['id']}", cookie=f"{main.SESSION_COOKIE}={session_token}"))
+
+    stages = main.get_stages(board["id"], db, request)
+    rendered_log = next(stage for stage in stages if stage["id"] == log_stage["id"])
+    assert [task["id"] for task in rendered_log["tasks"]] == [my_task["id"]]
+    assert all(task["id"] != their_task["id"] for task in rendered_log["tasks"])
+    assert all(task["id"] != unassigned_task["id"] for task in rendered_log["tasks"])
+
+
+def test_log_stage_can_filter_assigned_to_specific_user(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+    models = app_env["models"]
+    board = create_board(main, db)
+    backlog = create_stage(main, db, board["id"], "Backlog")
+    log_stage = create_stage(main, db, board["id"], "Teammate Work")
+
+    owner = models.User(
+        email="owner@example.com",
+        password_hash="x",
+        display_name="Owner",
+        role="admin",
+        is_active=True,
+    )
+    teammate = models.User(
+        email="specific@example.com",
+        password_hash="x",
+        display_name="Specific User",
+        is_active=True,
+    )
+    db.add_all([owner, teammate])
+    db.commit()
+
+    board_row = db.query(models.Board).filter(models.Board.id == board["id"]).first()
+    main.ensure_board_membership(board_row, teammate, "viewer", db)
+    db.commit()
+
+    mine = create_task(main, db, backlog["id"], "Mine")
+    theirs = create_task(main, db, backlog["id"], "Theirs")
+    main.update_task(theirs["id"], main.TaskUpdate(assignee_user_id=teammate.id), db)
+
+    owner_token, _ = main.create_user_session(owner, db)
+    saved_filter = main.create_saved_filter(
+        main.SavedFilterCreate(
+            name="Specific Assignee",
+            board_id=board["id"],
+            definition={
+                "op": "and",
+                "selected_task_type_id": None,
+                "rules": [
+                    {"field": "assignee_user_id", "operator": "eq", "value": str(teammate.id)},
+                ],
+            },
+        ),
+        db,
+        main.Request(request_with_cookie(path="/api/filters", cookie=f"{main.SESSION_COOKIE}={owner_token}")),
+    )
+    main.update_stage_config(log_stage["id"], main.StageConfigUpdate(is_log=True, filter_id=saved_filter["id"]), db)
+
+    request = main.Request(request_with_cookie(path=f"/api/stages?board_id={board['id']}", cookie=f"{main.SESSION_COOKIE}={owner_token}"))
+    stages = main.get_stages(board["id"], db, request)
+    rendered_log = next(stage for stage in stages if stage["id"] == log_stage["id"])
+    assert [task["id"] for task in rendered_log["tasks"]] == [theirs["id"]]
+    assert all(task["id"] != mine["id"] for task in rendered_log["tasks"])
