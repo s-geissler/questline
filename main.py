@@ -2,6 +2,7 @@ import json
 import logging
 import time
 import threading
+from collections import defaultdict, deque
 from datetime import date, datetime, timedelta
 from fastapi import FastAPI, Depends, HTTPException, Request, Response
 from fastapi.templating import Jinja2Templates
@@ -15,6 +16,7 @@ from typing import Optional, List as PyList, Union
 import models
 from database import engine, SessionLocal, get_db
 from authz import (
+    CSRF_COOKIE,
     _authorize_board_request,
     _board_id_for_automation,
     _board_id_for_saved_filter,
@@ -25,6 +27,7 @@ from authz import (
     _board_role_map,
     _board_shared_map,
     _clear_session_cookie,
+    _hash_csrf_token,
     _hash_session_token,
     _normalize_email,
     _owner_membership_count,
@@ -63,6 +66,10 @@ from filters_logic import (
 # Schema migrations (add board_id columns to existing tables if missing)
 # ---------------------------------------------------------------------------
 logger = logging.getLogger("questline.app")
+LOGIN_WINDOW_SECONDS = 300
+LOGIN_MAX_ATTEMPTS = 5
+login_attempt_lock = threading.Lock()
+login_attempts = defaultdict(deque)
 
 
 def _run_column_migrations():
@@ -94,6 +101,7 @@ def _run_column_migrations():
         ("instance_settings", "key", "VARCHAR"),
         ("instance_settings", "value", "TEXT"),
         ("task_recurrences", "mode", "VARCHAR"),
+        ("user_sessions", "csrf_token_hash", "VARCHAR"),
     ]
     with engine.connect() as conn:
         for table, col, col_type in migrations:
@@ -279,9 +287,103 @@ recurrence_worker_stop_event = threading.Event()
 recurrence_worker_thread = None
 
 
+def _request_client_ip(request: Optional[Request]) -> str:
+    if request is None:
+        return "unknown"
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",", 1)[0].strip() or "unknown"
+    client = getattr(request, "client", None)
+    return client.host if client and client.host else "unknown"
+
+
+def _login_rate_limit_key(email: str, request: Optional[Request]) -> str:
+    return f"{_request_client_ip(request)}:{email}"
+
+
+def _purge_login_attempts(attempts: deque, now: float):
+    while attempts and now - attempts[0] > LOGIN_WINDOW_SECONDS:
+        attempts.popleft()
+
+
+def _enforce_login_rate_limit(email: str, request: Optional[Request]):
+    key = _login_rate_limit_key(email, request)
+    now = time.time()
+    with login_attempt_lock:
+        attempts = login_attempts[key]
+        _purge_login_attempts(attempts, now)
+        if len(attempts) >= LOGIN_MAX_ATTEMPTS:
+            raise HTTPException(status_code=429, detail="Too many login attempts. Try again later.")
+
+
+def _record_login_failure(email: str, request: Optional[Request]):
+    key = _login_rate_limit_key(email, request)
+    now = time.time()
+    with login_attempt_lock:
+        attempts = login_attempts[key]
+        _purge_login_attempts(attempts, now)
+        attempts.append(now)
+
+
+def _clear_login_failures(email: str, request: Optional[Request]):
+    key = _login_rate_limit_key(email, request)
+    with login_attempt_lock:
+        login_attempts.pop(key, None)
+
+
+def _request_origin_is_same_origin(request: Request) -> bool:
+    origin = request.headers.get("origin")
+    if not origin:
+        return True
+    expected_origin = str(request.base_url).rstrip("/")
+    return origin.rstrip("/") == expected_origin
+
+
+def _require_api_csrf(request: Request):
+    if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
+        return
+    if not request.url.path.startswith("/api/"):
+        return
+    if request.headers.get("x-requested-with") != "XMLHttpRequest":
+        raise HTTPException(status_code=403, detail="CSRF validation failed")
+    if not _request_origin_is_same_origin(request):
+        raise HTTPException(status_code=403, detail="CSRF validation failed")
+
+    if request.url.path in {"/api/auth/login", "/api/auth/register"}:
+        return
+
+    session_token = request.cookies.get(SESSION_COOKIE)
+    csrf_cookie = request.cookies.get(CSRF_COOKIE)
+    csrf_header = request.headers.get("x-csrf-token")
+    if not session_token or not csrf_cookie or not csrf_header or csrf_cookie != csrf_header:
+        raise HTTPException(status_code=403, detail="CSRF validation failed")
+
+    db = SessionLocal()
+    try:
+        session = (
+            db.query(models.UserSession)
+            .filter(models.UserSession.token_hash == _hash_session_token(session_token))
+            .first()
+        )
+        if not session or not session.csrf_token_hash:
+            raise HTTPException(status_code=403, detail="CSRF validation failed")
+        if session.csrf_token_hash != _hash_csrf_token(csrf_header):
+            raise HTTPException(status_code=403, detail="CSRF validation failed")
+    finally:
+        db.close()
+
+
 @app.middleware("http")
 async def log_request_timing(request: Request, call_next):
     started = time.perf_counter()
+    try:
+        _require_api_csrf(request)
+    except HTTPException as exc:
+        return Response(
+            content=json.dumps({"detail": exc.detail}),
+            status_code=exc.status_code,
+            media_type="application/json",
+        )
     response = await call_next(request)
     elapsed_ms = (time.perf_counter() - started) * 1000
     if elapsed_ms >= 250:
@@ -1158,12 +1260,12 @@ def auth_register(data: RegisterRequest, response: Response, db: Session = Depen
     password = data.password or ""
     display_name = (data.display_name or "").strip() or email.split("@", 1)[0]
     if not email or "@" not in email:
-        raise HTTPException(status_code=400, detail="Valid email is required")
+        raise HTTPException(status_code=400, detail="Registration failed")
     if len(password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
     existing = db.query(models.User).filter(models.User.email == email).first()
     if existing:
-        raise HTTPException(status_code=400, detail="Email already registered")
+        raise HTTPException(status_code=400, detail="Registration failed")
     existing_user_count = db.query(models.User).count()
     if existing_user_count > 0 and not get_instance_settings(db)["registration_enabled"]:
         raise HTTPException(status_code=403, detail="Registration is currently disabled")
@@ -1181,21 +1283,30 @@ def auth_register(data: RegisterRequest, response: Response, db: Session = Depen
     db.refresh(user)
     claim_legacy_boards_for_first_user(user, db)
     if user.is_active:
-        token = create_user_session(user, db)
-        _set_session_cookie(response, token)
+        token, csrf_token = create_user_session(user, db)
+        _set_session_cookie(response, token, csrf_token)
     return user_to_dict(user)
 
 
 @app.post("/api/auth/login")
-def auth_login(data: LoginRequest, response: Response, db: Session = Depends(get_db)):
+def auth_login(
+    data: LoginRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+    request: Request = None,
+):
     email = _normalize_email(data.email)
+    _enforce_login_rate_limit(email, request)
     user = db.query(models.User).filter(models.User.email == email).first()
     if not user or not verify_password(data.password or "", user.password_hash):
+        _record_login_failure(email, request)
         raise HTTPException(status_code=401, detail="Invalid email or password")
     if not user.is_active:
+        _record_login_failure(email, request)
         raise HTTPException(status_code=403, detail="Account is awaiting activation")
-    token = create_user_session(user, db)
-    _set_session_cookie(response, token)
+    _clear_login_failures(email, request)
+    token, csrf_token = create_user_session(user, db)
+    _set_session_cookie(response, token, csrf_token)
     return user_to_dict(user)
 
 
@@ -1225,8 +1336,8 @@ def auth_update_profile(data: ProfileUpdate, request: Request, response: Respons
         db.query(models.UserSession).filter(models.UserSession.user_id == user.id).delete()
     db.commit()
     if data.password is not None and data.password != "":
-        token = create_user_session(user, db)
-        _set_session_cookie(response, token)
+        token, csrf_token = create_user_session(user, db)
+        _set_session_cookie(response, token, csrf_token)
     db.refresh(user)
     return user_to_dict(user)
 

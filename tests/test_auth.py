@@ -85,7 +85,7 @@ def test_register_rejects_duplicate_email(app_env):
         assert False, "Expected duplicate registration to fail"
     except main.HTTPException as exc:
         assert exc.status_code == 400
-        assert exc.detail == "Email already registered"
+        assert exc.detail == "Registration failed"
 
 
 def test_login_and_logout_flow(app_env):

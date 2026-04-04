@@ -127,6 +127,7 @@ class UserSession(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     token_hash = Column(String, nullable=False, unique=True)
+    csrf_token_hash = Column(String, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     user = relationship("User", back_populates="sessions")
 

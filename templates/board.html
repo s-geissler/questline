@@ -227,7 +227,7 @@
               <template x-if="shouldShowDescriptionOnCard(task)">
                 <div
                   class="mt-1.5 text-xs text-gray-500 leading-snug prose prose-sm max-w-none"
-                  x-html="marked.parse(task.description)"
+                  x-html="renderMarkdown(task.description)"
                 ></div>
               </template>
               <template x-if="shouldShowChecklistOnCard(task)">
@@ -889,7 +889,7 @@
               class="min-h-[60px] cursor-text rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 border border-transparent hover:border-gray-200 transition-colors prose prose-sm max-w-none"
             >
               <template x-if="selectedTask.description">
-                <div x-html="marked.parse(selectedTask.description)"></div>
+                <div x-html="renderMarkdown(selectedTask.description)"></div>
               </template>
               <template x-if="!selectedTask.description">
                 <span class="text-gray-400 italic">Add a description...</span>
@@ -1012,16 +1012,29 @@
                     :disabled="!canEditBoard"
                     class="h-4 w-4 rounded accent-blue-500 flex-shrink-0"
                   >
-                  <span
-                    class="text-sm flex-1"
-                    :class="[
-                      item.done ? 'line-through text-gray-400' : 'text-gray-700',
-                      item.spawned_task_id ? 'cursor-pointer hover:text-blue-600 hover:underline' : ''
-                    ]"
-                    @click="item.spawned_task_id && openSpawnedTask(item.spawned_task_id)"
-                    x-text="item.title"
-                    :title="item.spawned_task_id ? 'Open linked objective' : ''"
-                  ></span>
+                  <div
+                    class="flex flex-1 items-center gap-1.5 min-w-0"
+                    :class="item.spawned_task_id ? 'checklist-linked-item' : ''"
+                  >
+                    <span
+                      class="text-sm min-w-0"
+                      :class="[
+                        item.done
+                          ? (item.spawned_task_id ? 'line-through text-blue-600' : 'line-through text-gray-400')
+                          : (item.spawned_task_id ? 'text-blue-600' : 'text-gray-700'),
+                        item.spawned_task_id ? 'cursor-pointer hover:text-blue-700 hover:underline' : ''
+                      ]"
+                      @click="item.spawned_task_id && openSpawnedTask(item.spawned_task_id)"
+                      x-text="item.title"
+                      :title="item.spawned_task_id ? 'Open linked objective' : ''"
+                    ></span>
+                    <span
+                      x-show="item.spawned_task_id"
+                      class="checklist-linked-icon flex-shrink-0 text-xs"
+                      @click="openSpawnedTask(item.spawned_task_id)"
+                      title="Open linked objective"
+                    >↗</span>
+                  </div>
                   <button
                     x-show="canEditBoard"
                     @click="deleteChecklistItem(item)"

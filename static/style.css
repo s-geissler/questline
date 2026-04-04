@@ -30,3 +30,16 @@
   opacity: 1;
   box-shadow: 0 10px 30px rgba(0,0,0,0.2);
 }
+
+.checklist-linked-item {
+  color: #2563eb;
+}
+
+.checklist-linked-icon {
+  color: #2563eb;
+  cursor: pointer;
+}
+
+.checklist-linked-item:hover .checklist-linked-icon {
+  color: #1d4ed8;
+}

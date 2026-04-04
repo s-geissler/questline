@@ -4,6 +4,8 @@
 
 Questline uses **session cookies**. On login a random 32-byte URL-safe token is generated, its SHA-256 hash is stored in `user_sessions`, and the raw token is sent to the browser as an `httponly` cookie named `questline_session`.
 
+Unsafe API requests are protected with a session-bound CSRF token exposed to the browser as the `questline_csrf` cookie. The frontend echoes that value in `X-CSRF-Token`, and unsafe `/api/` requests must also present `X-Requested-With: XMLHttpRequest`.
+
 Passwords are stored as `pbkdf2_sha256$<iterations>$<salt>$<digest>` using 120,000 PBKDF2-HMAC-SHA-256 iterations.
 
 ### Session Cookie Settings
@@ -60,5 +62,5 @@ Every API handler calls `_authorize_board_request(request, db, board_id, min_rol
 
 - `GET /login`
 - `GET /register`
-- `POST /api/auth/login`
-- `POST /api/auth/register` (when registration is enabled)
+- `POST /api/auth/login` (XHR-only)
+- `POST /api/auth/register` (when registration is enabled, XHR-only)

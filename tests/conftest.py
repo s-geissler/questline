@@ -13,7 +13,7 @@ def _load_modules(tmp_path, monkeypatch):
     db_path = tmp_path / "test.db"
     monkeypatch.setenv("QUESTLINE_DATABASE_URL", f"sqlite:///{db_path}")
 
-    for module_name in ("main", "models", "database"):
+    for module_name in ("main", "models", "database", "authz", "filters_logic"):
         sys.modules.pop(module_name, None)
 
     database = importlib.import_module("database")
@@ -36,4 +36,3 @@ def app_env(tmp_path, monkeypatch):
     finally:
         db.close()
         database.engine.dispose()
-

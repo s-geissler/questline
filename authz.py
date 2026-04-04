@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 import models
 
 SESSION_COOKIE = "questline_session"
+CSRF_COOKIE = "questline_csrf"
 PASSWORD_HASH_ITERATIONS = 120_000
 BOARD_ROLE_ORDER = {"viewer": 1, "editor": 2, "owner": 3, "admin": 4}
 SESSION_COOKIE_SECURE = os.getenv("QUESTLINE_SESSION_COOKIE_SECURE", "").lower() in {"1", "true", "yes", "on"}
@@ -128,7 +129,11 @@ def _hash_session_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def _set_session_cookie(response: Response, token: str):
+def _hash_csrf_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _set_session_cookie(response: Response, token: str, csrf_token: str):
     response.set_cookie(
         SESSION_COOKIE,
         token,
@@ -137,18 +142,32 @@ def _set_session_cookie(response: Response, token: str):
         secure=SESSION_COOKIE_SECURE,
         path="/",
     )
+    response.set_cookie(
+        CSRF_COOKIE,
+        csrf_token,
+        httponly=False,
+        samesite=SESSION_COOKIE_SAMESITE,
+        secure=SESSION_COOKIE_SECURE,
+        path="/",
+    )
 
 
 def _clear_session_cookie(response: Response):
     response.delete_cookie(SESSION_COOKIE, path="/")
+    response.delete_cookie(CSRF_COOKIE, path="/")
 
 
-def create_user_session(user: models.User, db: Session) -> str:
+def create_user_session(user: models.User, db: Session) -> tuple[str, str]:
     token = secrets.token_urlsafe(32)
-    session = models.UserSession(user_id=user.id, token_hash=_hash_session_token(token))
+    csrf_token = secrets.token_urlsafe(32)
+    session = models.UserSession(
+        user_id=user.id,
+        token_hash=_hash_session_token(token),
+        csrf_token_hash=_hash_csrf_token(csrf_token),
+    )
     db.add(session)
     db.commit()
-    return token
+    return token, csrf_token
 
 
 def ensure_board_membership(board: models.Board, user: models.User, role: str, db: Session):

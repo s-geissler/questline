@@ -353,6 +353,101 @@
     }
   </style>
   <script>
+    function getCookie(name) {
+      const prefix = `${name}=`;
+      return document.cookie
+        .split(';')
+        .map(part => part.trim())
+        .find(part => part.startsWith(prefix))
+        ?.slice(prefix.length) || '';
+    }
+
+    function sanitizeMarkdownHtml(html) {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html || '', 'text/html');
+      const allowedTags = new Set(['A', 'P', 'BR', 'STRONG', 'EM', 'UL', 'OL', 'LI', 'CODE', 'PRE', 'BLOCKQUOTE', 'H1', 'H2', 'H3', 'HR']);
+      const allowedProtocols = ['http:', 'https:', 'mailto:', 'tel:'];
+
+      function isSafeHref(value) {
+        if (!value) return false;
+        if (value.startsWith('/') || value.startsWith('#')) return true;
+        try {
+          const url = new URL(value, window.location.origin);
+          return allowedProtocols.includes(url.protocol);
+        } catch {
+          return false;
+        }
+      }
+
+      function visit(node) {
+        for (const child of [...node.childNodes]) {
+          if (child.nodeType === Node.ELEMENT_NODE) {
+            if (!allowedTags.has(child.tagName)) {
+              child.replaceWith(document.createTextNode(child.textContent || ''));
+              continue;
+            }
+            for (const attr of [...child.attributes]) {
+              const attrName = attr.name.toLowerCase();
+              if (child.tagName === 'A' && attrName === 'href') {
+                if (!isSafeHref(attr.value)) {
+                  child.removeAttribute(attr.name);
+                }
+                continue;
+              }
+              if (child.tagName === 'A' && attrName === 'title') {
+                continue;
+              }
+              child.removeAttribute(attr.name);
+            }
+            if (child.tagName === 'A') {
+              child.setAttribute('rel', 'nofollow noopener noreferrer');
+            }
+            visit(child);
+            continue;
+          }
+          if (child.nodeType !== Node.TEXT_NODE) {
+            child.remove();
+          }
+        }
+      }
+
+      visit(doc.body);
+      return doc.body.innerHTML;
+    }
+
+    function renderMarkdown(value) {
+      return sanitizeMarkdownHtml(marked.parse(value || ''));
+    }
+
+    const nativeFetch = window.fetch.bind(window);
+    window.fetch = function(input, init = {}) {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url, window.location.origin);
+      if (url.origin !== window.location.origin || !url.pathname.startsWith('/api/')) {
+        return nativeFetch(input, init);
+      }
+
+      const method = (request.method || 'GET').toUpperCase();
+      if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+        return nativeFetch(input, init);
+      }
+
+      const headers = new Headers(request.headers);
+      headers.set('X-Requested-With', 'XMLHttpRequest');
+
+      if (!['/api/auth/login', '/api/auth/register'].includes(url.pathname)) {
+        const csrfToken = getCookie('questline_csrf');
+        if (csrfToken) {
+          headers.set('X-CSRF-Token', csrfToken);
+        }
+      }
+
+      if (input instanceof Request) {
+        return nativeFetch(new Request(input, {headers}));
+      }
+      return nativeFetch(input, {...init, headers});
+    };
+
     const PRESET_COLORS = [
       '#ef4444','#f97316','#f59e0b','#eab308',
       '#22c55e','#14b8a6','#06b6d4','#3b82f6',
