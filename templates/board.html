@@ -1939,10 +1939,16 @@ function board() {
 
     // Helpers
     _syncTaskInStages(updated) {
-      for (const stage of this.stages) {
+      let changed = false;
+      this.stages = this.stages.map(stage => {
         const idx = stage.tasks.findIndex(t => t.id === updated.id);
-        if (idx !== -1) { stage.tasks[idx] = updated; return; }
-      }
+        if (idx === -1) return stage;
+        changed = true;
+        const tasks = [...stage.tasks];
+        tasks.splice(idx, 1, updated);
+        return {...stage, tasks};
+      });
+      if (!changed) return;
     },
 
     _findTaskInStages(taskId) {
