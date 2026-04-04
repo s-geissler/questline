@@ -91,10 +91,50 @@
                 </template>
               </select>
             </div>
+            <template x-if="rule.field === '__custom__'">
+              <div class="md:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Objective Type</label>
+                  <select
+                    x-model="rule.custom_task_type_id"
+                    @change="handleCustomTaskTypeChange(rule)"
+                    class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  >
+                    <option value="">Select type</option>
+                    <template x-for="taskType in customFieldTaskTypes" :key="taskType.id">
+                      <option
+                        :value="String(taskType.id)"
+                        :selected="String(rule.custom_task_type_id || '') === String(taskType.id)"
+                        x-text="taskType.name"
+                      ></option>
+                    </template>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Custom Field</label>
+                  <select
+                    x-model="rule.custom_field_id"
+                    @change="handleCustomFieldChange(rule)"
+                    class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    :disabled="!rule.custom_task_type_id"
+                  >
+                    <option value="">Select field</option>
+                    <template x-for="field in customFieldsForRule(rule)" :key="field.id">
+                      <option
+                        :value="String(field.id)"
+                        :selected="String(rule.custom_field_id || '') === String(field.id)"
+                        x-text="field.name"
+                      ></option>
+                    </template>
+                  </select>
+                </div>
+              </div>
+            </template>
             <div>
               <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Operator</label>
               <select
                 x-model="rule.operator"
+                :disabled="rule.field === '__custom__' && !selectedCustomField(rule)"
                 class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               >
                 <template x-for="operator in operatorsForRule(rule)" :key="operator.value">
@@ -105,7 +145,7 @@
             <div>
               <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Value</label>
               <template x-if="usesDropdownValue(rule)">
-                <select x-model="rule.value" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+                <select x-model="rule.value" :disabled="rule.field === '__custom__' && !selectedCustomField(rule)" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
                   <option value="">Select value</option>
                   <template x-for="option in valueOptionsForRule(rule)" :key="option.value">
                     <option :value="option.value" :selected="String(rule.value ?? '') === String(option.value)" x-text="option.label"></option>
@@ -136,7 +176,7 @@
                   <input
                     :type="inputTypeForRule(rule)"
                     x-model="rule.value"
-                    :disabled="operatorWithoutValue(rule.operator)"
+                    :disabled="operatorWithoutValue(rule.operator) || (rule.field === '__custom__' && !selectedCustomField(rule))"
                     class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                     placeholder="Value"
                   >
@@ -149,7 +189,7 @@
                       <button
                         type="button"
                         @click="rule.value = color"
-                        :disabled="operatorWithoutValue(rule.operator)"
+                        :disabled="operatorWithoutValue(rule.operator) || (rule.field === '__custom__' && !selectedCustomField(rule))"
                         class="h-7 w-7 rounded-full border border-black/10 transition-transform hover:scale-110 disabled:opacity-50 disabled:hover:scale-100"
                         :style="'background:' + color"
                         :class="String(rule.value || '') === String(color) ? 'ring-2 ring-offset-2 ring-gray-500' : ''"
@@ -159,7 +199,7 @@
                     <button
                       type="button"
                       @click="rule.value = ''"
-                      :disabled="operatorWithoutValue(rule.operator)"
+                      :disabled="operatorWithoutValue(rule.operator) || (rule.field === '__custom__' && !selectedCustomField(rule))"
                       class="h-7 w-7 rounded-full border border-dashed border-gray-300 bg-gray-100 text-xs text-gray-400 transition-colors hover:bg-gray-200 disabled:opacity-50"
                       :class="!rule.value ? 'ring-2 ring-offset-2 ring-gray-400' : ''"
                       title="No color"
@@ -243,7 +283,7 @@ function filtersPage() {
     },
 
     get availableFields() {
-      const fields = [
+      return [
         {key: 'title', label: 'Title', type: 'text'},
         {key: 'description', label: 'Description', type: 'text'},
         {key: 'task_type_id', label: 'Objective Type', type: 'task_type'},
@@ -252,23 +292,38 @@ function filtersPage() {
         {key: 'due_date', label: 'Due Date', type: 'date'},
         {key: 'color', label: 'Color', type: 'color'},
         {key: 'has_parent_task', label: 'Has Quest', type: 'boolean'},
+        {key: '__custom__', label: 'Custom Field', type: 'custom'},
       ];
-      for (const taskType of this.taskTypes) {
-        for (const field of taskType.custom_fields || []) {
-          fields.push({
-            key: `custom:${field.id}`,
-            label: `Custom: ${taskType.name} / ${field.name}`,
-            type: field.field_type,
-            options: field.options || [],
-          });
-        }
-      }
-      return fields;
     },
 
-    operatorsForField(fieldKey) {
-      const field = this.availableFields.find(entry => entry.key === fieldKey);
-      const type = field?.type || 'text';
+    get customFieldTaskTypes() {
+      return this.taskTypes.filter(taskType => (taskType.custom_fields || []).length > 0);
+    },
+
+    customFieldsForRule(rule) {
+      const taskType = this.customFieldTaskTypes.find(taskType => String(taskType.id) === String(rule.custom_task_type_id || ''));
+      return taskType?.custom_fields || [];
+    },
+
+    selectedCustomField(rule) {
+      return this.customFieldsForRule(rule).find(field => String(field.id) === String(rule.custom_field_id || '')) || null;
+    },
+
+    fieldConfigForRule(rule) {
+      if (rule.field === '__custom__') {
+        const customField = this.selectedCustomField(rule);
+        if (!customField) return {key: '__custom__', label: 'Custom Field', type: 'text', options: []};
+        return {
+          key: `custom:${customField.id}`,
+          label: `Custom: ${customField.name}`,
+          type: customField.field_type,
+          options: customField.options || [],
+        };
+      }
+      return this.availableFields.find(entry => entry.key === rule.field) || null;
+    },
+
+    operatorsForType(type) {
       if (type === 'status' || type === 'boolean' || type === 'dropdown' || type === 'task_type' || type === 'assignee') {
         return [
           {value: 'eq', label: 'is'},
@@ -305,12 +360,19 @@ function filtersPage() {
       ];
     },
 
+    operatorsForField(fieldKey) {
+      const field = this.availableFields.find(entry => entry.key === fieldKey);
+      const type = field?.type || 'text';
+      return this.operatorsForType(type);
+    },
+
     operatorsForRule(rule) {
-      return this.operatorsForField(rule.field);
+      const field = this.fieldConfigForRule(rule);
+      return this.operatorsForType(field?.type || 'text');
     },
 
     valueOptionsForRule(rule) {
-      const field = this.availableFields.find(entry => entry.key === rule.field);
+      const field = this.fieldConfigForRule(rule);
       if (!field) return [];
       if (field.type === 'status') {
         return [
@@ -346,17 +408,17 @@ function filtersPage() {
     },
 
     usesDropdownValue(rule) {
-      const field = this.availableFields.find(entry => entry.key === rule.field);
+      const field = this.fieldConfigForRule(rule);
       return !!field && ['status', 'boolean', 'dropdown', 'task_type', 'assignee'].includes(field.type) && !this.operatorWithoutValue(rule.operator);
     },
 
     usesDateValueMode(rule) {
-      const field = this.availableFields.find(entry => entry.key === rule.field);
+      const field = this.fieldConfigForRule(rule);
       return !!field && field.type === 'date';
     },
 
     usesColorValue(rule) {
-      const field = this.availableFields.find(entry => entry.key === rule.field);
+      const field = this.fieldConfigForRule(rule);
       return !!field && field.type === 'color' && !this.operatorWithoutValue(rule.operator);
     },
 
@@ -366,7 +428,7 @@ function filtersPage() {
     },
 
     inputTypeForRule(rule) {
-      const field = this.availableFields.find(entry => entry.key === rule.field);
+      const field = this.fieldConfigForRule(rule);
       return field?.type === 'date' ? 'date' : (field?.type === 'number' ? 'number' : 'text');
     },
 
@@ -394,13 +456,29 @@ function filtersPage() {
         field: rule.field || (this.availableFields[0]?.key || 'title'),
         operator: rule.operator || 'contains',
         value: rule.value ?? '',
+        custom_task_type_id: rule.custom_task_type_id ? String(rule.custom_task_type_id) : '',
+        custom_field_id: rule.custom_field_id ? String(rule.custom_field_id) : '',
       };
-      const field = this.availableFields.find(entry => entry.key === normalized.field);
+      if (normalized.field.startsWith('custom:')) {
+        const customFieldId = normalized.field.split(':', 2)[1];
+        const taskType = this.customFieldTaskTypes.find(entry =>
+          (entry.custom_fields || []).some(field => String(field.id) === String(customFieldId))
+        );
+        normalized.field = '__custom__';
+        normalized.custom_task_type_id = taskType ? String(taskType.id) : '';
+        normalized.custom_field_id = customFieldId ? String(customFieldId) : '';
+      }
+      if (normalized.field === '__custom__' && !normalized.custom_task_type_id) {
+        const firstTaskType = this.customFieldTaskTypes[0];
+        normalized.custom_task_type_id = firstTaskType ? String(firstTaskType.id) : '';
+        normalized.custom_field_id = firstTaskType?.custom_fields?.[0] ? String(firstTaskType.custom_fields[0].id) : '';
+      }
+      const field = this.fieldConfigForRule(normalized);
       if (!field) return normalized;
       if (['status', 'boolean', 'dropdown', 'task_type', 'assignee', 'color'].includes(field.type) && normalized.value !== '' && normalized.value !== null) {
         normalized.value = String(normalized.value);
       }
-      const validOperators = this.operatorsForField(normalized.field).map(entry => entry.value);
+      const validOperators = this.operatorsForType(field.type || 'text').map(entry => entry.value);
       if (!validOperators.includes(normalized.operator)) {
         normalized.operator = validOperators[0];
       }
@@ -448,6 +526,30 @@ function filtersPage() {
     resetRuleForField(rule) {
       rule.operator = this.operatorsForField(rule.field)[0].value;
       rule.value = '';
+      if (rule.field === '__custom__') {
+        const firstTaskType = this.customFieldTaskTypes[0];
+        rule.custom_task_type_id = firstTaskType ? String(firstTaskType.id) : '';
+        rule.custom_field_id = firstTaskType?.custom_fields?.[0] ? String(firstTaskType.custom_fields[0].id) : '';
+        const customOperators = this.operatorsForRule(rule);
+        rule.operator = customOperators[0]?.value || 'contains';
+        return;
+      }
+      rule.custom_task_type_id = '';
+      rule.custom_field_id = '';
+    },
+
+    handleCustomTaskTypeChange(rule) {
+      const firstField = this.customFieldsForRule(rule)[0];
+      rule.custom_field_id = firstField ? String(firstField.id) : '';
+      rule.value = '';
+      const operators = this.operatorsForRule(rule);
+      rule.operator = operators[0]?.value || 'contains';
+    },
+
+    handleCustomFieldChange(rule) {
+      rule.value = '';
+      const operators = this.operatorsForRule(rule);
+      rule.operator = operators[0]?.value || 'contains';
     },
 
     startCreate() {
@@ -475,7 +577,7 @@ function filtersPage() {
           .map(id => parseInt(id, 10))
           .filter(id => !Number.isNaN(id)),
         rules: this.editingFilter.definition.rules.map(rule => ({
-          field: rule.field,
+          field: rule.field === '__custom__' && rule.custom_field_id ? `custom:${rule.custom_field_id}` : rule.field,
           operator: rule.operator,
           value: this.operatorWithoutValue(rule.operator) ? null : rule.value,
         })),
