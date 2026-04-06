@@ -242,11 +242,11 @@
               </template>
               <!-- Custom fields marked show_on_card -->
               <template x-if="task.task_type && task.task_type.custom_fields">
-                <div class="flex flex-col gap-1 mt-1.5">
+                <div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
                   <template x-for="field in task.task_type.custom_fields.filter(f => f.show_on_card)" :key="field.id">
                     <template x-if="hasCustomFieldValue(task.custom_field_values[String(field.id)])">
                       <span
-                        class="text-xs px-1.5 py-0.5 rounded font-medium self-start"
+                        class="text-xs px-1.5 py-0.5 rounded font-medium"
                         :style="chipStyle(field, task.custom_field_values[String(field.id)])"
                         x-text="field.name + ': ' + task.custom_field_values[String(field.id)]"
                       ></span>
