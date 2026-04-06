@@ -242,7 +242,7 @@
               </template>
               <!-- Custom fields marked show_on_card -->
               <template x-if="task.task_type && task.task_type.custom_fields">
-                <div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                <div class="mt-1.5" style="display: flex; flex-wrap: wrap; gap: 0.375rem; align-items: stretch;">
                   <template x-for="field in task.task_type.custom_fields.filter(f => f.show_on_card)" :key="field.id">
                     <template x-if="hasCustomFieldValue(task.custom_field_values[String(field.id)])">
                       <span
@@ -1748,7 +1748,7 @@ function board() {
       const bg = this.customFieldChipColor(field, value) || field.color || '#6b7280';
       const n = parseInt(bg.replace('#', ''), 16);
       const luminance = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
-      return `background:${bg}; color:${luminance > 0.55 ? '#1f2937' : '#ffffff'}`;
+      return `display:block; flex:1 1 6.5rem; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; background:${bg}; color:${luminance > 0.55 ? '#1f2937' : '#ffffff'}`;
     },
 
     customFieldOptionLabel(option) {
