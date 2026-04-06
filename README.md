@@ -2,6 +2,10 @@
 
 Questline is a project management application designed for workflows that require more than just a simple task list. It provides a structured environment where you can organize work into Hubs, manage progression through Stages, and track high-level Quests alongside individual Objectives.
 
+## Walkthrough
+
+![Questline walkthrough](./fresh-canvas-walkthrough.gif)
+
 ## Terminology
 
 To get the most out of Questline, it is helpful to understand how work is organized:
