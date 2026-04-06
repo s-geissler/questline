@@ -40,13 +40,13 @@ users
   id, email, display_name, password_hash, role (user|admin), is_active, created_at
 
 user_sessions
-  id, user_id → users, token_hash, created_at
+  id, user_id → users, token_hash, csrf_token_hash, created_at
 
 boards
   id, name, color, position, owner_user_id → users
 
 board_memberships
-  id, board_id → boards, user_id → users, role (viewer|editor|owner|admin), created_at
+  id, board_id → boards, user_id → users, role (viewer|editor|owner), created_at
   UNIQUE (board_id, user_id)
 
 lists  [= Stages]

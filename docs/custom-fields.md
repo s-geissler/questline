@@ -9,11 +9,9 @@ Custom fields let you attach structured metadata to objectives. Fields are defin
 | `text` | Free-form single-line string | No |
 | `number` | Numeric value | No |
 | `date` | ISO date string (`YYYY-MM-DD`) | No |
-| `select` | Single choice from a predefined list | Yes |
-| `multiselect` | Multiple choices from a predefined list | Yes |
-| `checkbox` | Boolean flag | No |
+| `dropdown` | Single choice from a predefined list | Yes |
 
-## Options (for select/multiselect)
+## Options (for dropdown)
 
 Options are stored as a JSON array on `CustomFieldDef.options`. Each option is an object:
 
@@ -47,7 +45,7 @@ Custom fields can be used as filter conditions in Saved Filters. The filter rule
 | `lte` | Less than or equal (lexicographic for dates) |
 | `gte` | Greater than or equal |
 
-When a Task Type filter is active on a Log Stage or Saved Filter, custom field rules are validated to ensure the referenced field belongs to the selected task type.
+When a Task Type filter is active on a Log Stage or Saved Filter, custom field rules are validated to ensure the referenced field belongs to the selected task type. Dropdown fields use equality-style operators in the UI, while text, number, and date fields can also use ordered comparisons where applicable.
 
 ## API
 

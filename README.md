@@ -21,7 +21,7 @@ Questline includes several advanced features to help you manage complex workflow
 *   **Flexible Custom Fields**: Extend your objectives by adding specialized data fields like text, numbers, dates, or dropdown menus based on the objective type.
 *   **Automation Engine**: Create rules that automatically perform actions based on specific triggers. For example, you can set a rule to move an objective to a specific Stage whenever it is marked as completed.
 *   **Checklist Spawning**: Break down Quests into smaller objectives using checklists. Checklist items can be converted into standalone objectives that remain linked to their parent Quest.
-*   **Dynamic UI**: A responsive design with drag-and-drop capabilities and real-time updates for a smooth management experience.
+*   **Dynamic UI**: A responsive design with drag-and-drop capabilities and rich browser-side interactions for a smooth management experience.
 
 ## Technology Stack
 
@@ -37,7 +37,7 @@ The project is built using a modern Python-based stack:
 ### Prerequisites
 
 To run this project, you will need:
-*   Python 3.8 or higher
+*   Python 3.9 or higher
 *   The `pip` package manager
 
 ### Installation

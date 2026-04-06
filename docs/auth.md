@@ -12,7 +12,9 @@ Passwords are stored as `pbkdf2_sha256$<iterations>$<salt>$<digest>` using 120,0
 
 | Env var | Default | Effect |
 |---|---|---|
-| `QUESTLINE_SESSION_COOKIE_SECURE` | `""` (off) | Set to `1` or `true` to add the `Secure` flag (HTTPS-only) |
+| `QUESTLINE_ENV` | `production` | Production mode requires secure session cookies |
+| `QUESTLINE_ALLOW_INSECURE_COOKIES` | unset | Set to `1` or `true` in development to allow non-`Secure` cookies |
+| `QUESTLINE_SESSION_COOKIE_SECURE` | unset | Explicit override for the `Secure` flag |
 | `QUESTLINE_SESSION_COOKIE_SAMESITE` | `lax` | Accepts `lax`, `strict`, or `none` |
 
 ### Registration
@@ -34,9 +36,9 @@ The instance must always have at least one admin; demoting the last admin is blo
 
 Access to a board is controlled by a membership record. The roles form an ordered hierarchy:
 
-```
-viewer  <  editor  <  owner  <  admin
-  1           2          3        4
+```text
+viewer  <  editor  <  owner
+  1           2          3
 ```
 
 | Role | Permissions |
@@ -44,9 +46,10 @@ viewer  <  editor  <  owner  <  admin
 | `viewer` | Read board, stages, tasks, filters, automations, members |
 | `editor` | All viewer permissions + create/update/delete tasks, stages, filters, automations, task types |
 | `owner` | All editor permissions + manage membership (add/remove/promote members) |
-| `admin` | Full access to all boards regardless of membership |
 
 A board must always retain at least one owner; removing or demoting the last owner is blocked.
+
+Instance `admin` is not stored as a board membership role. Admin users bypass membership checks and are treated as having full access to every board.
 
 ## Authorization Flow
 

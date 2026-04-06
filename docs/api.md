@@ -4,6 +4,8 @@ All API endpoints are prefixed with `/api`. Authentication is via session cookie
 
 The interactive Swagger UI is available at `/docs` when the server is running.
 
+Unsafe `/api/` requests (`POST`, `PUT`, `PATCH`, `DELETE`) must send `X-Requested-With: XMLHttpRequest`. Authenticated unsafe requests must also send the session-bound CSRF token in `X-CSRF-Token`. `POST /api/auth/login` is rate-limited and returns `429` after too many failed attempts.
+
 ---
 
 ## Auth
@@ -28,7 +30,7 @@ Register a new account. The first account becomes admin.
 { "email": "user@example.com", "password": "..." }
 ```
 
-Sets the `questline_session` cookie on success. **Returns** user object.
+Sets the `questline_session` and `questline_csrf` cookies on success. **Returns** user object.
 
 ---
 
@@ -533,7 +535,7 @@ Add a custom field definition. Requires `editor`.
 ```json
 {
   "name": "Priority",
-  "field_type": "select",
+  "field_type": "dropdown",
   "show_on_card": true,
   "color": null,
   "options": [

@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Python 3.8+
+- Python 3.9+
 - pip
 
 ## Setup
@@ -50,7 +50,7 @@ Questline/
 pytest
 ```
 
-Tests use an isolated temporary SQLite database file per test run and do not require a running server. The test suite covers:
+Tests use an isolated temporary SQLite database file per test run and do not require a running server. Test fixtures set `QUESTLINE_ENV=development` and `QUESTLINE_ALLOW_INSECURE_COOKIES=true` so local runs can use non-HTTPS cookies. The test suite covers:
 
 - Authentication and session management
 - Authorization and board access control
@@ -86,6 +86,8 @@ FastAPI auto-generates OpenAPI docs at:
 
 - `http://localhost:8000/docs` — Swagger UI
 - `http://localhost:8000/redoc` — ReDoc
+
+Unsafe `/api/` requests must send `X-Requested-With: XMLHttpRequest`, and authenticated writes must also include the session-bound `X-CSRF-Token` header.
 
 ## Background Recurrence Worker
 

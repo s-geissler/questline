@@ -25,7 +25,9 @@ The first registered account is automatically promoted to admin.
 |---|---|---|
 | `QUESTLINE_DATABASE_URL` | `sqlite:///./questline.db` | SQLAlchemy database URL |
 | `QUESTLINE_SLOW_QUERY_MS` | `200` | Log threshold for slow SQL queries (ms) |
-| `QUESTLINE_SESSION_COOKIE_SECURE` | `""` | Set to `1` or `true` to require HTTPS for the session cookie |
+| `QUESTLINE_ENV` | `production` | Runtime mode; production requires secure session cookies |
+| `QUESTLINE_ALLOW_INSECURE_COOKIES` | unset | Set to `1` or `true` in development to allow non-`Secure` cookies |
+| `QUESTLINE_SESSION_COOKIE_SECURE` | unset | Explicit override for whether the session cookie uses the `Secure` flag |
 | `QUESTLINE_SESSION_COOKIE_SAMESITE` | `lax` | Cookie SameSite policy (`lax`, `strict`, or `none`) |
 
 ## Built-in URLs
