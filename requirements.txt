@@ -1,4 +1,5 @@
-fastapi
+fastapi==0.135.3
+pydantic==2.12.5
 sqlalchemy
 uvicorn[standard]
 jinja2
