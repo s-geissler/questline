@@ -67,7 +67,7 @@ from filters_logic import (
 # Schema migrations (add board_id columns to existing tables if missing)
 # ---------------------------------------------------------------------------
 logger = logging.getLogger("questline.app")
-LOGIN_WINDOW_SECONDS = 300
+LOGIN_WINDOW_SECONDS = 60
 LOGIN_MAX_ATTEMPTS = 5
 login_attempt_lock = threading.Lock()
 login_attempts = defaultdict(deque)
@@ -104,12 +104,11 @@ def _run_column_migrations():
         ("task_recurrences", "mode", "VARCHAR"),
         ("user_sessions", "csrf_token_hash", "VARCHAR"),
     ]
-    with engine.connect() as conn:
+    with engine.begin() as conn:
         for table, col, col_type in migrations:
             rows = conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
             if rows and col not in [r[1] for r in rows]:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"))
-        conn.commit()
 
 
 def _run_index_migrations():
@@ -149,10 +148,9 @@ def _run_index_migrations():
         ("ix_task_recurrences_spawn_stage_id", "CREATE INDEX IF NOT EXISTS ix_task_recurrences_spawn_stage_id ON task_recurrences(spawn_stage_id)"),
         ("uq_task_recurrences_task_id", "CREATE UNIQUE INDEX IF NOT EXISTS uq_task_recurrences_task_id ON task_recurrences(task_id)"),
     ]
-    with engine.connect() as conn:
+    with engine.begin() as conn:
         for _, sql in indexes:
             conn.execute(text(sql))
-        conn.commit()
 
 
 def _migrate_orphan_data():
