@@ -4,3 +4,5 @@ __pycache__
 .codex
 AGENTS.md
 RTK.md
+*.png
+*.json
