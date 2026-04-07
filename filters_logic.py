@@ -142,6 +142,7 @@ def stage_to_dict(stage: models.Stage) -> dict:
     return {
         "id": stage.id,
         "name": stage.name,
+        "row": stage.row or 0,
         "position": stage.position,
         "is_log": stage.is_log,
         "filter_id": stage.filter_id,

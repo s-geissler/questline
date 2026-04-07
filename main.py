@@ -83,6 +83,7 @@ def _run_column_migrations():
         ("task_types",       "color",   "VARCHAR"),
         ("task_types",       "show_description_on_card", "BOOLEAN"),
         ("task_types",       "show_checklist_on_card", "BOOLEAN"),
+        ("lists",            "row", "INTEGER"),
         ("lists",            "is_log", "BOOLEAN"),
         ("lists",            "filter_id", "INTEGER REFERENCES saved_filters(id)"),
         ("tasks",            "color",   "VARCHAR"),
@@ -115,6 +116,7 @@ def _run_index_migrations():
     indexes = [
         ("ix_boards_position", "CREATE INDEX IF NOT EXISTS ix_boards_position ON boards(position)"),
         ("ix_boards_owner_user_id", "CREATE INDEX IF NOT EXISTS ix_boards_owner_user_id ON boards(owner_user_id)"),
+        ("ix_lists_board_row_position", "CREATE INDEX IF NOT EXISTS ix_lists_board_row_position ON lists(board_id, row, position)"),
         ("ix_lists_board_position", "CREATE INDEX IF NOT EXISTS ix_lists_board_position ON lists(board_id, position)"),
         ("ix_lists_filter_id", "CREATE INDEX IF NOT EXISTS ix_lists_filter_id ON lists(filter_id)"),
         ("ix_saved_filters_board_id", "CREATE INDEX IF NOT EXISTS ix_saved_filters_board_id ON saved_filters(board_id)"),
@@ -171,6 +173,7 @@ def _migrate_orphan_data():
             db.query(models.TaskType).filter(models.TaskType.board_id.is_(None)).update({"board_id": board.id})
             db.query(models.Automation).filter(models.Automation.board_id.is_(None)).update({"board_id": board.id})
         db.query(models.Stage).filter(models.Stage.is_log.is_(None)).update({"is_log": False})
+        db.query(models.Stage).filter(models.Stage.row.is_(None)).update({"row": 0})
         db.commit()
     finally:
         db.close()
@@ -425,6 +428,7 @@ class BoardUpdate(BaseModel):
 class StageCreate(BaseModel):
     name: str
     board_id: int
+    row: int = 0
 
 class StageUpdate(BaseModel):
     name: str
@@ -434,7 +438,8 @@ class StageConfigUpdate(BaseModel):
     filter_id: Optional[int] = None
 
 class ReorderStages(BaseModel):
-    ids: PyList[int]
+    ids: Optional[PyList[int]] = None
+    stages: Optional[PyList[dict]] = None
 
 class TaskCreate(BaseModel):
     title: str
@@ -1815,7 +1820,7 @@ def get_stages(board_id: int, db: Session = Depends(get_db), request: Request = 
     stages = (
         db.query(models.Stage)
         .filter(models.Stage.board_id == board_id)
-        .order_by(models.Stage.position)
+        .order_by(models.Stage.row, models.Stage.position)
         .all()
     )
     result = []
@@ -1832,8 +1837,15 @@ def get_stages(board_id: int, db: Session = Depends(get_db), request: Request = 
 @app.post("/api/stages")
 def create_stage(data: StageCreate, db: Session = Depends(get_db), request: Request = None):
     _authorize_board_request(request, db, data.board_id, "editor")
-    pos = db.query(models.Stage).filter(models.Stage.board_id == data.board_id).count()
-    stage = models.Stage(name=data.name, board_id=data.board_id, position=pos)
+    row = max(0, data.row)
+    max_position = (
+        db.query(models.Stage)
+        .filter(models.Stage.board_id == data.board_id, models.Stage.row == row)
+        .with_entities(func.max(models.Stage.position))
+        .scalar()
+    )
+    pos = 0 if max_position is None else max_position + 1
+    stage = models.Stage(name=data.name, board_id=data.board_id, row=row, position=pos)
     db.add(stage)
     db.commit()
     db.refresh(stage)
@@ -1842,14 +1854,33 @@ def create_stage(data: StageCreate, db: Session = Depends(get_db), request: Requ
 # NOTE: /api/stages/reorder must be declared before /api/stages/{stage_id}
 @app.put("/api/stages/reorder")
 def reorder_stages(data: ReorderStages, db: Session = Depends(get_db), request: Request = None):
-    if data.ids:
-        board_id = _board_id_for_stage(data.ids[0], db)
+    placements = []
+    if data.stages:
+        for index, stage_data in enumerate(data.stages):
+            stage_id = stage_data.get("id")
+            if not isinstance(stage_id, int):
+                raise HTTPException(status_code=400, detail="Invalid stage reorder payload")
+            placements.append(
+                {
+                    "id": stage_id,
+                    "row": max(0, int(stage_data.get("row", 0))),
+                    "position": max(0, int(stage_data.get("position", index))),
+                }
+            )
+    elif data.ids:
+        placements = [{"id": stage_id, "row": 0, "position": i} for i, stage_id in enumerate(data.ids)]
+
+    if placements:
+        board_id = _board_id_for_stage(placements[0]["id"], db)
         if board_id is not None:
             _authorize_board_request(request, db, board_id, "editor")
-            for stage_id in data.ids:
+            for placement in placements:
+                stage_id = placement["id"]
                 _require_stage_in_board(stage_id, board_id, db)
-    for i, stage_id in enumerate(data.ids):
-        db.query(models.Stage).filter(models.Stage.id == stage_id).update({"position": i})
+    for placement in placements:
+        db.query(models.Stage).filter(models.Stage.id == placement["id"]).update(
+            {"row": placement["row"], "position": placement["position"]}
+        )
     db.commit()
     return {"ok": True}
 

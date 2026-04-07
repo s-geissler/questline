@@ -69,15 +69,17 @@
   </div>
 
   <!-- Board -->
-  <div x-show="boardView === 'stages'" id="stages-container" class="flex gap-3 p-4 overflow-x-auto overflow-y-hidden items-start h-[calc(100vh-4rem)]">
-
-    <!-- Stages -->
-    <template x-for="stage in stages" :key="`${stage.id}-${stage.position}`">
-      <div
-        class="board-stage rounded-xl shadow w-72 flex-shrink-0 flex flex-col overflow-visible"
-        :class="stage.is_log ? 'log-stage' : 'bg-gray-100'"
-        :data-stage-column-id="stage.id"
-      >
+  <div x-show="boardView === 'stages'" class="p-4 overflow-auto h-[calc(100vh-4rem)]">
+    <div id="stages-container" class="flex min-w-max flex-col gap-4">
+      <template x-for="stageRow in stageRows" :key="`stage-row-${stageRow.row}`">
+        <div class="space-y-2">
+          <div class="flex items-start gap-3" :data-stage-row="stageRow.row">
+            <template x-for="stage in stageRow.stages" :key="`${stage.id}-${stage.row}-${stage.position}`">
+              <div
+                class="board-stage rounded-xl shadow w-72 flex-shrink-0 flex flex-col overflow-visible"
+                :class="stage.is_log ? 'log-stage' : 'bg-gray-100'"
+                :data-stage-column-id="stage.id"
+              >
 
         <!-- Stage header -->
         <div
@@ -297,39 +299,41 @@
           </div>
         </div>
 
-      </div>
-    </template>
+              </div>
+            </template>
 
-    <!-- Add stage -->
-    <div class="w-72 flex-shrink-0" x-show="canEditBoard">
-      <div x-show="!showNewStage">
-        <button
-          @click="showNewStage = true; $nextTick(() => $refs.newStageInput.focus())"
-          class="bg-white bg-opacity-20 hover:bg-opacity-30 text-white font-medium w-full text-left px-3 py-2 rounded-xl transition-colors"
-        >+ Add another stage</button>
-      </div>
-      <div x-show="showNewStage" class="bg-gray-100 rounded-xl p-3 shadow">
-        <input
-          x-ref="newStageInput"
-          x-model="newStageName"
-          @keydown.enter="createStage()"
-          @keydown.escape="showNewStage = false"
-          placeholder="Stage title..."
-          class="w-full border rounded-lg px-2 py-1.5 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
-        >
-        <div class="flex gap-1.5">
-          <button
-            @click="createStage()"
-            class="bg-blue-500 hover:bg-blue-600 text-white text-sm px-3 py-1 rounded-lg transition-colors"
-          >Add stage</button>
-          <button
-            @click="showNewStage = false"
-            class="text-gray-600 hover:text-gray-800 text-sm px-2 py-1"
-          >✕</button>
+            <div class="w-72 flex-shrink-0" x-show="canEditBoard">
+              <div x-show="!showNewStage || newStageRow !== stageRow.row">
+                <button
+                  @click="openNewStageForm(stageRow.row)"
+                  class="bg-white bg-opacity-20 hover:bg-opacity-30 text-white font-medium w-full text-left px-3 py-2 rounded-xl transition-colors"
+                >+ Add another stage</button>
+              </div>
+              <div x-show="showNewStage && newStageRow === stageRow.row" class="bg-gray-100 rounded-xl p-3 shadow">
+                <input
+                  x-ref="newStageInput"
+                  x-model="newStageName"
+                  @keydown.enter="createStage(stageRow.row)"
+                  @keydown.escape="cancelNewStage()"
+                  placeholder="Stage title..."
+                  class="w-full border rounded-lg px-2 py-1.5 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                >
+                <div class="flex gap-1.5">
+                  <button
+                    @click="createStage(stageRow.row)"
+                    class="bg-blue-500 hover:bg-blue-600 text-white text-sm px-3 py-1 rounded-lg transition-colors"
+                  >Add stage</button>
+                  <button
+                    @click="cancelNewStage()"
+                    class="text-gray-600 hover:text-gray-800 text-sm px-2 py-1"
+                  >✕</button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
+      </template>
     </div>
-
   </div>
 
   <div x-show="boardView === 'calendar'" class="p-4 pt-24">
@@ -1153,6 +1157,7 @@ function board() {
     savedFilters: [],
     showNewStage: false,
     newStageName: '',
+    newStageRow: 0,
     showNewTask: {},
     newTaskTitles: {},
     showModal: false,
@@ -1200,6 +1205,22 @@ function board() {
 
     get realStages() {
       return this.stages.filter(stage => !stage.is_log);
+    },
+
+    get stageRows() {
+      const rowMap = new Map();
+      for (const stage of this.stages) {
+        const row = Number.isInteger(stage.row) ? stage.row : 0;
+        if (!rowMap.has(row)) rowMap.set(row, []);
+        rowMap.get(row).push({...stage, row});
+      }
+      const rows = Array.from(rowMap.entries()).map(([row, stages]) => ({
+        row,
+        stages: stages.sort((a, b) => a.position - b.position),
+      }));
+      if (!rowMap.has(0)) rows.unshift({row: 0, stages: []});
+      if (!rowMap.has(1)) rows.push({row: 1, stages: []});
+      return rows.sort((a, b) => a.row - b.row);
     },
 
     get calendarWeekdayLabels() {
@@ -1303,7 +1324,10 @@ function board() {
 
     async loadStages() {
       const stagesRes = await fetch('/api/stages?board_id=' + this.boardId);
-      this.stages = await stagesRes.json();
+      this.stages = (await stagesRes.json()).map(stage => ({
+        ...stage,
+        row: Number.isInteger(stage.row) ? stage.row : 0,
+      }));
       this.$nextTick(() => {
         this.initSortable();
       });
@@ -1346,31 +1370,33 @@ function board() {
         return;
       }
       if (this.boardView !== 'stages') return;
-
-        const stagesContainer = document.getElementById('stages-container');
-        if (stagesContainer) {
-          const stageSortable = Sortable.create(stagesContainer, {
-            animation: 150,
-            draggable: '[data-stage-column-id]',
-            ghostClass: 'task-ghost',
-            onEnd: async () => {
-              const stageEls = Array.from(stagesContainer.querySelectorAll('[data-stage-column-id]'));
-              const ids = stageEls.map(el => parseInt(el.dataset.stageColumnId));
-              const stageById = new Map(this.stages.map(stage => [stage.id, stage]));
-              this.stages = ids
-                .map(id => stageById.get(id))
-                .filter(Boolean)
-                .map((stage, index) => ({...stage, position: index}));
-              await fetch('/api/stages/reorder', {
-                method: 'PUT',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ids}),
-              });
-              await this.loadStages();
-            },
-          });
-          this._sortables.push(stageSortable);
-        }
+      const stageRows = Array.from(document.querySelectorAll('[data-stage-row]'));
+      stageRows.forEach(rowEl => {
+        const stageSortable = Sortable.create(rowEl, {
+          group: 'stage-rows',
+          animation: 150,
+          draggable: '[data-stage-column-id]',
+          ghostClass: 'task-ghost',
+          onEnd: async () => {
+            const placements = this.buildStagePlacements();
+            const stageById = new Map(this.stages.map(stage => [stage.id, stage]));
+            this.stages = placements
+              .map(placement => {
+                const stage = stageById.get(placement.id);
+                if (!stage) return null;
+                return {...stage, row: placement.row, position: placement.position};
+              })
+              .filter(Boolean);
+            await fetch('/api/stages/reorder', {
+              method: 'PUT',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({stages: placements}),
+            });
+            await this.loadStages();
+          },
+        });
+        this._sortables.push(stageSortable);
+      });
 
       this.stages.forEach(stage => {
         const el = document.getElementById('stage-' + stage.id);
@@ -1447,17 +1473,41 @@ function board() {
       });
     },
 
+    buildStagePlacements() {
+      const rowEls = Array.from(document.querySelectorAll('[data-stage-row]'));
+      return rowEls.flatMap(rowEl => {
+        const row = parseInt(rowEl.dataset.stageRow || '0', 10);
+        const stageEls = Array.from(rowEl.querySelectorAll('[data-stage-column-id]'));
+        return stageEls.map((el, position) => ({
+          id: parseInt(el.dataset.stageColumnId, 10),
+          row,
+          position,
+        }));
+      });
+    },
+
     // Stages
-    async createStage() {
+    openNewStageForm(row) {
+      this.newStageRow = row;
+      this.showNewStage = true;
+      this.$nextTick(() => this.$refs.newStageInput?.focus());
+    },
+
+    cancelNewStage() {
+      this.showNewStage = false;
+      this.newStageName = '';
+    },
+
+    async createStage(row = this.newStageRow) {
       if (!this.canEditBoard) return;
       if (!this.newStageName.trim()) return;
       const res = await fetch('/api/stages', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({name: this.newStageName.trim(), board_id: this.boardId}),
+        body: JSON.stringify({name: this.newStageName.trim(), board_id: this.boardId, row}),
       });
       const stage = await res.json();
-      this.stages.push(stage);
+      this.stages.push({...stage, row: Number.isInteger(stage.row) ? stage.row : row});
       this.newStageName = '';
       this.showNewStage = false;
       this.$nextTick(() => this.initSortable());

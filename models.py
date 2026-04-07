@@ -46,11 +46,13 @@ class Board(Base):
 class Stage(Base):
     __tablename__ = "lists"
     __table_args__ = (
+        Index("ix_lists_board_row_position", "board_id", "row", "position"),
         Index("ix_lists_board_position", "board_id", "position"),
         Index("ix_lists_filter_id", "filter_id"),
     )
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
+    row = Column(Integer, default=0)
     position = Column(Integer, default=0)
     is_log = Column(Boolean, default=False)
     filter_id = Column(Integer, ForeignKey("saved_filters.id", ondelete="SET NULL"), nullable=True)

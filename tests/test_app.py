@@ -20,8 +20,8 @@ def create_board(main, db, name="Test Board", color="#3b82f6"):
     return main.create_board(main.BoardCreate(name=name, color=color), db)
 
 
-def create_stage(main, db, board_id, name):
-    return main.create_stage(main.StageCreate(name=name, board_id=board_id), db)
+def create_stage(main, db, board_id, name, row=0):
+    return main.create_stage(main.StageCreate(name=name, board_id=board_id, row=row), db)
 
 
 def create_task_type(main, db, board_id, name="Bug", color="#ef4444", is_epic=False):
@@ -222,6 +222,41 @@ def test_stage_reorder_updates_positions(app_env):
 
     stages = main.get_stages(board["id"], db)
     assert [stage["id"] for stage in stages] == [done["id"], todo["id"], doing["id"]]
+
+
+def test_stages_can_be_created_and_reordered_across_rows(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+    board = create_board(main, db)
+    top = create_stage(main, db, board["id"], "Top")
+    lower_a = create_stage(main, db, board["id"], "Lower A", row=1)
+    lower_b = create_stage(main, db, board["id"], "Lower B", row=1)
+
+    stages = main.get_stages(board["id"], db)
+    assert [(stage["name"], stage["row"], stage["position"]) for stage in stages] == [
+        ("Top", 0, 0),
+        ("Lower A", 1, 0),
+        ("Lower B", 1, 1),
+    ]
+
+    response = main.reorder_stages(
+        main.ReorderStages(
+            stages=[
+                {"id": lower_b["id"], "row": 0, "position": 0},
+                {"id": top["id"], "row": 0, "position": 1},
+                {"id": lower_a["id"], "row": 1, "position": 0},
+            ]
+        ),
+        db,
+    )
+    assert response == {"ok": True}
+
+    stages = main.get_stages(board["id"], db)
+    assert [(stage["id"], stage["row"], stage["position"]) for stage in stages] == [
+        (lower_b["id"], 0, 0),
+        (top["id"], 0, 1),
+        (lower_a["id"], 1, 0),
+    ]
 
 
 def test_task_created_automation_can_move_stage(app_env):
