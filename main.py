@@ -1236,9 +1236,13 @@ def delete_tasks_by_ids(task_ids: set[int], db: Session):
     if not task_ids:
         return 0
 
-    db.query(models.ChecklistItem).filter(
-        models.ChecklistItem.spawned_task_id.in_(task_ids)
-    ).update({"spawned_task_id": None}, synchronize_session=False)
+    linked_items = (
+        db.query(models.ChecklistItem)
+        .filter(models.ChecklistItem.spawned_task_id.in_(task_ids))
+        .all()
+    )
+    for item in linked_items:
+        db.delete(item)
 
     tasks = db.query(models.Task).filter(models.Task.id.in_(task_ids)).all()
     for task in tasks:
@@ -1878,9 +1882,8 @@ def delete_stage(stage_id: int, db: Session = Depends(get_db), request: Request 
         raise HTTPException(status_code=404, detail="Stage not found")
     task_ids = [t.id for t in stage.tasks]
     if task_ids:
-        db.query(models.ChecklistItem).filter(
-            models.ChecklistItem.spawned_task_id.in_(task_ids)
-        ).update({"spawned_task_id": None}, synchronize_session=False)
+        delete_tasks_by_ids(collect_descendant_task_ids(task_ids, db), db)
+        db.refresh(stage)
     db.delete(stage)
     db.commit()
     return {"ok": True}
@@ -2127,11 +2130,7 @@ def delete_task(task_id: int, db: Session = Depends(get_db), request: Request = 
     task = db.query(models.Task).filter(models.Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    db.query(models.ChecklistItem).filter(
-        models.ChecklistItem.spawned_task_id == task_id
-    ).update({"spawned_task_id": None}, synchronize_session=False)
-    db.delete(task)
-    db.commit()
+    delete_tasks_by_ids(collect_descendant_task_ids([task_id], db), db)
     return {"ok": True}
 
 
@@ -2272,8 +2271,11 @@ def delete_checklist_item(
     )
     if not item:
         raise HTTPException(status_code=404, detail="Checklist item not found")
+    spawned_task_id = item.spawned_task_id
     db.delete(item)
     db.commit()
+    if spawned_task_id is not None:
+        delete_tasks_by_ids(collect_descendant_task_ids([spawned_task_id], db), db)
     return {"ok": True}
 
 

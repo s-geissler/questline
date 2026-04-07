@@ -539,6 +539,43 @@ def test_spawned_quest_children_include_parent_quest_link(app_env):
     assert child["parent_task"]["title"] == "Parent quest"
 
 
+def test_deleting_quest_checklist_item_deletes_spawned_objective(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+    board = create_board(main, db)
+    backlog = create_stage(main, db, board["id"], "Backlog")
+    quest_type = create_task_type(main, db, board["id"], name="Quest", is_epic=True)
+    quest = create_task(main, db, backlog["id"], "Parent quest", task_type_id=quest_type["id"])
+
+    item = main.add_checklist_item(quest["id"], main.ChecklistItemCreate(title="Spawned child"), db)
+
+    response = main.delete_checklist_item(quest["id"], item["id"], db)
+
+    assert response == {"ok": True}
+    assert db.query(main.models.ChecklistItem).filter(main.models.ChecklistItem.id == item["id"]).first() is None
+    with pytest.raises(HTTPException):
+        main.get_task(item["spawned_task_id"], db)
+
+
+def test_deleting_spawned_objective_deletes_linked_checklist_item(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+    board = create_board(main, db)
+    backlog = create_stage(main, db, board["id"], "Backlog")
+    quest_type = create_task_type(main, db, board["id"], name="Quest", is_epic=True)
+    quest = create_task(main, db, backlog["id"], "Parent quest", task_type_id=quest_type["id"])
+
+    item = main.add_checklist_item(quest["id"], main.ChecklistItemCreate(title="Spawned child"), db)
+
+    response = main.delete_task(item["spawned_task_id"], db)
+
+    assert response == {"ok": True}
+    with pytest.raises(HTTPException):
+        main.get_task(item["spawned_task_id"], db)
+    refreshed = main.get_task(quest["id"], db)
+    assert refreshed["checklist"] == []
+
+
 def test_description_on_card_uses_type_default_and_task_override(app_env):
     main = app_env["main"]
     db = app_env["db"]

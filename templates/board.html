@@ -1634,11 +1634,8 @@ function board() {
     async deleteTask() {
       if (!this.canEditBoard) return;
       if (!confirm('Delete this objective?')) return;
-      const taskId = this.selectedTask.id;
-      await fetch(`/api/tasks/${taskId}`, {method: 'DELETE'});
-      for (const stage of this.stages) {
-        stage.tasks = stage.tasks.filter(t => t.id !== taskId);
-      }
+      await fetch(`/api/tasks/${this.selectedTask.id}`, {method: 'DELETE'});
+      await this.loadStages();
       this.closeModal();
     },
 
@@ -1682,6 +1679,7 @@ function board() {
       await fetch(`/api/tasks/${this.selectedTask.id}/checklist/${item.id}`, {method: 'DELETE'});
       this.selectedTask.checklist = this.selectedTask.checklist.filter(i => i.id !== item.id);
       this._syncTaskInStages(this.selectedTask);
+      await this.loadStages();
     },
 
     async sortStageByDueDate(stage) {
