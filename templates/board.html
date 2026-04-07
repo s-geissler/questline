@@ -337,30 +337,29 @@
             >
               <template x-if="slot.stage">
                 <div
-                  x-data="{ stage: slot.stage }"
                   class="board-stage rounded-xl shadow w-72 flex-shrink-0 flex flex-col overflow-visible"
-                  :class="stage.is_log ? 'log-stage' : 'bg-gray-100'"
-                  :data-stage-column-id="stage.id"
+                  :class="slot.stage.is_log ? 'log-stage' : 'bg-gray-100'"
+                  :data-stage-column-id="slot.stage.id"
                 >
                     <div
                       class="flex items-center justify-between px-3 pt-3 pb-2 border-b"
-                      :class="stage.is_log ? 'log-stage-header' : 'border-transparent'"
+                      :class="slot.stage.is_log ? 'log-stage-header' : 'border-transparent'"
                     >
                       <div class="min-w-0 flex-1">
                         <input
-                          x-model="stage.name"
-                          @blur="saveStageName(stage)"
+                          x-model="slot.stage.name"
+                          @blur="saveStageName(slot.stage)"
                           @keydown.enter="$el.blur()"
                           :disabled="!canEditBoard"
                           class="stage-title-input font-medium bg-transparent w-full rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400 text-sm"
-                          :class="stage.is_log ? 'log-stage-title' : 'text-gray-700 hover:bg-black/5 focus:bg-black/5'"
+                          :class="slot.stage.is_log ? 'log-stage-title' : 'text-gray-700 hover:bg-black/5 focus:bg-black/5'"
                         >
-                        <div x-show="stage.is_log" class="mt-1 px-1 space-y-1">
+                        <div x-show="slot.stage.is_log" class="mt-1 px-1 space-y-1">
                           <div class="flex items-center gap-1.5 flex-wrap">
                             <span class="log-stage-badge text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded-full font-semibold">Filter Log</span>
                             <span class="log-stage-summary text-[10px] font-medium">⌕ Read-only view</span>
                           </div>
-                          <div class="log-stage-summary text-[11px] leading-snug" x-text="logStageSummary(stage)"></div>
+                          <div class="log-stage-summary text-[11px] leading-snug" x-text="logStageSummary(slot.stage)"></div>
                         </div>
                       </div>
                       <div x-show="canEditBoard" x-data="{ open: false }" @click.outside="open = false" class="relative ml-2 flex-shrink-0">
@@ -381,23 +380,23 @@
                           class="absolute top-full right-0 mt-1 bg-white text-gray-800 shadow-xl rounded-xl py-1 min-w-[170px] z-20"
                         >
                           <button
-                            @click="openLogConfig(stage); open = false"
+                            @click="openLogConfig(slot.stage); open = false"
                             class="block w-full text-left text-xs text-gray-600 hover:text-sky-600 px-3 py-2 hover:bg-gray-100 transition-colors"
                           >Configure log</button>
                           <button
-                            @click="sortStageByDueDate(stage); open = false"
+                            @click="sortStageByDueDate(slot.stage); open = false"
                             class="block w-full text-left text-xs text-gray-600 hover:text-blue-600 px-3 py-2 hover:bg-gray-100 transition-colors"
                             title="Sort dated objectives by due date"
-                            x-show="!stage.is_log"
+                            x-show="!slot.stage.is_log"
                           >Sort by due date</button>
                           <button
-                            @click="clearCompletedStage(stage); open = false"
+                            @click="clearCompletedStage(slot.stage); open = false"
                             class="block w-full text-left text-xs text-gray-600 hover:text-amber-600 px-3 py-2 hover:bg-gray-100 transition-colors"
                             title="Clear completed objectives"
-                            x-show="!stage.is_log"
+                            x-show="!slot.stage.is_log"
                           >Clear completed</button>
                           <button
-                            @click="deleteStage(stage.id); open = false"
+                            @click="deleteStage(slot.stage.id); open = false"
                             class="block w-full text-left text-xs text-gray-600 hover:text-red-600 px-3 py-2 hover:bg-gray-100 transition-colors"
                             title="Delete stage"
                           >Delete stage</button>
@@ -407,11 +406,11 @@
 
                     <div
                       class="board-stage-body px-2 pb-1 space-y-2 min-h-[8px]"
-                      :class="stage.is_log ? 'log-stage-body' : ''"
-                      :id="'stage-' + stage.id"
-                      :data-stage-id="stage.id"
+                      :class="slot.stage.is_log ? 'log-stage-body' : ''"
+                      :id="'stage-' + slot.stage.id"
+                      :data-stage-id="slot.stage.id"
                     >
-                      <template x-for="task in stage.tasks" :key="`${task.id}-${task.position}`">
+                      <template x-for="task in slot.stage.tasks" :key="`${task.id}-${task.position}`">
                         <div
                           class="board-task-card bg-white rounded-lg p-2.5 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
                           :class="task.done ? 'opacity-60' : ''"
@@ -486,7 +485,7 @@
                               <span>☑</span>
                               <span x-text="checklistProgress(task)"></span>
                             </span>
-                            <template x-if="stage.is_log">
+                            <template x-if="slot.stage.is_log">
                               <span
                                 class="text-xs px-2 py-0.5 rounded font-medium bg-slate-100 text-slate-600"
                                 x-text="'In ' + sourceStageName(task)"
@@ -526,30 +525,30 @@
                       </template>
                     </div>
 
-                    <div class="px-2 pb-2 pt-1" x-show="!stage.is_log && canEditBoard">
-                      <div x-show="showNewTask[stage.id] !== true">
+                    <div class="px-2 pb-2 pt-1" x-show="!slot.stage.is_log && canEditBoard">
+                      <div x-show="showNewTask[slot.stage.id] !== true">
                         <button
-                          @click="showNewTask = {...showNewTask, [stage.id]: true}; newTaskTitles = {...newTaskTitles, [stage.id]: ''}; $nextTick(() => document.getElementById('new-task-input-' + stage.id)?.focus())"
+                          @click="showNewTask = {...showNewTask, [slot.stage.id]: true}; newTaskTitles = {...newTaskTitles, [slot.stage.id]: ''}; $nextTick(() => document.getElementById('new-task-input-' + slot.stage.id)?.focus())"
                           class="text-gray-500 hover:text-gray-800 text-sm w-full text-left px-1 py-1 rounded hover:bg-gray-200 transition-colors"
                         >+ Add an objective</button>
                       </div>
-                      <div x-show="showNewTask[stage.id] === true">
+                      <div x-show="showNewTask[slot.stage.id] === true">
                         <input
-                          :id="'new-task-input-' + stage.id"
-                          :value="newTaskTitles[stage.id] || ''"
-                          @input="newTaskTitles = {...newTaskTitles, [stage.id]: $event.target.value}"
-                          @keydown.enter="createTask(stage.id)"
-                          @keydown.escape="showNewTask = {...showNewTask, [stage.id]: false}"
+                          :id="'new-task-input-' + slot.stage.id"
+                          :value="newTaskTitles[slot.stage.id] || ''"
+                          @input="newTaskTitles = {...newTaskTitles, [slot.stage.id]: $event.target.value}"
+                          @keydown.enter="createTask(slot.stage.id)"
+                          @keydown.escape="showNewTask = {...showNewTask, [slot.stage.id]: false}"
                           placeholder="Objective title..."
                           class="w-full border rounded-lg px-2 py-1.5 text-sm mb-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400"
                         >
                         <div class="flex gap-1.5">
                           <button
-                            @click="createTask(stage.id)"
+                            @click="createTask(slot.stage.id)"
                             class="bg-blue-500 hover:bg-blue-600 text-white text-sm px-3 py-1 rounded-lg transition-colors"
                           >Add</button>
                           <button
-                            @click="showNewTask = {...showNewTask, [stage.id]: false}"
+                            @click="showNewTask = {...showNewTask, [slot.stage.id]: false}"
                             class="text-gray-500 hover:text-gray-700 text-sm px-2 py-1"
                           >✕</button>
                         </div>
@@ -1443,6 +1442,8 @@ function board() {
     _slotLiftByPosition: {},
     _stageLiftObserver: null,
     showStageDropTargets: false,
+    _stagePersistTimer: null,
+    _pendingStagePlacements: null,
 
     get canEditBoard() {
       return this.currentBoardRole === 'owner' || this.currentBoardRole === 'editor' || this.currentBoardRole === 'admin';
@@ -1656,8 +1657,7 @@ function board() {
           },
           onMove: evt => this.canPlaceStageDrop(evt),
           onEnd: async () => {
-            this.showStageDropTargets = false;
-            await this.persistStagePlacements();
+            this.commitStageDrop();
           },
         });
         this._sortables.push(topRowSortable);
@@ -1678,8 +1678,7 @@ function board() {
             this.swapIntoOccupiedSecondRowSlot(evt);
           },
           onEnd: async () => {
-            this.showStageDropTargets = false;
-            await this.persistStagePlacements();
+            this.commitStageDrop();
           },
         });
         this._sortables.push(slotSortable);
@@ -1832,8 +1831,7 @@ function board() {
       }
     },
 
-    async persistStagePlacements() {
-      const placements = this.buildStagePlacements();
+    syncStagesFromPlacements(placements) {
       const stageById = new Map(this.stages.map(stage => [stage.id, stage]));
       this.stages = placements
         .map(placement => {
@@ -1841,7 +1839,17 @@ function board() {
           if (!stage) return null;
           return {...stage, row: placement.row, position: placement.position};
         })
-        .filter(Boolean);
+        .filter(Boolean)
+        .sort((a, b) => (a.row - b.row) || (a.position - b.position));
+    },
+
+    commitStageDrop() {
+      const placements = this.buildStagePlacements();
+      this.syncStagesFromPlacements(placements);
+      this.queuePersistStagePlacements(placements);
+    },
+
+    async persistStagePlacements(placements = this._pendingStagePlacements || this.buildStagePlacements()) {
       const res = await fetch('/api/stages/reorder', {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
@@ -1852,6 +1860,20 @@ function board() {
         return;
       }
       await this.loadStages();
+    },
+
+    queuePersistStagePlacements(placements) {
+      this.showStageDropTargets = false;
+      this._pendingStagePlacements = placements;
+      if (this._stagePersistTimer) {
+        clearTimeout(this._stagePersistTimer);
+      }
+      this._stagePersistTimer = setTimeout(async () => {
+        this._stagePersistTimer = null;
+        const nextPlacements = this._pendingStagePlacements;
+        this._pendingStagePlacements = null;
+        await this.persistStagePlacements(nextPlacements);
+      }, 0);
     },
 
     initStageLiftObserver() {
