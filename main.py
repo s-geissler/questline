@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import time
 import threading
 from collections import defaultdict, deque
@@ -10,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List as PyList, Union
 
 import models
@@ -69,8 +70,37 @@ from filters_logic import (
 logger = logging.getLogger("questline.app")
 LOGIN_WINDOW_SECONDS = 60
 LOGIN_MAX_ATTEMPTS = 5
+REGISTRATION_WINDOW_SECONDS = 600
+REGISTRATION_MAX_ATTEMPTS = 5
 login_attempt_lock = threading.Lock()
 login_attempts = defaultdict(deque)
+registration_attempt_lock = threading.Lock()
+registration_attempts = defaultdict(deque)
+HEX_COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
+SAFE_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+MAX_NAME_LENGTH = 120
+MAX_EMAIL_LENGTH = 255
+MAX_PASSWORD_LENGTH = 4096
+MAX_DISPLAY_NAME_LENGTH = 120
+MAX_TASK_TITLE_LENGTH = 200
+MAX_DESCRIPTION_LENGTH = 10000
+MAX_OPTION_COUNT = 100
+MAX_FILTER_JSON_LENGTH = 20000
+SECURITY_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' data: https:; "
+        "connect-src 'self'; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "frame-ancestors 'none'"
+    ),
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "X-Content-Type-Options": "nosniff",
+}
 
 
 def _run_column_migrations():
@@ -107,6 +137,8 @@ def _run_column_migrations():
     ]
     with engine.begin() as conn:
         for table, col, col_type in migrations:
+            if not SAFE_IDENTIFIER_RE.fullmatch(table) or not SAFE_IDENTIFIER_RE.fullmatch(col):
+                raise RuntimeError(f"Unsafe migration identifier: {table}.{col}")
             rows = conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
             if rows and col not in [r[1] for r in rows]:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"))
@@ -277,7 +309,7 @@ BOARD_ROLE_ORDER = {"viewer": 1, "editor": 2, "owner": 3}
 INSTANCE_SETTINGS_DEFAULTS = {
     "registration_enabled": "true",
     "default_board_color": "#2563eb",
-    "new_accounts_active_by_default": "true",
+    "new_accounts_active_by_default": "false",
     "instance_theme_color": "#1d4ed8",
     "recurrence_worker_interval_seconds": "60",
 }
@@ -303,8 +335,8 @@ def _login_rate_limit_key(email: str, request: Optional[Request]) -> str:
     return f"{_request_client_ip(request)}:{email}"
 
 
-def _purge_login_attempts(attempts: deque, now: float):
-    while attempts and now - attempts[0] > LOGIN_WINDOW_SECONDS:
+def _purge_attempts(attempts: deque, now: float, window_seconds: int):
+    while attempts and now - attempts[0] > window_seconds:
         attempts.popleft()
 
 
@@ -313,7 +345,7 @@ def _enforce_login_rate_limit(email: str, request: Optional[Request]):
     now = time.time()
     with login_attempt_lock:
         attempts = login_attempts[key]
-        _purge_login_attempts(attempts, now)
+        _purge_attempts(attempts, now, LOGIN_WINDOW_SECONDS)
         if len(attempts) >= LOGIN_MAX_ATTEMPTS:
             raise HTTPException(status_code=429, detail="Too many login attempts. Try again later.")
 
@@ -323,7 +355,7 @@ def _record_login_failure(email: str, request: Optional[Request]):
     now = time.time()
     with login_attempt_lock:
         attempts = login_attempts[key]
-        _purge_login_attempts(attempts, now)
+        _purge_attempts(attempts, now, LOGIN_WINDOW_SECONDS)
         attempts.append(now)
 
 
@@ -331,6 +363,41 @@ def _clear_login_failures(email: str, request: Optional[Request]):
     key = _login_rate_limit_key(email, request)
     with login_attempt_lock:
         login_attempts.pop(key, None)
+
+
+def _registration_rate_limit_key(request: Optional[Request]) -> Optional[str]:
+    if request is None:
+        return None
+    return _request_client_ip(request)
+
+
+def _enforce_registration_rate_limit(request: Optional[Request]):
+    key = _registration_rate_limit_key(request)
+    if key is None:
+        return
+    now = time.time()
+    with registration_attempt_lock:
+        attempts = registration_attempts[key]
+        _purge_attempts(attempts, now, REGISTRATION_WINDOW_SECONDS)
+        if len(attempts) >= REGISTRATION_MAX_ATTEMPTS:
+            raise HTTPException(status_code=429, detail="Too many registration attempts. Try again later.")
+
+
+def _record_registration_attempt(request: Optional[Request]):
+    key = _registration_rate_limit_key(request)
+    if key is None:
+        return
+    now = time.time()
+    with registration_attempt_lock:
+        attempts = registration_attempts[key]
+        _purge_attempts(attempts, now, REGISTRATION_WINDOW_SECONDS)
+        attempts.append(now)
+
+
+def _apply_security_headers(response: Response) -> Response:
+    for header, value in SECURITY_HEADERS.items():
+        response.headers[header] = value
+    return response
 
 
 def _request_origin_is_same_origin(request: Request) -> bool:
@@ -381,16 +448,16 @@ async def log_request_timing(request: Request, call_next):
     try:
         _require_api_csrf(request)
     except HTTPException as exc:
-        return Response(
+        return _apply_security_headers(Response(
             content=json.dumps({"detail": exc.detail}),
             status_code=exc.status_code,
             media_type="application/json",
-        )
+        ))
     response = await call_next(request)
     elapsed_ms = (time.perf_counter() - started) * 1000
     if elapsed_ms >= 250:
         logger.warning("slow_request %.1fms %s %s -> %s", elapsed_ms, request.method, request.url.path, response.status_code)
-    return response
+    return _apply_security_headers(response)
 
 
 @app.on_event("startup")
@@ -418,21 +485,21 @@ def stop_recurrence_worker():
 # ---------------------------------------------------------------------------
 
 class BoardCreate(BaseModel):
-    name: str
-    color: Optional[str] = None
+    name: str = Field(max_length=MAX_NAME_LENGTH)
+    color: Optional[str] = Field(default=None, max_length=7)
 
 class BoardUpdate(BaseModel):
-    name: Optional[str] = None
-    color: Optional[str] = None
+    name: Optional[str] = Field(default=None, max_length=MAX_NAME_LENGTH)
+    color: Optional[str] = Field(default=None, max_length=7)
 
 class StageCreate(BaseModel):
-    name: str
+    name: str = Field(max_length=MAX_NAME_LENGTH)
     board_id: int
     row: int = 0
     position: Optional[int] = None
 
 class StageUpdate(BaseModel):
-    name: str
+    name: str = Field(max_length=MAX_NAME_LENGTH)
 
 class StageConfigUpdate(BaseModel):
     is_log: Optional[bool] = None
@@ -456,18 +523,18 @@ def _validate_stage_grid(board_id: int, placements: PyList[dict], db: Session):
             raise HTTPException(status_code=400, detail="Second row stages require a top row stage above them")
 
 class TaskCreate(BaseModel):
-    title: str
+    title: str = Field(max_length=MAX_TASK_TITLE_LENGTH)
     stage_id: int
     task_type_id: Optional[int] = None
     due_date: Optional[str] = None
 
 class TaskUpdate(BaseModel):
-    title: Optional[str] = None
-    description: Optional[str] = None
+    title: Optional[str] = Field(default=None, max_length=MAX_TASK_TITLE_LENGTH)
+    description: Optional[str] = Field(default=None, max_length=MAX_DESCRIPTION_LENGTH)
     due_date: Optional[str] = None
     task_type_id: Optional[int] = None
     assignee_user_id: Optional[int] = None
-    color: Optional[str] = None
+    color: Optional[str] = Field(default=None, max_length=7)
     show_description_on_card: Optional[bool] = None
     show_checklist_on_card: Optional[bool] = None
     done: Optional[bool] = None
@@ -490,85 +557,85 @@ class ReorderTasks(BaseModel):
     ids: PyList[int]
 
 class TaskTypeCreate(BaseModel):
-    name: str
+    name: str = Field(max_length=MAX_NAME_LENGTH)
     is_epic: bool = False
     board_id: int
-    color: Optional[str] = None
+    color: Optional[str] = Field(default=None, max_length=7)
     show_description_on_card: bool = False
     show_checklist_on_card: bool = False
 
 class TaskTypeUpdate(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(default=None, max_length=MAX_NAME_LENGTH)
     is_epic: Optional[bool] = None
     spawn_stage_id: Optional[int] = None
-    color: Optional[str] = None
+    color: Optional[str] = Field(default=None, max_length=7)
     show_description_on_card: Optional[bool] = None
     show_checklist_on_card: Optional[bool] = None
 
 class CustomFieldCreate(BaseModel):
-    name: str
+    name: str = Field(max_length=MAX_NAME_LENGTH)
     field_type: str = "text"
     show_on_card: bool = False
     options: Optional[PyList[Union[str, dict]]] = None
-    color: Optional[str] = None
+    color: Optional[str] = Field(default=None, max_length=7)
 
 class ChecklistItemCreate(BaseModel):
-    title: str
+    title: str = Field(max_length=MAX_TASK_TITLE_LENGTH)
 
 class ChecklistItemUpdate(BaseModel):
-    title: Optional[str] = None
+    title: Optional[str] = Field(default=None, max_length=MAX_TASK_TITLE_LENGTH)
     done: Optional[bool] = None
 
 class AutomationCreate(BaseModel):
-    name: str
+    name: str = Field(max_length=MAX_NAME_LENGTH)
     trigger_type: str
     trigger_stage_id: Optional[int] = None
     action_type: str
     action_stage_id: Optional[int] = None
     action_task_type_id: Optional[int] = None
-    action_color: Optional[str] = None
+    action_color: Optional[str] = Field(default=None, max_length=7)
     action_days_offset: Optional[int] = None
     board_id: int
 
 class AutomationUpdate(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(default=None, max_length=MAX_NAME_LENGTH)
     enabled: Optional[bool] = None
     trigger_stage_id: Optional[int] = None
     action_stage_id: Optional[int] = None
     action_task_type_id: Optional[int] = None
-    action_color: Optional[str] = None
+    action_color: Optional[str] = Field(default=None, max_length=7)
     action_days_offset: Optional[int] = None
 
 
 class SavedFilterCreate(BaseModel):
-    name: str
+    name: str = Field(max_length=MAX_NAME_LENGTH)
     board_id: int
     definition: dict
 
 
 class SavedFilterUpdate(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(default=None, max_length=MAX_NAME_LENGTH)
     definition: Optional[dict] = None
 
 
 class RegisterRequest(BaseModel):
-    email: str
-    password: str
-    display_name: Optional[str] = None
+    email: str = Field(max_length=MAX_EMAIL_LENGTH)
+    password: str = Field(max_length=MAX_PASSWORD_LENGTH)
+    display_name: Optional[str] = Field(default=None, max_length=MAX_DISPLAY_NAME_LENGTH)
 
 
 class LoginRequest(BaseModel):
-    email: str
-    password: str
+    email: str = Field(max_length=MAX_EMAIL_LENGTH)
+    password: str = Field(max_length=MAX_PASSWORD_LENGTH)
 
 
 class ProfileUpdate(BaseModel):
-    display_name: str
-    password: Optional[str] = None
+    display_name: str = Field(max_length=MAX_DISPLAY_NAME_LENGTH)
+    password: Optional[str] = Field(default=None, max_length=MAX_PASSWORD_LENGTH)
 
 
 class BoardMemberCreate(BaseModel):
-    email: str
+    email: str = Field(max_length=MAX_EMAIL_LENGTH)
     role: str = "viewer"
 
 
@@ -867,9 +934,25 @@ def set_instance_settings(db: Session, updates: dict) -> dict:
 
 def _validated_hex_color(value: Optional[str], fallback: str, detail: str) -> str:
     color = (value or "").strip() or fallback
-    if not color.startswith("#") or len(color) not in {4, 7}:
+    if not HEX_COLOR_RE.fullmatch(color):
         raise HTTPException(status_code=400, detail=detail)
     return color
+
+
+def _validated_optional_hex_color(value: Optional[str], detail: str) -> Optional[str]:
+    color = (value or "").strip()
+    if not color:
+        return None
+    if not HEX_COLOR_RE.fullmatch(color):
+        raise HTTPException(status_code=400, detail=detail)
+    return color
+
+
+def _validate_filter_definition_size(definition: Optional[dict]):
+    if definition is None:
+        return
+    if len(json.dumps(definition, separators=(",", ":"))) > MAX_FILTER_JSON_LENGTH:
+        raise HTTPException(status_code=400, detail="Filter definition is too large")
 
 
 def notification_to_dict(notification: models.Notification) -> dict:
@@ -1321,7 +1404,13 @@ def auth_me(request: Request, db: Session = Depends(get_db)):
 
 
 @app.post("/api/auth/register")
-def auth_register(data: RegisterRequest, response: Response, db: Session = Depends(get_db)):
+def auth_register(
+    data: RegisterRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+    request: Request = None,
+):
+    _enforce_registration_rate_limit(request)
     email = _normalize_email(data.email)
     password = data.password or ""
     display_name = (data.display_name or "").strip() or email.split("@", 1)[0]
@@ -1331,6 +1420,7 @@ def auth_register(data: RegisterRequest, response: Response, db: Session = Depen
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
     existing = db.query(models.User).filter(models.User.email == email).first()
     if existing:
+        _record_registration_attempt(request)
         raise HTTPException(status_code=400, detail="Registration failed")
     existing_user_count = db.query(models.User).count()
     if existing_user_count > 0 and not get_instance_settings(db)["registration_enabled"]:
@@ -1347,6 +1437,7 @@ def auth_register(data: RegisterRequest, response: Response, db: Session = Depen
     db.add(user)
     db.commit()
     db.refresh(user)
+    _record_registration_attempt(request)
     claim_legacy_boards_for_first_user(user, db)
     if user.is_active:
         token, csrf_token = create_user_session(user, db)
@@ -1467,39 +1558,40 @@ def mark_all_notifications_read(request: Request, db: Session = Depends(get_db))
 # Boards API
 # ---------------------------------------------------------------------------
 
+def _list_boards_internal(db: Session):
+    boards = db.query(models.Board).order_by(models.Board.position).all()
+    board_ids = [board.id for board in boards]
+    shared_map = _board_shared_map(board_ids, db)
+    return [
+        {
+            "id": b.id,
+            "name": b.name,
+            "color": b.color,
+            "position": b.position,
+            "is_shared": shared_map.get(b.id, False),
+        }
+        for b in boards
+    ]
+
+
 @app.get("/api/boards")
-def get_boards(request: Request = None, db: Session = Depends(get_db)):
-    if request is None:
-        boards = db.query(models.Board).order_by(models.Board.position).all()
-        board_ids = [board.id for board in boards]
-        shared_map = _board_shared_map(board_ids, db)
-        return [
-            {
-                "id": b.id,
-                "name": b.name,
-                "color": b.color,
-                "position": b.position,
-                "is_shared": shared_map.get(b.id, False),
-            }
-            for b in boards
-        ]
-    else:
-        user = require_current_user(request, db)
-        boards = get_accessible_boards(user, db)
-        board_ids = [board.id for board in boards]
-        role_map = _board_role_map(board_ids, user, db)
-        shared_map = _board_shared_map(board_ids, db)
-        return [
-            {
-                "id": b.id,
-                "name": b.name,
-                "color": b.color,
-                "position": b.position,
-                "role": role_map.get(b.id),
-                "is_shared": shared_map.get(b.id, False),
-            }
-            for b in boards
-        ]
+def get_boards(request: Request, db: Session = Depends(get_db)):
+    user = require_current_user(request, db)
+    boards = get_accessible_boards(user, db)
+    board_ids = [board.id for board in boards]
+    role_map = _board_role_map(board_ids, user, db)
+    shared_map = _board_shared_map(board_ids, db)
+    return [
+        {
+            "id": b.id,
+            "name": b.name,
+            "color": b.color,
+            "position": b.position,
+            "role": role_map.get(b.id),
+            "is_shared": shared_map.get(b.id, False),
+        }
+        for b in boards
+    ]
 
 @app.post("/api/boards")
 def create_board(data: BoardCreate, db: Session = Depends(get_db), request: Request = None):
@@ -1508,7 +1600,10 @@ def create_board(data: BoardCreate, db: Session = Depends(get_db), request: Requ
     pos = db.query(models.Board).count()
     board = models.Board(
         name=data.name,
-        color=data.color or instance_settings["default_board_color"] or None,
+        color=_validated_optional_hex_color(
+            data.color,
+            "Board color must be a valid hex color",
+        ) or instance_settings["default_board_color"] or None,
         position=pos,
         owner_user_id=owner_user.id if owner_user else None,
     )
@@ -1623,7 +1718,7 @@ def update_board(board_id: int, data: BoardUpdate, db: Session = Depends(get_db)
     if data.name is not None:
         board.name = data.name
     if "color" in data.model_fields_set:
-        board.color = data.color or None
+        board.color = _validated_optional_hex_color(data.color, "Board color must be a valid hex color")
     db.commit()
     return {"id": board.id, "name": board.name, "color": board.color}
 
@@ -1777,6 +1872,7 @@ def get_saved_filters(board_id: int, db: Session = Depends(get_db), request: Req
 @app.post("/api/filters")
 def create_saved_filter(data: SavedFilterCreate, db: Session = Depends(get_db), request: Request = None):
     current_user = _authorize_board_request(request, db, data.board_id, "editor")
+    _validate_filter_definition_size(data.definition)
     definition = _validated_filter_definition(data.definition, data.board_id, db, current_user)
     saved_filter = models.SavedFilter(
         name=data.name,
@@ -1802,6 +1898,7 @@ def update_saved_filter(filter_id: int, data: SavedFilterUpdate, db: Session = D
     if data.name is not None:
         saved_filter.name = data.name
     if "definition" in data.model_fields_set:
+        _validate_filter_definition_size(data.definition)
         saved_filter.definition = json.dumps(
             _validated_filter_definition(data.definition, saved_filter.board_id, db, current_user)
         )
@@ -2094,7 +2191,7 @@ def update_task(task_id: int, data: TaskUpdate, db: Session = Depends(get_db), r
     if "assignee_user_id" in data.model_fields_set:
         task.assignee_user_id = data.assignee_user_id
     if "color" in data.model_fields_set:
-        task.color = data.color or None
+        task.color = _validated_optional_hex_color(data.color, "Task color must be a valid hex color")
     if "show_description_on_card" in data.model_fields_set:
         task.show_description_on_card = data.show_description_on_card
     if "show_checklist_on_card" in data.model_fields_set:
@@ -2363,17 +2460,27 @@ def delete_checklist_item(
 
 
 def normalize_field_options(options) -> list[dict]:
+    if len(options or []) > MAX_OPTION_COUNT:
+        raise HTTPException(status_code=400, detail="Too many custom field options")
     normalized = []
     for option in options or []:
         if isinstance(option, str):
-            label = option.strip()
+            label = option.strip()[:MAX_NAME_LENGTH]
             if label:
                 normalized.append({"label": label, "color": None})
             continue
         if isinstance(option, dict):
-            label = str(option.get("label") or option.get("value") or "").strip()
+            label = str(option.get("label") or option.get("value") or "").strip()[:MAX_NAME_LENGTH]
             if label:
-                normalized.append({"label": label, "color": option.get("color") or None})
+                normalized.append(
+                    {
+                        "label": label,
+                        "color": _validated_optional_hex_color(
+                            option.get("color"),
+                            "Custom field option color must be a valid hex color",
+                        ),
+                    }
+                )
     return normalized
 
 
@@ -2416,7 +2523,7 @@ def create_task_type(data: TaskTypeCreate, db: Session = Depends(get_db), reques
         name=data.name,
         is_epic=data.is_epic,
         board_id=data.board_id,
-        color=data.color or None,
+        color=_validated_optional_hex_color(data.color, "Task type color must be a valid hex color"),
         show_description_on_card=data.show_description_on_card,
         show_checklist_on_card=data.show_checklist_on_card,
     )
@@ -2450,7 +2557,7 @@ def update_task_type(type_id: int, data: TaskTypeUpdate, db: Session = Depends(g
                 require_board_access(target_stage.board_id, current_user, db, "editor")
         tt.spawn_stage_id = data.spawn_stage_id
     if "color" in data.model_fields_set:
-        tt.color = data.color or None
+        tt.color = _validated_optional_hex_color(data.color, "Task type color must be a valid hex color")
     if "show_description_on_card" in data.model_fields_set:
         tt.show_description_on_card = data.show_description_on_card
     if "show_checklist_on_card" in data.model_fields_set:
@@ -2487,7 +2594,7 @@ def add_custom_field(
         field_type=data.field_type,
         show_on_card=data.show_on_card,
         options=json.dumps(normalize_field_options(data.options)) if data.options else None,
-        color=data.color or None,
+        color=_validated_optional_hex_color(data.color, "Custom field color must be a valid hex color"),
     )
     db.add(field)
     db.commit()
@@ -2513,7 +2620,7 @@ def update_custom_field(type_id: int, field_id: int, data: CustomFieldCreate, db
     if "options" in data.model_fields_set:
         field.options = json.dumps(normalize_field_options(data.options)) if data.options else None
     if "color" in data.model_fields_set:
-        field.color = data.color or None
+        field.color = _validated_optional_hex_color(data.color, "Custom field color must be a valid hex color")
     db.commit()
     return field_to_dict(field)
 
@@ -2577,7 +2684,7 @@ def create_automation(data: AutomationCreate, db: Session = Depends(get_db), req
         action_type=data.action_type,
         action_stage_id=data.action_stage_id or None,
         action_task_type_id=data.action_task_type_id or None,
-        action_color=data.action_color or None,
+        action_color=_validated_optional_hex_color(data.action_color, "Automation color must be a valid hex color"),
         action_days_offset=data.action_days_offset,
         board_id=data.board_id,
     )
@@ -2613,7 +2720,7 @@ def update_automation(
             _require_task_type_in_board(data.action_task_type_id, auto.board_id, db)
         auto.action_task_type_id = data.action_task_type_id or None
     if "action_color" in data.model_fields_set:
-        auto.action_color = data.action_color or None
+        auto.action_color = _validated_optional_hex_color(data.action_color, "Automation color must be a valid hex color")
     if "action_days_offset" in data.model_fields_set:
         auto.action_days_offset = data.action_days_offset
     db.commit()

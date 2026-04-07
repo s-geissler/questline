@@ -19,7 +19,23 @@ def register_and_cookie(main, db, email, display_name):
         response,
         db,
     )
-    return user, response.headers.get("set-cookie").split(";", 1)[0]
+    cookie_header = response.headers.get("set-cookie")
+    if cookie_header:
+        return user, cookie_header.split(";", 1)[0]
+
+    admin = db.query(main.models.User).filter(main.models.User.role == "admin").order_by(main.models.User.id).first()
+    admin_response = main.Response()
+    main.auth_login(main.LoginRequest(email=admin.email, password="supersecret"), admin_response, db)
+    admin_cookie = admin_response.headers.get("set-cookie").split(";", 1)[0]
+    main.update_admin_user(
+        user["id"],
+        main.AdminUserUpdate(is_active=True),
+        main.Request(request_with_cookie(path=f"/api/admin/users/{user['id']}", cookie=admin_cookie)),
+        db,
+    )
+    login_response = main.Response()
+    main.auth_login(main.LoginRequest(email=email, password="supersecret"), login_response, db)
+    return user, login_response.headers.get("set-cookie").split(";", 1)[0]
 
 
 def test_first_registered_user_becomes_admin(app_env):
@@ -154,7 +170,7 @@ def test_admin_can_update_instance_settings_and_board_defaults(app_env):
     )
     assert settings["registration_enabled"] is True
     assert settings["default_board_color"]
-    assert settings["new_accounts_active_by_default"] is True
+    assert settings["new_accounts_active_by_default"] is False
     assert settings["instance_theme_color"] == "#1d4ed8"
     assert settings["recurrence_worker_interval_seconds"] == 60
 
