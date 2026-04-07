@@ -70,257 +70,515 @@
 
   <!-- Board -->
   <div x-show="boardView === 'stages'" class="p-4 overflow-auto h-[calc(100vh-4rem)]">
-    <div id="stages-container" class="flex min-w-max flex-col gap-4">
-      <template x-for="stageRow in stageRows" :key="`stage-row-${stageRow.row}`">
-        <div class="space-y-2">
-          <div class="flex items-start gap-3" :data-stage-row="stageRow.row">
-            <template x-for="stage in stageRow.stages" :key="`${stage.id}-${stage.row}-${stage.position}`">
-              <div
-                class="board-stage rounded-xl shadow w-72 flex-shrink-0 flex flex-col overflow-visible"
-                :class="stage.is_log ? 'log-stage' : 'bg-gray-100'"
-                :data-stage-column-id="stage.id"
-              >
-
-        <!-- Stage header -->
-        <div
-          class="flex items-center justify-between px-3 pt-3 pb-2 border-b"
-          :class="stage.is_log ? 'log-stage-header' : 'border-transparent'"
-        >
-          <div class="min-w-0 flex-1">
-            <input
-              x-model="stage.name"
-              @blur="saveStageName(stage)"
-              @keydown.enter="$el.blur()"
-              :disabled="!canEditBoard"
-              class="stage-title-input font-medium bg-transparent w-full rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400 text-sm"
-              :class="stage.is_log ? 'log-stage-title' : 'text-gray-700 hover:bg-black/5 focus:bg-black/5'"
-            >
-            <div x-show="stage.is_log" class="mt-1 px-1 space-y-1">
-              <div class="flex items-center gap-1.5 flex-wrap">
-                <span class="log-stage-badge text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded-full font-semibold">Filter Log</span>
-                <span class="log-stage-summary text-[10px] font-medium">⌕ Read-only view</span>
-              </div>
-              <div class="log-stage-summary text-[11px] leading-snug" x-text="logStageSummary(stage)"></div>
-            </div>
-          </div>
-          <div x-show="canEditBoard" x-data="{ open: false }" @click.outside="open = false" class="relative ml-2 flex-shrink-0">
-            <button
-              @click="open = !open"
-              class="text-gray-400 hover:text-gray-700 px-2 py-1 rounded hover:bg-white transition-colors text-lg leading-none"
-              title="Stage actions"
-            >☰</button>
+    <div id="stages-container" class="min-w-max space-y-4">
+      <div class="flex items-start gap-3" data-stage-top-row>
+        <template x-for="stage in topRowStages" :key="`${stage.id}-${stage.row}-${stage.position}`">
+          <div
+            class="board-stage rounded-xl shadow w-72 flex-shrink-0 flex flex-col overflow-visible"
+            :class="stage.is_log ? 'log-stage' : 'bg-gray-100'"
+            :data-stage-column-id="stage.id"
+          >
             <div
-              x-show="open"
-              x-cloak
-              x-transition:enter="transition ease-out duration-100"
-              x-transition:enter-start="opacity-0 scale-95"
-              x-transition:enter-end="opacity-100 scale-100"
-              x-transition:leave="transition ease-in duration-75"
-              x-transition:leave-start="opacity-100 scale-100"
-              x-transition:leave-end="opacity-0 scale-95"
-              class="absolute top-full right-0 mt-1 bg-white text-gray-800 shadow-xl rounded-xl py-1 min-w-[170px] z-20"
+              class="flex items-center justify-between px-3 pt-3 pb-2 border-b"
+              :class="stage.is_log ? 'log-stage-header' : 'border-transparent'"
             >
-              <button
-                @click="openLogConfig(stage); open = false"
-                class="block w-full text-left text-xs text-gray-600 hover:text-sky-600 px-3 py-2 hover:bg-gray-100 transition-colors"
-              >Configure log</button>
-              <button
-                @click="sortStageByDueDate(stage); open = false"
-                class="block w-full text-left text-xs text-gray-600 hover:text-blue-600 px-3 py-2 hover:bg-gray-100 transition-colors"
-                title="Sort dated objectives by due date"
-                x-show="!stage.is_log"
-              >Sort by due date</button>
-              <button
-                @click="clearCompletedStage(stage); open = false"
-                class="block w-full text-left text-xs text-gray-600 hover:text-amber-600 px-3 py-2 hover:bg-gray-100 transition-colors"
-                title="Clear completed objectives"
-                x-show="!stage.is_log"
-              >Clear completed</button>
-              <button
-                @click="deleteStage(stage.id); open = false"
-                class="block w-full text-left text-xs text-gray-600 hover:text-red-600 px-3 py-2 hover:bg-gray-100 transition-colors"
-                title="Delete stage"
-              >Delete stage</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Task cards -->
-        <div
-          class="board-stage-body px-2 pb-1 space-y-2 min-h-[8px]"
-          :class="stage.is_log ? 'log-stage-body' : ''"
-          :id="'stage-' + stage.id"
-          :data-stage-id="stage.id"
-        >
-          <template x-for="task in stage.tasks" :key="`${task.id}-${task.position}`">
-            <div
-              class="board-task-card bg-white rounded-lg p-2.5 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
-              :class="task.done ? 'opacity-60' : ''"
-              :style="'border-left: 4px solid ' + (task.color || '#e2e8f0')"
-              @click="openTask(task)"
-              :data-task-id="task.id"
-            >
-              <div class="group/title flex items-start gap-0">
-                <button
-                  x-show="canEditBoard"
-                  @click.stop="toggleTaskDoneFromCard(task)"
-                  class="mt-0.5 h-4 overflow-hidden rounded border flex items-center justify-center flex-shrink-0 transition-all duration-150 group-hover/title:w-4 group-hover/title:mr-2 group-hover/title:opacity-100 group-focus-within/title:w-4 group-focus-within/title:mr-2 group-focus-within/title:opacity-100"
-                  :class="task.done
-                    ? 'w-4 mr-2 bg-green-500 border-green-500 text-white opacity-100'
-                    : 'w-0 mr-0 border-gray-300 text-transparent hover:border-green-500 hover:text-green-500 bg-white opacity-0'"
-                  :title="task.done ? 'Mark objective not done' : 'Mark objective done'"
+              <div class="min-w-0 flex-1">
+                <input
+                  x-model="stage.name"
+                  @blur="saveStageName(stage)"
+                  @keydown.enter="$el.blur()"
+                  :disabled="!canEditBoard"
+                  class="stage-title-input font-medium bg-transparent w-full rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400 text-sm"
+                  :class="stage.is_log ? 'log-stage-title' : 'text-gray-700 hover:bg-black/5 focus:bg-black/5'"
                 >
-                  <span class="text-[11px] leading-none">✓</span>
-                </button>
-                <div class="min-w-0 flex-1">
-                  <div class="flex items-start gap-1.5">
-                    <span
-                      class="text-sm text-gray-800 leading-snug block min-w-0 flex-1"
-                      :class="task.done ? 'line-through text-gray-400' : ''"
-                      x-text="task.title"
-                    ></span>
-                    <span
-                      x-show="hasDescription(task)"
-                      class="mt-0.5 flex-shrink-0 text-[11px] text-gray-400"
-                      title="Has description"
-                      aria-label="Has description"
-                    >≡</span>
+                <div x-show="stage.is_log" class="mt-1 px-1 space-y-1">
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    <span class="log-stage-badge text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded-full font-semibold">Filter Log</span>
+                    <span class="log-stage-summary text-[10px] font-medium">⌕ Read-only view</span>
                   </div>
+                  <div class="log-stage-summary text-[11px] leading-snug" x-text="logStageSummary(stage)"></div>
                 </div>
               </div>
-              <div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                <template x-if="task.task_type">
-                  <span
-                    class="text-xs px-2 py-0.5 rounded font-medium"
-                    :style="taskTypeBadgeStyle(task.task_type)"
-                    x-text="task.task_type.name"
-                  ></span>
-                </template>
-                <template x-if="task.parent_task">
-                  <span
-                    class="text-xs px-2 py-0.5 rounded font-medium bg-violet-100 text-violet-700"
-                    x-text="task.parent_task.title"
-                  ></span>
-                </template>
-                <template x-if="task.assignee">
-                  <span
-                    class="text-xs px-2 py-0.5 rounded font-medium bg-slate-100 text-slate-700"
-                    x-text="'@ ' + task.assignee.display_name"
-                  ></span>
-                </template>
-                <template x-if="task.recurrence">
-                  <span
-                    class="text-xs px-2 py-0.5 rounded font-medium bg-blue-100 text-blue-700"
-                  >↻ Recurring</span>
-                </template>
-                <template x-if="hasDueDate(task.due_date)">
-                  <span
-                    class="text-xs px-2 py-0.5 rounded font-medium"
-                    :style="dueDateStyle(task.due_date)"
-                    x-text="dueDateLabel(task.due_date)"
-                  ></span>
-                </template>
-                <span
-                  x-show="task.checklist && task.checklist.length > 0"
-                  class="text-xs text-gray-400 flex items-center gap-0.5"
-                >
-                  <span>☑</span>
-                  <span x-text="checklistProgress(task)"></span>
-                </span>
-                <template x-if="stage.is_log">
-                  <span
-                    class="text-xs px-2 py-0.5 rounded font-medium bg-slate-100 text-slate-600"
-                    x-text="'In ' + sourceStageName(task)"
-                  ></span>
-                </template>
-              </div>
-              <template x-if="shouldShowDescriptionOnCard(task)">
+              <div x-show="canEditBoard" x-data="{ open: false }" @click.outside="open = false" class="relative ml-2 flex-shrink-0">
+                <button
+                  @click="open = !open"
+                  class="text-gray-400 hover:text-gray-700 px-2 py-1 rounded hover:bg-white transition-colors text-lg leading-none"
+                  title="Stage actions"
+                >☰</button>
                 <div
-                  class="mt-1.5 text-xs text-gray-500 leading-snug prose prose-sm max-w-none"
-                  x-html="renderMarkdown(task.description)"
-                ></div>
-              </template>
-              <template x-if="shouldShowChecklistOnCard(task)">
-                <div class="mt-2 space-y-1">
-                  <template x-for="item in task.checklist" :key="item.id">
-                    <div class="flex items-start gap-1.5 text-xs text-gray-500">
-                      <span class="mt-0.5 flex-shrink-0" :class="item.done ? 'text-green-500' : 'text-gray-300'" x-text="item.done ? '☑' : '☐'"></span>
-                      <span class="leading-snug" :class="item.done ? 'line-through text-gray-400' : ''" x-text="item.title"></span>
+                  x-show="open"
+                  x-cloak
+                  x-transition:enter="transition ease-out duration-100"
+                  x-transition:enter-start="opacity-0 scale-95"
+                  x-transition:enter-end="opacity-100 scale-100"
+                  x-transition:leave="transition ease-in duration-75"
+                  x-transition:leave-start="opacity-100 scale-100"
+                  x-transition:leave-end="opacity-0 scale-95"
+                  class="absolute top-full right-0 mt-1 bg-white text-gray-800 shadow-xl rounded-xl py-1 min-w-[170px] z-20"
+                >
+                  <button
+                    @click="openLogConfig(stage); open = false"
+                    class="block w-full text-left text-xs text-gray-600 hover:text-sky-600 px-3 py-2 hover:bg-gray-100 transition-colors"
+                  >Configure log</button>
+                  <button
+                    @click="sortStageByDueDate(stage); open = false"
+                    class="block w-full text-left text-xs text-gray-600 hover:text-blue-600 px-3 py-2 hover:bg-gray-100 transition-colors"
+                    title="Sort dated objectives by due date"
+                    x-show="!stage.is_log"
+                  >Sort by due date</button>
+                  <button
+                    @click="clearCompletedStage(stage); open = false"
+                    class="block w-full text-left text-xs text-gray-600 hover:text-amber-600 px-3 py-2 hover:bg-gray-100 transition-colors"
+                    title="Clear completed objectives"
+                    x-show="!stage.is_log"
+                  >Clear completed</button>
+                  <button
+                    @click="deleteStage(stage.id); open = false"
+                    class="block w-full text-left text-xs text-gray-600 hover:text-red-600 px-3 py-2 hover:bg-gray-100 transition-colors"
+                    title="Delete stage"
+                  >Delete stage</button>
+                </div>
+              </div>
+            </div>
+
+            <div
+              class="board-stage-body px-2 pb-1 space-y-2 min-h-[8px]"
+              :class="stage.is_log ? 'log-stage-body' : ''"
+              :id="'stage-' + stage.id"
+              :data-stage-id="stage.id"
+            >
+              <template x-for="task in stage.tasks" :key="`${task.id}-${task.position}`">
+                <div
+                  class="board-task-card bg-white rounded-lg p-2.5 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+                  :class="task.done ? 'opacity-60' : ''"
+                  :style="'border-left: 4px solid ' + (task.color || '#e2e8f0')"
+                  @click="openTask(task)"
+                  :data-task-id="task.id"
+                >
+                  <div class="group/title flex items-start gap-0">
+                    <button
+                      x-show="canEditBoard"
+                      @click.stop="toggleTaskDoneFromCard(task)"
+                      class="mt-0.5 h-4 overflow-hidden rounded border flex items-center justify-center flex-shrink-0 transition-all duration-150 group-hover/title:w-4 group-hover/title:mr-2 group-hover/title:opacity-100 group-focus-within/title:w-4 group-focus-within/title:mr-2 group-focus-within/title:opacity-100"
+                      :class="task.done
+                        ? 'w-4 mr-2 bg-green-500 border-green-500 text-white opacity-100'
+                        : 'w-0 mr-0 border-gray-300 text-transparent hover:border-green-500 hover:text-green-500 bg-white opacity-0'"
+                      :title="task.done ? 'Mark objective not done' : 'Mark objective done'"
+                    >
+                      <span class="text-[11px] leading-none">✓</span>
+                    </button>
+                    <div class="min-w-0 flex-1">
+                      <div class="flex items-start gap-1.5">
+                        <span
+                          class="text-sm text-gray-800 leading-snug block min-w-0 flex-1"
+                          :class="task.done ? 'line-through text-gray-400' : ''"
+                          x-text="task.title"
+                        ></span>
+                        <span
+                          x-show="hasDescription(task)"
+                          class="mt-0.5 flex-shrink-0 text-[11px] text-gray-400"
+                          title="Has description"
+                          aria-label="Has description"
+                        >≡</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                    <template x-if="task.task_type">
+                      <span
+                        class="text-xs px-2 py-0.5 rounded font-medium"
+                        :style="taskTypeBadgeStyle(task.task_type)"
+                        x-text="task.task_type.name"
+                      ></span>
+                    </template>
+                    <template x-if="task.parent_task">
+                      <span
+                        class="text-xs px-2 py-0.5 rounded font-medium bg-violet-100 text-violet-700"
+                        x-text="task.parent_task.title"
+                      ></span>
+                    </template>
+                    <template x-if="task.assignee">
+                      <span
+                        class="text-xs px-2 py-0.5 rounded font-medium bg-slate-100 text-slate-700"
+                        x-text="'@ ' + task.assignee.display_name"
+                      ></span>
+                    </template>
+                    <template x-if="task.recurrence">
+                      <span
+                        class="text-xs px-2 py-0.5 rounded font-medium bg-blue-100 text-blue-700"
+                      >↻ Recurring</span>
+                    </template>
+                    <template x-if="hasDueDate(task.due_date)">
+                      <span
+                        class="text-xs px-2 py-0.5 rounded font-medium"
+                        :style="dueDateStyle(task.due_date)"
+                        x-text="dueDateLabel(task.due_date)"
+                      ></span>
+                    </template>
+                    <span
+                      x-show="task.checklist && task.checklist.length > 0"
+                      class="text-xs text-gray-400 flex items-center gap-0.5"
+                    >
+                      <span>☑</span>
+                      <span x-text="checklistProgress(task)"></span>
+                    </span>
+                    <template x-if="stage.is_log">
+                      <span
+                        class="text-xs px-2 py-0.5 rounded font-medium bg-slate-100 text-slate-600"
+                        x-text="'In ' + sourceStageName(task)"
+                      ></span>
+                    </template>
+                  </div>
+                  <template x-if="shouldShowDescriptionOnCard(task)">
+                    <div
+                      class="mt-1.5 text-xs text-gray-500 leading-snug prose prose-sm max-w-none"
+                      x-html="renderMarkdown(task.description)"
+                    ></div>
+                  </template>
+                  <template x-if="shouldShowChecklistOnCard(task)">
+                    <div class="mt-2 space-y-1">
+                      <template x-for="item in task.checklist" :key="item.id">
+                        <div class="flex items-start gap-1.5 text-xs text-gray-500">
+                          <span class="mt-0.5 flex-shrink-0" :class="item.done ? 'text-green-500' : 'text-gray-300'" x-text="item.done ? '☑' : '☐'"></span>
+                          <span class="leading-snug" :class="item.done ? 'line-through text-gray-400' : ''" x-text="item.title"></span>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                  <template x-if="task.task_type && task.task_type.custom_fields && task.task_type.custom_fields.some(f => f.show_on_card && hasCustomFieldValue(task.custom_field_values[String(f.id)]))">
+                    <div class="mt-1.5 pt-1.5 border-t border-gray-200/70" style="display: flex; flex-wrap: wrap; gap: 0.375rem; align-items: stretch;">
+                      <template x-for="field in task.task_type.custom_fields.filter(f => f.show_on_card)" :key="field.id">
+                        <template x-if="hasCustomFieldValue(task.custom_field_values[String(field.id)])">
+                          <span
+                            class="text-xs px-2 py-0.5 rounded font-medium"
+                            :style="chipStyle(field, task.custom_field_values[String(field.id)])"
+                            x-text="field.name + ': ' + task.custom_field_values[String(field.id)]"
+                          ></span>
+                        </template>
+                      </template>
                     </div>
                   </template>
                 </div>
               </template>
-              <!-- Custom fields marked show_on_card -->
-              <template x-if="task.task_type && task.task_type.custom_fields && task.task_type.custom_fields.some(f => f.show_on_card && hasCustomFieldValue(task.custom_field_values[String(f.id)]))">
-                <div class="mt-1.5 pt-1.5 border-t border-gray-200/70" style="display: flex; flex-wrap: wrap; gap: 0.375rem; align-items: stretch;">
-                  <template x-for="field in task.task_type.custom_fields.filter(f => f.show_on_card)" :key="field.id">
-                    <template x-if="hasCustomFieldValue(task.custom_field_values[String(field.id)])">
-                      <span
-                        class="text-xs px-2 py-0.5 rounded font-medium"
-                        :style="chipStyle(field, task.custom_field_values[String(field.id)])"
-                        x-text="field.name + ': ' + task.custom_field_values[String(field.id)]"
-                      ></span>
-                    </template>
-                  </template>
-                </div>
-              </template>
             </div>
-          </template>
-        </div>
 
-        <!-- Add card form -->
-        <div class="px-2 pb-2 pt-1" x-show="!stage.is_log && canEditBoard">
-          <div x-show="showNewTask[stage.id] !== true">
-            <button
-              @click="showNewTask = {...showNewTask, [stage.id]: true}; newTaskTitles = {...newTaskTitles, [stage.id]: ''}; $nextTick(() => document.getElementById('new-task-input-' + stage.id)?.focus())"
-              class="text-gray-500 hover:text-gray-800 text-sm w-full text-left px-1 py-1 rounded hover:bg-gray-200 transition-colors"
-            >+ Add an objective</button>
+            <div class="px-2 pb-2 pt-1" x-show="!stage.is_log && canEditBoard">
+              <div x-show="showNewTask[stage.id] !== true">
+                <button
+                  @click="showNewTask = {...showNewTask, [stage.id]: true}; newTaskTitles = {...newTaskTitles, [stage.id]: ''}; $nextTick(() => document.getElementById('new-task-input-' + stage.id)?.focus())"
+                  class="text-gray-500 hover:text-gray-800 text-sm w-full text-left px-1 py-1 rounded hover:bg-gray-200 transition-colors"
+                >+ Add an objective</button>
+              </div>
+              <div x-show="showNewTask[stage.id] === true">
+                <input
+                  :id="'new-task-input-' + stage.id"
+                  :value="newTaskTitles[stage.id] || ''"
+                  @input="newTaskTitles = {...newTaskTitles, [stage.id]: $event.target.value}"
+                  @keydown.enter="createTask(stage.id)"
+                  @keydown.escape="showNewTask = {...showNewTask, [stage.id]: false}"
+                  placeholder="Objective title..."
+                  class="w-full border rounded-lg px-2 py-1.5 text-sm mb-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                >
+                <div class="flex gap-1.5">
+                  <button
+                    @click="createTask(stage.id)"
+                    class="bg-blue-500 hover:bg-blue-600 text-white text-sm px-3 py-1 rounded-lg transition-colors"
+                  >Add</button>
+                  <button
+                    @click="showNewTask = {...showNewTask, [stage.id]: false}"
+                    class="text-gray-500 hover:text-gray-700 text-sm px-2 py-1"
+                  >✕</button>
+                </div>
+              </div>
+            </div>
           </div>
-          <div x-show="showNewTask[stage.id] === true">
+        </template>
+
+        <div class="w-72 flex-shrink-0 group/add-top" x-show="canEditBoard">
+          <div class="min-h-[48px] rounded-xl">
+          <div x-show="!showNewStage || newStageRow !== 0">
+              <button
+                @click="openNewStageForm(0)"
+                class="w-full rounded-xl border border-dashed border-white/30 bg-white/10 px-3 py-3 text-left text-sm font-medium text-white/80 opacity-0 transition-all duration-150 hover:bg-white/15 group-hover/add-top:opacity-100 group-focus-within/add-top:opacity-100"
+                :class="showStageDropTargets ? 'opacity-100' : ''"
+            >+ Add stage here</button>
+          </div>
+          <div x-show="showNewStage && newStageRow === 0" class="bg-gray-100 rounded-xl p-3 shadow">
             <input
-              :id="'new-task-input-' + stage.id"
-              :value="newTaskTitles[stage.id] || ''"
-              @input="newTaskTitles = {...newTaskTitles, [stage.id]: $event.target.value}"
-              @keydown.enter="createTask(stage.id)"
-              @keydown.escape="showNewTask = {...showNewTask, [stage.id]: false}"
-              placeholder="Objective title..."
-              class="w-full border rounded-lg px-2 py-1.5 text-sm mb-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400"
+              x-ref="newStageInput"
+              x-model="newStageName"
+              @keydown.enter="createStage(0)"
+              @keydown.escape="cancelNewStage()"
+              placeholder="Stage title..."
+              class="w-full border rounded-lg px-2 py-1.5 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
             >
             <div class="flex gap-1.5">
               <button
-                @click="createTask(stage.id)"
+                @click="createStage(0)"
                 class="bg-blue-500 hover:bg-blue-600 text-white text-sm px-3 py-1 rounded-lg transition-colors"
-              >Add</button>
+              >Add stage</button>
               <button
-                @click="showNewTask = {...showNewTask, [stage.id]: false}"
-                class="text-gray-500 hover:text-gray-700 text-sm px-2 py-1"
+                @click="cancelNewStage()"
+                class="text-gray-600 hover:text-gray-800 text-sm px-2 py-1"
               >✕</button>
             </div>
           </div>
+          </div>
         </div>
+      </div>
 
-              </div>
-            </template>
+      <div class="flex items-start gap-3">
+        <template x-for="slot in secondRowSlots" :key="`second-row-slot-${slot.position}`">
+          <div class="w-72 flex-shrink-0 group/add-bottom" :style="secondRowSlotStyle(slot.position)">
+            <div
+              class="min-h-[48px] rounded-xl"
+              data-stage-row="1"
+              :data-stage-slot-position="slot.position"
+            >
+              <template x-if="slot.stage">
+                <div
+                  x-data="{ stage: slot.stage }"
+                  class="board-stage rounded-xl shadow w-72 flex-shrink-0 flex flex-col overflow-visible"
+                  :class="stage.is_log ? 'log-stage' : 'bg-gray-100'"
+                  :data-stage-column-id="stage.id"
+                >
+                    <div
+                      class="flex items-center justify-between px-3 pt-3 pb-2 border-b"
+                      :class="stage.is_log ? 'log-stage-header' : 'border-transparent'"
+                    >
+                      <div class="min-w-0 flex-1">
+                        <input
+                          x-model="stage.name"
+                          @blur="saveStageName(stage)"
+                          @keydown.enter="$el.blur()"
+                          :disabled="!canEditBoard"
+                          class="stage-title-input font-medium bg-transparent w-full rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400 text-sm"
+                          :class="stage.is_log ? 'log-stage-title' : 'text-gray-700 hover:bg-black/5 focus:bg-black/5'"
+                        >
+                        <div x-show="stage.is_log" class="mt-1 px-1 space-y-1">
+                          <div class="flex items-center gap-1.5 flex-wrap">
+                            <span class="log-stage-badge text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded-full font-semibold">Filter Log</span>
+                            <span class="log-stage-summary text-[10px] font-medium">⌕ Read-only view</span>
+                          </div>
+                          <div class="log-stage-summary text-[11px] leading-snug" x-text="logStageSummary(stage)"></div>
+                        </div>
+                      </div>
+                      <div x-show="canEditBoard" x-data="{ open: false }" @click.outside="open = false" class="relative ml-2 flex-shrink-0">
+                        <button
+                          @click="open = !open"
+                          class="text-gray-400 hover:text-gray-700 px-2 py-1 rounded hover:bg-white transition-colors text-lg leading-none"
+                          title="Stage actions"
+                        >☰</button>
+                        <div
+                          x-show="open"
+                          x-cloak
+                          x-transition:enter="transition ease-out duration-100"
+                          x-transition:enter-start="opacity-0 scale-95"
+                          x-transition:enter-end="opacity-100 scale-100"
+                          x-transition:leave="transition ease-in duration-75"
+                          x-transition:leave-start="opacity-100 scale-100"
+                          x-transition:leave-end="opacity-0 scale-95"
+                          class="absolute top-full right-0 mt-1 bg-white text-gray-800 shadow-xl rounded-xl py-1 min-w-[170px] z-20"
+                        >
+                          <button
+                            @click="openLogConfig(stage); open = false"
+                            class="block w-full text-left text-xs text-gray-600 hover:text-sky-600 px-3 py-2 hover:bg-gray-100 transition-colors"
+                          >Configure log</button>
+                          <button
+                            @click="sortStageByDueDate(stage); open = false"
+                            class="block w-full text-left text-xs text-gray-600 hover:text-blue-600 px-3 py-2 hover:bg-gray-100 transition-colors"
+                            title="Sort dated objectives by due date"
+                            x-show="!stage.is_log"
+                          >Sort by due date</button>
+                          <button
+                            @click="clearCompletedStage(stage); open = false"
+                            class="block w-full text-left text-xs text-gray-600 hover:text-amber-600 px-3 py-2 hover:bg-gray-100 transition-colors"
+                            title="Clear completed objectives"
+                            x-show="!stage.is_log"
+                          >Clear completed</button>
+                          <button
+                            @click="deleteStage(stage.id); open = false"
+                            class="block w-full text-left text-xs text-gray-600 hover:text-red-600 px-3 py-2 hover:bg-gray-100 transition-colors"
+                            title="Delete stage"
+                          >Delete stage</button>
+                        </div>
+                      </div>
+                    </div>
 
-            <div class="w-72 flex-shrink-0" x-show="canEditBoard">
-              <div x-show="!showNewStage || newStageRow !== stageRow.row">
-                <button
-                  @click="openNewStageForm(stageRow.row)"
-                  class="bg-white bg-opacity-20 hover:bg-opacity-30 text-white font-medium w-full text-left px-3 py-2 rounded-xl transition-colors"
-                >+ Add another stage</button>
-              </div>
-              <div x-show="showNewStage && newStageRow === stageRow.row" class="bg-gray-100 rounded-xl p-3 shadow">
+                    <div
+                      class="board-stage-body px-2 pb-1 space-y-2 min-h-[8px]"
+                      :class="stage.is_log ? 'log-stage-body' : ''"
+                      :id="'stage-' + stage.id"
+                      :data-stage-id="stage.id"
+                    >
+                      <template x-for="task in stage.tasks" :key="`${task.id}-${task.position}`">
+                        <div
+                          class="board-task-card bg-white rounded-lg p-2.5 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+                          :class="task.done ? 'opacity-60' : ''"
+                          :style="'border-left: 4px solid ' + (task.color || '#e2e8f0')"
+                          @click="openTask(task)"
+                          :data-task-id="task.id"
+                        >
+                          <div class="group/title flex items-start gap-0">
+                            <button
+                              x-show="canEditBoard"
+                              @click.stop="toggleTaskDoneFromCard(task)"
+                              class="mt-0.5 h-4 overflow-hidden rounded border flex items-center justify-center flex-shrink-0 transition-all duration-150 group-hover/title:w-4 group-hover/title:mr-2 group-hover/title:opacity-100 group-focus-within/title:w-4 group-focus-within/title:mr-2 group-focus-within/title:opacity-100"
+                              :class="task.done
+                                ? 'w-4 mr-2 bg-green-500 border-green-500 text-white opacity-100'
+                                : 'w-0 mr-0 border-gray-300 text-transparent hover:border-green-500 hover:text-green-500 bg-white opacity-0'"
+                              :title="task.done ? 'Mark objective not done' : 'Mark objective done'"
+                            >
+                              <span class="text-[11px] leading-none">✓</span>
+                            </button>
+                            <div class="min-w-0 flex-1">
+                              <div class="flex items-start gap-1.5">
+                                <span
+                                  class="text-sm text-gray-800 leading-snug block min-w-0 flex-1"
+                                  :class="task.done ? 'line-through text-gray-400' : ''"
+                                  x-text="task.title"
+                                ></span>
+                                <span
+                                  x-show="hasDescription(task)"
+                                  class="mt-0.5 flex-shrink-0 text-[11px] text-gray-400"
+                                  title="Has description"
+                                  aria-label="Has description"
+                                >≡</span>
+                              </div>
+                            </div>
+                          </div>
+                          <div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                            <template x-if="task.task_type">
+                              <span
+                                class="text-xs px-2 py-0.5 rounded font-medium"
+                                :style="taskTypeBadgeStyle(task.task_type)"
+                                x-text="task.task_type.name"
+                              ></span>
+                            </template>
+                            <template x-if="task.parent_task">
+                              <span
+                                class="text-xs px-2 py-0.5 rounded font-medium bg-violet-100 text-violet-700"
+                                x-text="task.parent_task.title"
+                              ></span>
+                            </template>
+                            <template x-if="task.assignee">
+                              <span
+                                class="text-xs px-2 py-0.5 rounded font-medium bg-slate-100 text-slate-700"
+                                x-text="'@ ' + task.assignee.display_name"
+                              ></span>
+                            </template>
+                            <template x-if="task.recurrence">
+                              <span
+                                class="text-xs px-2 py-0.5 rounded font-medium bg-blue-100 text-blue-700"
+                              >↻ Recurring</span>
+                            </template>
+                            <template x-if="hasDueDate(task.due_date)">
+                              <span
+                                class="text-xs px-2 py-0.5 rounded font-medium"
+                                :style="dueDateStyle(task.due_date)"
+                                x-text="dueDateLabel(task.due_date)"
+                              ></span>
+                            </template>
+                            <span
+                              x-show="task.checklist && task.checklist.length > 0"
+                              class="text-xs text-gray-400 flex items-center gap-0.5"
+                            >
+                              <span>☑</span>
+                              <span x-text="checklistProgress(task)"></span>
+                            </span>
+                            <template x-if="stage.is_log">
+                              <span
+                                class="text-xs px-2 py-0.5 rounded font-medium bg-slate-100 text-slate-600"
+                                x-text="'In ' + sourceStageName(task)"
+                              ></span>
+                            </template>
+                          </div>
+                          <template x-if="shouldShowDescriptionOnCard(task)">
+                            <div
+                              class="mt-1.5 text-xs text-gray-500 leading-snug prose prose-sm max-w-none"
+                              x-html="renderMarkdown(task.description)"
+                            ></div>
+                          </template>
+                          <template x-if="shouldShowChecklistOnCard(task)">
+                            <div class="mt-2 space-y-1">
+                              <template x-for="item in task.checklist" :key="item.id">
+                                <div class="flex items-start gap-1.5 text-xs text-gray-500">
+                                  <span class="mt-0.5 flex-shrink-0" :class="item.done ? 'text-green-500' : 'text-gray-300'" x-text="item.done ? '☑' : '☐'"></span>
+                                  <span class="leading-snug" :class="item.done ? 'line-through text-gray-400' : ''" x-text="item.title"></span>
+                                </div>
+                              </template>
+                            </div>
+                          </template>
+                          <template x-if="task.task_type && task.task_type.custom_fields && task.task_type.custom_fields.some(f => f.show_on_card && hasCustomFieldValue(task.custom_field_values[String(f.id)]))">
+                            <div class="mt-1.5 pt-1.5 border-t border-gray-200/70" style="display: flex; flex-wrap: wrap; gap: 0.375rem; align-items: stretch;">
+                              <template x-for="field in task.task_type.custom_fields.filter(f => f.show_on_card)" :key="field.id">
+                                <template x-if="hasCustomFieldValue(task.custom_field_values[String(field.id)])">
+                                  <span
+                                    class="text-xs px-2 py-0.5 rounded font-medium"
+                                    :style="chipStyle(field, task.custom_field_values[String(field.id)])"
+                                    x-text="field.name + ': ' + task.custom_field_values[String(field.id)]"
+                                  ></span>
+                                </template>
+                              </template>
+                            </div>
+                          </template>
+                        </div>
+                      </template>
+                    </div>
+
+                    <div class="px-2 pb-2 pt-1" x-show="!stage.is_log && canEditBoard">
+                      <div x-show="showNewTask[stage.id] !== true">
+                        <button
+                          @click="showNewTask = {...showNewTask, [stage.id]: true}; newTaskTitles = {...newTaskTitles, [stage.id]: ''}; $nextTick(() => document.getElementById('new-task-input-' + stage.id)?.focus())"
+                          class="text-gray-500 hover:text-gray-800 text-sm w-full text-left px-1 py-1 rounded hover:bg-gray-200 transition-colors"
+                        >+ Add an objective</button>
+                      </div>
+                      <div x-show="showNewTask[stage.id] === true">
+                        <input
+                          :id="'new-task-input-' + stage.id"
+                          :value="newTaskTitles[stage.id] || ''"
+                          @input="newTaskTitles = {...newTaskTitles, [stage.id]: $event.target.value}"
+                          @keydown.enter="createTask(stage.id)"
+                          @keydown.escape="showNewTask = {...showNewTask, [stage.id]: false}"
+                          placeholder="Objective title..."
+                          class="w-full border rounded-lg px-2 py-1.5 text-sm mb-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        >
+                        <div class="flex gap-1.5">
+                          <button
+                            @click="createTask(stage.id)"
+                            class="bg-blue-500 hover:bg-blue-600 text-white text-sm px-3 py-1 rounded-lg transition-colors"
+                          >Add</button>
+                          <button
+                            @click="showNewTask = {...showNewTask, [stage.id]: false}"
+                            class="text-gray-500 hover:text-gray-700 text-sm px-2 py-1"
+                          >✕</button>
+                        </div>
+                      </div>
+                    </div>
+                </div>
+              </template>
+
+              <button
+                x-show="!slot.stage && canEditBoard && (!showNewStage || newStageRow !== 1 || newStagePosition !== slot.position)"
+                @click="openNewStageForm(1, slot.position)"
+                class="w-full rounded-xl border border-dashed border-white/30 bg-white/10 px-3 py-3 text-left text-sm font-medium text-white/80 opacity-0 transition-all duration-150 hover:bg-white/15 group-hover/add-bottom:opacity-100 group-focus-within/add-bottom:opacity-100"
+                :class="showStageDropTargets ? 'opacity-100' : ''"
+              >+ Add stage here</button>
+              <div
+                x-show="!slot.stage && showNewStage && newStageRow === 1 && newStagePosition === slot.position"
+                class="bg-gray-100 rounded-xl p-3 shadow"
+              >
                 <input
                   x-ref="newStageInput"
                   x-model="newStageName"
-                  @keydown.enter="createStage(stageRow.row)"
+                  @keydown.enter="createStage(1, slot.position)"
                   @keydown.escape="cancelNewStage()"
                   placeholder="Stage title..."
                   class="w-full border rounded-lg px-2 py-1.5 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
                 >
                 <div class="flex gap-1.5">
                   <button
-                    @click="createStage(stageRow.row)"
+                    @click="createStage(1, slot.position)"
                     class="bg-blue-500 hover:bg-blue-600 text-white text-sm px-3 py-1 rounded-lg transition-colors"
                   >Add stage</button>
                   <button
@@ -331,8 +589,8 @@
               </div>
             </div>
           </div>
-        </div>
-      </template>
+        </template>
+      </div>
     </div>
   </div>
 
@@ -1158,6 +1416,7 @@ function board() {
     showNewStage: false,
     newStageName: '',
     newStageRow: 0,
+    newStagePosition: null,
     showNewTask: {},
     newTaskTitles: {},
     showModal: false,
@@ -1181,6 +1440,9 @@ function board() {
     descriptionEditing: false,
     newChecklistItem: '',
     _sortables: [],
+    _slotLiftByPosition: {},
+    _stageLiftObserver: null,
+    showStageDropTargets: false,
 
     get canEditBoard() {
       return this.currentBoardRole === 'owner' || this.currentBoardRole === 'editor' || this.currentBoardRole === 'admin';
@@ -1207,20 +1469,21 @@ function board() {
       return this.stages.filter(stage => !stage.is_log);
     },
 
-    get stageRows() {
-      const rowMap = new Map();
-      for (const stage of this.stages) {
-        const row = Number.isInteger(stage.row) ? stage.row : 0;
-        if (!rowMap.has(row)) rowMap.set(row, []);
-        rowMap.get(row).push({...stage, row});
-      }
-      const rows = Array.from(rowMap.entries()).map(([row, stages]) => ({
-        row,
-        stages: stages.sort((a, b) => a.position - b.position),
+    get topRowStages() {
+      return this.stages
+        .filter(stage => (Number.isInteger(stage.row) ? stage.row : 0) === 0)
+        .sort((a, b) => a.position - b.position);
+    },
+
+    get secondRowSlots() {
+      const secondRowStages = this.stages
+        .filter(stage => (Number.isInteger(stage.row) ? stage.row : 0) === 1)
+        .sort((a, b) => a.position - b.position);
+      const byPosition = new Map(secondRowStages.map(stage => [stage.position, stage]));
+      return Array.from({length: this.topRowStages.length}, (_, position) => ({
+        position,
+        stage: byPosition.get(position) || null,
       }));
-      if (!rowMap.has(0)) rows.unshift({row: 0, stages: []});
-      if (!rowMap.has(1)) rows.push({row: 1, stages: []});
-      return rows.sort((a, b) => a.row - b.row);
     },
 
     get calendarWeekdayLabels() {
@@ -1307,6 +1570,7 @@ function board() {
     async init() {
       this.boardView = this.getRequestedBoardView();
       this.calendarCursor = this.getInitialCalendarCursor();
+      window.addEventListener('resize', () => this.updateStageLifts());
       await this.loadData();
       const taskId = this.getRequestedTaskId();
       if (taskId) {
@@ -1364,38 +1628,61 @@ function board() {
     initSortable() {
       this._sortables.forEach(s => s.destroy());
       this._sortables = [];
-      if (!this.canEditBoard) return;
+      this.showStageDropTargets = false;
       if (this.boardView === 'calendar') {
+        this.disconnectStageLiftObserver();
+        this._slotLiftByPosition = {};
+        if (!this.canEditBoard) return;
         this.initCalendarSortable();
         return;
       }
-      if (this.boardView !== 'stages') return;
-      const stageRows = Array.from(document.querySelectorAll('[data-stage-row]'));
-      stageRows.forEach(rowEl => {
-        const stageSortable = Sortable.create(rowEl, {
-          group: 'stage-rows',
+      if (this.boardView !== 'stages') {
+        this.disconnectStageLiftObserver();
+        this._slotLiftByPosition = {};
+        return;
+      }
+      this.initStageLiftObserver();
+      this.$nextTick(() => this.updateStageLifts());
+      if (!this.canEditBoard) return;
+      const topRow = document.querySelector('[data-stage-top-row]');
+      if (topRow) {
+        const topRowSortable = Sortable.create(topRow, {
+          group: 'stages',
           animation: 150,
           draggable: '[data-stage-column-id]',
           ghostClass: 'task-ghost',
+          onStart: () => {
+            this.showStageDropTargets = true;
+          },
+          onMove: evt => this.canPlaceStageDrop(evt),
           onEnd: async () => {
-            const placements = this.buildStagePlacements();
-            const stageById = new Map(this.stages.map(stage => [stage.id, stage]));
-            this.stages = placements
-              .map(placement => {
-                const stage = stageById.get(placement.id);
-                if (!stage) return null;
-                return {...stage, row: placement.row, position: placement.position};
-              })
-              .filter(Boolean);
-            await fetch('/api/stages/reorder', {
-              method: 'PUT',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({stages: placements}),
-            });
-            await this.loadStages();
+            this.showStageDropTargets = false;
+            await this.persistStagePlacements();
           },
         });
-        this._sortables.push(stageSortable);
+        this._sortables.push(topRowSortable);
+      }
+
+      const secondRowSlots = Array.from(document.querySelectorAll('[data-stage-slot-position]'));
+      secondRowSlots.forEach(slotEl => {
+        const slotSortable = Sortable.create(slotEl, {
+          group: 'stages',
+          animation: 150,
+          draggable: '[data-stage-column-id]',
+          ghostClass: 'task-ghost',
+          onStart: () => {
+            this.showStageDropTargets = true;
+          },
+          onMove: evt => this.canPlaceStageDrop(evt),
+          onAdd: evt => {
+            this.swapIntoOccupiedSecondRowSlot(evt);
+          },
+          onEnd: async () => {
+            this.showStageDropTargets = false;
+            await this.persistStagePlacements();
+          },
+        });
+        this._sortables.push(slotSortable);
       });
 
       this.stages.forEach(stage => {
@@ -1474,21 +1761,148 @@ function board() {
     },
 
     buildStagePlacements() {
-      const rowEls = Array.from(document.querySelectorAll('[data-stage-row]'));
-      return rowEls.flatMap(rowEl => {
-        const row = parseInt(rowEl.dataset.stageRow || '0', 10);
-        const stageEls = Array.from(rowEl.querySelectorAll('[data-stage-column-id]'));
-        return stageEls.map((el, position) => ({
-          id: parseInt(el.dataset.stageColumnId, 10),
-          row,
-          position,
-        }));
+      const placements = [];
+      const topRow = document.querySelector('[data-stage-top-row]');
+      if (topRow) {
+        Array.from(topRow.querySelectorAll('[data-stage-column-id]')).forEach((el, position) => {
+          placements.push({
+            id: parseInt(el.dataset.stageColumnId, 10),
+            row: 0,
+            position,
+          });
+        });
+      }
+      const secondRowSlots = Array.from(document.querySelectorAll('[data-stage-slot-position]'));
+      secondRowSlots.forEach(slotEl => {
+        const stageEl = Array.from(slotEl.children).find(child => child.dataset.stageColumnId);
+        if (!stageEl) return;
+        placements.push({
+          id: parseInt(stageEl.dataset.stageColumnId, 10),
+          row: 1,
+          position: parseInt(slotEl.dataset.stageSlotPosition || '0', 10),
+        });
       });
+      return placements;
+    },
+
+    canPlaceStageDrop(evt) {
+      const placements = this.previewStagePlacements(evt);
+      if (!placements) return false;
+      const topRowPositions = new Set(placements.filter(placement => placement.row === 0).map(placement => placement.position));
+      return placements.every(placement => placement.row !== 1 || topRowPositions.has(placement.position));
+    },
+
+    previewStagePlacements(evt) {
+      const draggedId = parseInt(evt.dragged?.dataset?.stageColumnId || evt.item?.dataset?.stageColumnId || '0', 10);
+      if (!draggedId) return null;
+      const placements = this.buildStagePlacements().filter(placement => placement.id !== draggedId);
+      if (evt.to?.hasAttribute?.('data-stage-top-row')) {
+        const targetIndex = typeof evt.newDraggableIndex === 'number' ? evt.newDraggableIndex : placements.filter(placement => placement.row === 0).length;
+        const topPlacements = placements
+          .filter(placement => placement.row === 0)
+          .sort((a, b) => a.position - b.position);
+        topPlacements.splice(targetIndex, 0, {id: draggedId, row: 0, position: targetIndex});
+        topPlacements.forEach((placement, index) => {
+          placement.position = index;
+        });
+        return [
+          ...topPlacements,
+          ...placements.filter(placement => placement.row === 1),
+        ];
+      }
+      const slotPosition = parseInt(evt.to?.dataset?.stageSlotPosition || '0', 10);
+      return [...placements, {id: draggedId, row: 1, position: slotPosition}];
+    },
+
+    swapIntoOccupiedSecondRowSlot(evt) {
+      const slotStages = Array.from(evt.to.children).filter(child => child.dataset.stageColumnId);
+      if (slotStages.length <= 1) return;
+      const draggedStage = evt.item;
+      const displacedStage = slotStages.find(child => child !== draggedStage);
+      if (!displacedStage) return;
+
+      if (evt.from?.hasAttribute?.('data-stage-top-row')) {
+        const referenceNode = Array.from(evt.from.children).filter(child => child !== displacedStage)[evt.oldDraggableIndex] || null;
+        evt.from.insertBefore(displacedStage, referenceNode);
+        return;
+      }
+
+      if (evt.from?.hasAttribute?.('data-stage-slot-position')) {
+        evt.from.appendChild(displacedStage);
+      }
+    },
+
+    async persistStagePlacements() {
+      const placements = this.buildStagePlacements();
+      const stageById = new Map(this.stages.map(stage => [stage.id, stage]));
+      this.stages = placements
+        .map(placement => {
+          const stage = stageById.get(placement.id);
+          if (!stage) return null;
+          return {...stage, row: placement.row, position: placement.position};
+        })
+        .filter(Boolean);
+      const res = await fetch('/api/stages/reorder', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({stages: placements}),
+      });
+      if (!res.ok) {
+        await this.loadStages();
+        return;
+      }
+      await this.loadStages();
+    },
+
+    initStageLiftObserver() {
+      this.disconnectStageLiftObserver();
+      if (typeof ResizeObserver === 'undefined') return;
+      const topRow = document.querySelector('[data-stage-top-row]');
+      if (!topRow) return;
+      this._stageLiftObserver = new ResizeObserver(() => this.updateStageLifts());
+      topRow.querySelectorAll('[data-stage-column-id]').forEach(el => this._stageLiftObserver.observe(el));
+    },
+
+    disconnectStageLiftObserver() {
+      if (!this._stageLiftObserver) return;
+      this._stageLiftObserver.disconnect();
+      this._stageLiftObserver = null;
+    },
+
+    updateStageLifts() {
+      if (this.boardView !== 'stages') {
+        this._slotLiftByPosition = {};
+        return;
+      }
+      const topRow = document.querySelector('[data-stage-top-row]');
+      const secondRowSlots = Array.from(document.querySelectorAll('[data-stage-slot-position]'));
+      if (!topRow || !secondRowSlots.length) {
+        this._slotLiftByPosition = {};
+        return;
+      }
+
+      const lifts = {};
+      const topStages = Array.from(topRow.querySelectorAll('[data-stage-column-id]'));
+      const previousMaxHeight = Math.max(0, ...topStages.map(el => el.offsetHeight));
+
+      secondRowSlots.forEach(slotEl => {
+        const position = parseInt(slotEl.dataset.stageSlotPosition || '0', 10);
+        const aboveHeight = topStages[position]?.offsetHeight || 0;
+        lifts[position] = Math.max(0, previousMaxHeight - aboveHeight);
+      });
+
+      this._slotLiftByPosition = lifts;
+    },
+
+    secondRowSlotStyle(position) {
+      const lift = this._slotLiftByPosition[position] || 0;
+      return lift ? `margin-top: -${lift}px;` : '';
     },
 
     // Stages
-    openNewStageForm(row) {
+    openNewStageForm(row, position = null) {
       this.newStageRow = row;
+      this.newStagePosition = position;
       this.showNewStage = true;
       this.$nextTick(() => this.$refs.newStageInput?.focus());
     },
@@ -1496,21 +1910,22 @@ function board() {
     cancelNewStage() {
       this.showNewStage = false;
       this.newStageName = '';
+      this.newStagePosition = null;
     },
 
-    async createStage(row = this.newStageRow) {
+    async createStage(row = this.newStageRow, position = this.newStagePosition) {
       if (!this.canEditBoard) return;
       if (!this.newStageName.trim()) return;
       const res = await fetch('/api/stages', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({name: this.newStageName.trim(), board_id: this.boardId, row}),
+        body: JSON.stringify({name: this.newStageName.trim(), board_id: this.boardId, row, position}),
       });
-      const stage = await res.json();
-      this.stages.push({...stage, row: Number.isInteger(stage.row) ? stage.row : row});
+      await res.json();
       this.newStageName = '';
       this.showNewStage = false;
-      this.$nextTick(() => this.initSortable());
+      this.newStagePosition = null;
+      await this.loadStages();
     },
 
     async saveStageName(stage) {

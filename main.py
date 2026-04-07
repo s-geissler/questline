@@ -429,6 +429,7 @@ class StageCreate(BaseModel):
     name: str
     board_id: int
     row: int = 0
+    position: Optional[int] = None
 
 class StageUpdate(BaseModel):
     name: str
@@ -440,6 +441,19 @@ class StageConfigUpdate(BaseModel):
 class ReorderStages(BaseModel):
     ids: Optional[PyList[int]] = None
     stages: Optional[PyList[dict]] = None
+
+
+def _validate_stage_grid(board_id: int, placements: PyList[dict], db: Session):
+    top_row_positions = {
+        int(placement["position"])
+        for placement in placements
+        if int(placement["row"]) == 0
+    }
+    for placement in placements:
+        row = int(placement["row"])
+        position = int(placement["position"])
+        if row == 1 and position not in top_row_positions:
+            raise HTTPException(status_code=400, detail="Second row stages require a top row stage above them")
 
 class TaskCreate(BaseModel):
     title: str
@@ -1838,13 +1852,30 @@ def get_stages(board_id: int, db: Session = Depends(get_db), request: Request = 
 def create_stage(data: StageCreate, db: Session = Depends(get_db), request: Request = None):
     _authorize_board_request(request, db, data.board_id, "editor")
     row = max(0, data.row)
-    max_position = (
-        db.query(models.Stage)
-        .filter(models.Stage.board_id == data.board_id, models.Stage.row == row)
-        .with_entities(func.max(models.Stage.position))
-        .scalar()
-    )
-    pos = 0 if max_position is None else max_position + 1
+    row_query = db.query(models.Stage).filter(models.Stage.board_id == data.board_id, models.Stage.row == row)
+    if data.position is None:
+        max_position = row_query.with_entities(func.max(models.Stage.position)).scalar()
+        pos = 0 if max_position is None else max_position + 1
+    else:
+        pos = max(0, data.position)
+    existing_placements = [
+        {"id": stage.id, "row": stage.row or 0, "position": stage.position}
+        for stage in db.query(models.Stage).filter(models.Stage.board_id == data.board_id).all()
+    ]
+    planned_placements = []
+    for placement in sorted(existing_placements, key=lambda item: (item["row"], item["position"], item["id"])):
+        same_row = placement["row"] == row
+        next_position = placement["position"]
+        if same_row and next_position >= pos:
+            next_position += 1
+        planned_placements.append({**placement, "position": next_position})
+    planned_placements.append({"id": -1, "row": row, "position": pos})
+    _validate_stage_grid(data.board_id, planned_placements, db)
+    if data.position is not None:
+        row_query.filter(models.Stage.position >= pos).update(
+            {"position": models.Stage.position + 1},
+            synchronize_session=False,
+        )
     stage = models.Stage(name=data.name, board_id=data.board_id, row=row, position=pos)
     db.add(stage)
     db.commit()
@@ -1877,6 +1908,7 @@ def reorder_stages(data: ReorderStages, db: Session = Depends(get_db), request: 
             for placement in placements:
                 stage_id = placement["id"]
                 _require_stage_in_board(stage_id, board_id, db)
+            _validate_stage_grid(board_id, placements, db)
     for placement in placements:
         db.query(models.Stage).filter(models.Stage.id == placement["id"]).update(
             {"row": placement["row"], "position": placement["position"]}
