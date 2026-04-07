@@ -75,7 +75,16 @@
       color: rgba(12, 74, 110, 0.85);
     }
     .board-stage {
+      max-height: calc(100vh - 6rem);
+      min-height: 0;
       transition: background-color 160ms ease;
+    }
+    .board-stage-body {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      scrollbar-gutter: stable;
     }
     .board-task-card {
       transition: background-color 160ms ease, box-shadow 160ms ease;

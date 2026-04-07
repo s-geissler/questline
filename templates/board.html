@@ -69,7 +69,7 @@
   </div>
 
   <!-- Board -->
-  <div x-show="boardView === 'stages'" id="stages-container" class="flex gap-3 p-4 overflow-x-auto items-start min-h-[calc(100vh-48px)]">
+  <div x-show="boardView === 'stages'" id="stages-container" class="flex gap-3 p-4 overflow-x-auto overflow-y-hidden items-start h-[calc(100vh-4rem)]">
 
     <!-- Stages -->
     <template x-for="stage in stages" :key="`${stage.id}-${stage.position}`">
@@ -145,7 +145,7 @@
 
         <!-- Task cards -->
         <div
-          class="px-2 pb-1 space-y-2 min-h-[8px]"
+          class="board-stage-body px-2 pb-1 space-y-2 min-h-[8px]"
           :class="stage.is_log ? 'log-stage-body' : ''"
           :id="'stage-' + stage.id"
           :data-stage-id="stage.id"
