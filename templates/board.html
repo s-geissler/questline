@@ -171,11 +171,19 @@
                   <span class="text-[11px] leading-none">✓</span>
                 </button>
                 <div class="min-w-0 flex-1">
-                  <span
-                    class="text-sm text-gray-800 leading-snug block"
-                    :class="task.done ? 'line-through text-gray-400' : ''"
-                    x-text="task.title"
-                  ></span>
+                  <div class="flex items-start gap-1.5">
+                    <span
+                      class="text-sm text-gray-800 leading-snug block min-w-0 flex-1"
+                      :class="task.done ? 'line-through text-gray-400' : ''"
+                      x-text="task.title"
+                    ></span>
+                    <span
+                      x-show="hasDescription(task)"
+                      class="mt-0.5 flex-shrink-0 text-[11px] text-gray-400"
+                      title="Has description"
+                      aria-label="Has description"
+                    >≡</span>
+                  </div>
                 </div>
               </div>
               <div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
@@ -1768,6 +1776,10 @@ function board() {
 
     shouldShowDescriptionOnCard(task) {
       return !!(task?.effective_show_description_on_card && task?.description && String(task.description).trim());
+    },
+
+    hasDescription(task) {
+      return !!(task?.description && String(task.description).trim());
     },
 
     shouldShowChecklistOnCard(task) {
