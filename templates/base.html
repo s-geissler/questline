@@ -74,6 +74,12 @@
     .log-stage-summary {
       color: rgba(12, 74, 110, 0.85);
     }
+    .board-stage {
+      transition: background-color 160ms ease;
+    }
+    .board-task-card {
+      transition: background-color 160ms ease, box-shadow 160ms ease;
+    }
     .brand-wordmark {
       font-family: "Exo 2", sans-serif;
       font-style: italic;
@@ -250,11 +256,17 @@
     :root.dark .prose li,
     :root.dark .prose strong,
     :root.dark .prose em { color: #e5e7eb !important; }
+    :root.dark .board-stage:not(.log-stage) {
+      background-color: #141d2a !important;
+    }
+    :root.dark .board-task-card {
+      background-color: #1b2739 !important;
+    }
     :root.dark .prose code,
     :root.dark .prose pre { background: #0f172a; color: #e5e7eb; }
     :root.dark .prose blockquote { border-left-color: #475569; color: #cbd5e1; }
     :root.dark .log-stage {
-      background: #0b1726;
+      background: #08111d;
       border-color: rgba(56, 189, 248, 0.38);
       box-shadow: 0 16px 32px rgba(2, 8, 23, 0.45);
     }
@@ -263,7 +275,7 @@
       border-bottom-color: rgba(56, 189, 248, 0.35) !important;
     }
     :root.dark .log-stage-body {
-      background: rgba(8, 23, 38, 0.72);
+      background: rgba(6, 18, 30, 0.8);
       border-color: rgba(56, 189, 248, 0.35);
     }
     :root.dark .log-stage-title {

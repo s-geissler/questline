@@ -74,7 +74,7 @@
     <!-- Stages -->
     <template x-for="stage in stages" :key="`${stage.id}-${stage.position}`">
       <div
-        class="rounded-xl shadow w-72 flex-shrink-0 flex flex-col overflow-visible"
+        class="board-stage rounded-xl shadow w-72 flex-shrink-0 flex flex-col overflow-visible"
         :class="stage.is_log ? 'log-stage' : 'bg-gray-100'"
         :data-stage-column-id="stage.id"
       >
@@ -152,7 +152,7 @@
         >
           <template x-for="task in stage.tasks" :key="`${task.id}-${task.position}`">
             <div
-              class="bg-white rounded-lg p-2.5 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+              class="board-task-card bg-white rounded-lg p-2.5 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
               :class="task.done ? 'opacity-60' : ''"
               :style="'border-left: 4px solid ' + (task.color || '#e2e8f0')"
               @click="openTask(task)"
