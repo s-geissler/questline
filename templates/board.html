@@ -189,7 +189,7 @@
                 <template x-if="task.parent_task">
                   <span
                     class="text-xs px-2 py-0.5 rounded font-medium bg-violet-100 text-violet-700"
-                    x-text="'Quest: ' + task.parent_task.title"
+                    x-text="task.parent_task.title"
                   ></span>
                 </template>
                 <template x-if="task.assignee">
