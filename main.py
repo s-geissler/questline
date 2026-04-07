@@ -1063,6 +1063,24 @@ def _create_checklist_item_internal(task: models.Task, title: str, db: Session) 
     return item
 
 
+def _sync_spawned_task_title_from_checklist_item(item: models.ChecklistItem, db: Session):
+    if not item.spawned_task_id:
+        return
+    spawned = db.query(models.Task).filter(models.Task.id == item.spawned_task_id).first()
+    if spawned:
+        spawned.title = item.title
+
+
+def _sync_checklist_item_title_from_spawned_task(task: models.Task, db: Session):
+    linked_item = (
+        db.query(models.ChecklistItem)
+        .filter(models.ChecklistItem.spawned_task_id == task.id)
+        .first()
+    )
+    if linked_item:
+        linked_item.title = task.title
+
+
 def _resolve_recurrence_stage(source_task: models.Task, recurrence: models.TaskRecurrence, db: Session) -> Optional[models.Stage]:
     target_stage = db.query(models.Stage).filter(models.Stage.id == recurrence.spawn_stage_id).first()
     if not target_stage or target_stage.is_log or target_stage.board_id != source_task.stage.board_id:
@@ -2003,6 +2021,7 @@ def update_task(task_id: int, data: TaskUpdate, db: Session = Depends(get_db), r
 
     if data.title is not None:
         task.title = data.title
+        _sync_checklist_item_title_from_spawned_task(task, db)
     if data.description is not None:
         task.description = data.description
     if "due_date" in data.model_fields_set:
@@ -2233,6 +2252,7 @@ def update_checklist_item(
     was_complete = bool(item.task.checklist_items) and all(ci.done for ci in item.task.checklist_items)
     if data.title is not None:
         item.title = data.title
+        _sync_spawned_task_title_from_checklist_item(item, db)
     if data.done is not None:
         item.done = data.done
         if item.spawned_task_id:

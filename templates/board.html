@@ -1024,25 +1024,44 @@
                     class="flex flex-1 items-center gap-1.5 min-w-0"
                     :class="item.spawned_task_id ? 'checklist-linked-item' : ''"
                   >
+                    <template x-if="item._editing === true">
+                      <input
+                        x-model="item._draft_title"
+                        x-init="$nextTick(() => { $el.focus(); $el.select(); })"
+                        @click.stop
+                        @keydown.enter.prevent="saveChecklistItemTitle(item)"
+                        @keydown.escape.prevent="cancelChecklistItemEdit(item)"
+                        @blur="saveChecklistItemTitle(item)"
+                        class="flex-1 min-w-0 border rounded-md px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      >
+                    </template>
+                    <template x-if="item._editing !== true">
+                      <span
+                        class="text-sm min-w-0"
+                        :class="[
+                          item.done
+                            ? (item.spawned_task_id ? 'line-through text-blue-600' : 'line-through text-gray-400')
+                            : (item.spawned_task_id ? 'text-blue-600' : 'text-gray-700'),
+                          item.spawned_task_id ? 'cursor-pointer hover:text-blue-700 hover:underline' : ''
+                        ]"
+                        @click="item.spawned_task_id && openSpawnedTask(item.spawned_task_id)"
+                        x-text="item.title"
+                        :title="item.spawned_task_id ? 'Open linked objective' : ''"
+                      ></span>
+                    </template>
                     <span
-                      class="text-sm min-w-0"
-                      :class="[
-                        item.done
-                          ? (item.spawned_task_id ? 'line-through text-blue-600' : 'line-through text-gray-400')
-                          : (item.spawned_task_id ? 'text-blue-600' : 'text-gray-700'),
-                        item.spawned_task_id ? 'cursor-pointer hover:text-blue-700 hover:underline' : ''
-                      ]"
-                      @click="item.spawned_task_id && openSpawnedTask(item.spawned_task_id)"
-                      x-text="item.title"
-                      :title="item.spawned_task_id ? 'Open linked objective' : ''"
-                    ></span>
-                    <span
-                      x-show="item.spawned_task_id"
+                      x-show="item.spawned_task_id && item._editing !== true"
                       class="checklist-linked-icon flex-shrink-0 text-xs"
                       @click="openSpawnedTask(item.spawned_task_id)"
                       title="Open linked objective"
                     >↗</span>
                   </div>
+                  <button
+                    x-show="canEditBoard && item._editing !== true"
+                    @click="startChecklistItemEdit(item)"
+                    class="text-gray-200 hover:text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 text-xs"
+                    title="Edit item"
+                  >✎</button>
                   <button
                     x-show="canEditBoard"
                     @click="deleteChecklistItem(item)"
@@ -1534,6 +1553,9 @@ function board() {
       const updated = await res.json();
       this.selectedTask = this._normalizeSelectedTask(updated);
       this._syncTaskInStages(updated);
+      if (field === 'title' && this.selectedTask.parent_task) {
+        await this.loadStages();
+      }
     },
 
     async updateTaskType() {
@@ -1679,6 +1701,37 @@ function board() {
       if (idx !== -1) this.selectedTask.checklist[idx] = updated;
       this._syncTaskInStages(this.selectedTask);
       // Reload board if this item has a spawned task (automation may have moved it)
+      if (item.spawned_task_id) await this.loadStages();
+    },
+
+    startChecklistItemEdit(item) {
+      if (!this.canEditBoard) return;
+      item._editing = true;
+      item._draft_title = item.title;
+    },
+
+    cancelChecklistItemEdit(item) {
+      item._editing = false;
+      item._draft_title = item.title;
+    },
+
+    async saveChecklistItemTitle(item) {
+      if (!this.canEditBoard || item._editing !== true) return;
+      const nextTitle = String(item._draft_title || '').trim();
+      item._editing = false;
+      if (!nextTitle || nextTitle === item.title) {
+        item._draft_title = item.title;
+        return;
+      }
+      const res = await fetch(`/api/tasks/${this.selectedTask.id}/checklist/${item.id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({title: nextTitle}),
+      });
+      const updated = await res.json();
+      const idx = this.selectedTask.checklist.findIndex(i => i.id === item.id);
+      if (idx !== -1) this.selectedTask.checklist[idx] = updated;
+      this._syncTaskInStages(this.selectedTask);
       if (item.spawned_task_id) await this.loadStages();
     },
 

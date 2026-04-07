@@ -539,6 +539,49 @@ def test_spawned_quest_children_include_parent_quest_link(app_env):
     assert child["parent_task"]["title"] == "Parent quest"
 
 
+def test_editing_quest_checklist_item_renames_spawned_objective(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+    board = create_board(main, db)
+    backlog = create_stage(main, db, board["id"], "Backlog")
+    quest_type = create_task_type(main, db, board["id"], name="Quest", is_epic=True)
+    quest = create_task(main, db, backlog["id"], "Parent quest", task_type_id=quest_type["id"])
+
+    item = main.add_checklist_item(quest["id"], main.ChecklistItemCreate(title="Initial child"), db)
+
+    updated_item = main.update_checklist_item(
+        quest["id"],
+        item["id"],
+        main.ChecklistItemUpdate(title="Renamed child"),
+        db,
+    )
+
+    assert updated_item["title"] == "Renamed child"
+    child = main.get_task(item["spawned_task_id"], db)
+    assert child["title"] == "Renamed child"
+
+
+def test_editing_spawned_objective_renames_linked_checklist_item(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+    board = create_board(main, db)
+    backlog = create_stage(main, db, board["id"], "Backlog")
+    quest_type = create_task_type(main, db, board["id"], name="Quest", is_epic=True)
+    quest = create_task(main, db, backlog["id"], "Parent quest", task_type_id=quest_type["id"])
+
+    item = main.add_checklist_item(quest["id"], main.ChecklistItemCreate(title="Initial child"), db)
+
+    updated_child = main.update_task(
+        item["spawned_task_id"],
+        main.TaskUpdate(title="Renamed child"),
+        db,
+    )
+
+    assert updated_child["title"] == "Renamed child"
+    refreshed_quest = main.get_task(quest["id"], db)
+    assert refreshed_quest["checklist"][0]["title"] == "Renamed child"
+
+
 def test_deleting_quest_checklist_item_deletes_spawned_objective(app_env):
     main = app_env["main"]
     db = app_env["db"]
