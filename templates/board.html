@@ -2232,28 +2232,45 @@ function board() {
 
     async sortStageByDueDate(stage) {
       if (!this.canEditBoard) return;
-      const datedTasks = stage.tasks.filter(task => task.due_date);
-      if (datedTasks.length < 2) return;
+      if (!stage || !Array.isArray(stage.tasks)) return;
 
-      const sortedDated = [...datedTasks].sort((a, b) => a.due_date.localeCompare(b.due_date));
-      const sortedIds = [];
-      let datedIndex = 0;
-
-      for (const task of stage.tasks) {
-        if (task.due_date) {
-          sortedIds.push(sortedDated[datedIndex].id);
-          datedIndex += 1;
-        } else {
-          sortedIds.push(task.id);
+      const originalTasks = [...stage.tasks];
+      const sortedTasks = [...stage.tasks].sort((a, b) => {
+        const aHasDueDate = this.hasDueDate(a?.due_date);
+        const bHasDueDate = this.hasDueDate(b?.due_date);
+        if (aHasDueDate && bHasDueDate) {
+          const byDueDate = a.due_date.localeCompare(b.due_date);
+          if (byDueDate !== 0) return byDueDate;
+        } else if (aHasDueDate !== bHasDueDate) {
+          return aHasDueDate ? -1 : 1;
         }
-      }
-
-      await fetch('/api/tasks/reorder', {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({stage_id: stage.id, ids: sortedIds}),
+        return (a.position ?? 0) - (b.position ?? 0);
       });
-      await this.loadStages();
+
+      const sortedIds = sortedTasks.map(task => task.id);
+      const isUnchanged = sortedIds.every((id, index) => id === originalTasks[index]?.id);
+      if (isUnchanged) return;
+
+      stage.tasks = sortedTasks.map((task, index) => ({...task, position: index}));
+      this.stages = [...this.stages];
+
+      try {
+        const res = await fetch('/api/tasks/reorder', {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({stage_id: stage.id, ids: sortedIds}),
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.detail || 'Unable to sort objectives by due date');
+        }
+      } catch (error) {
+        stage.tasks = originalTasks;
+        this.stages = [...this.stages];
+        alert(error.message || 'Unable to sort objectives by due date');
+      } finally {
+        await this.loadStages();
+      }
     },
 
     async clearCompletedStage(stage) {
