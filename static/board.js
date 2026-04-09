@@ -7,16 +7,10 @@ function _parseBoardPageJson(value, fallback) {
   }
 }
 
-function board(rootEl) {
-  const boardId = parseInt(rootEl?.dataset.boardId || '0', 10);
-  const boards = _parseBoardPageJson(rootEl?.dataset.boards, []);
-  const settingsBoardName = _parseBoardPageJson(rootEl?.dataset.boardName, '');
-  const rawBoardColor = _parseBoardPageJson(rootEl?.dataset.boardColor, '');
-  const currentBoardRole = _parseBoardPageJson(rootEl?.dataset.boardRole, null);
-
+function board() {
   return {
-    boardId,
-    boards,
+    boardId: 0,
+    boards: [],
     stages: [],
     taskTypes: [],
     savedFilters: [],
@@ -30,9 +24,9 @@ function board(rootEl) {
     showSettings: false,
     showLogConfig: false,
     logConfigStage: null,
-    settingsBoardName,
-    settingsBoardColor: rawBoardColor || null,
-    currentBoardRole,
+    settingsBoardName: '',
+    settingsBoardColor: null,
+    currentBoardRole: null,
     boardMembers: [],
     shareEmail: '',
     shareRole: 'viewer',
@@ -56,6 +50,14 @@ function board(rootEl) {
 
     get canEditBoard() {
       return this.currentBoardRole === 'owner' || this.currentBoardRole === 'editor' || this.currentBoardRole === 'admin';
+    },
+
+    asString(value) {
+      return value === null || value === undefined ? '' : String(value);
+    },
+
+    sameString(left, right) {
+      return this.asString(left) === this.asString(right);
     },
 
     get canManageBoard() {
@@ -180,6 +182,11 @@ function board(rootEl) {
     async init() {
       if (this._initialized) return;
       this._initialized = true;
+      this.boardId = parseInt(this.$el.dataset.boardId || '0', 10);
+      this.boards = _parseBoardPageJson(this.$el.dataset.boards, []);
+      this.settingsBoardName = _parseBoardPageJson(this.$el.dataset.boardName, '');
+      this.settingsBoardColor = _parseBoardPageJson(this.$el.dataset.boardColor, '') || null;
+      this.currentBoardRole = _parseBoardPageJson(this.$el.dataset.boardRole, null);
       this.boardView = this.getRequestedBoardView();
       this.calendarCursor = this.getInitialCalendarCursor();
       window.addEventListener('resize', () => this.updateStageLifts());
@@ -990,6 +997,10 @@ function board(rootEl) {
       return task?.custom_field_values?.[String(field.id)];
     },
 
+    selectedTaskCustomFieldValue(field) {
+      return this.selectedTask?.custom_field_values?.[String(field.id)] || '';
+    },
+
     shouldShowDescriptionOnCard(task) {
       return !!(task?.effective_show_description_on_card && task?.description && String(task.description).trim());
     },
@@ -1469,3 +1480,7 @@ function board(rootEl) {
     },
   };
 }
+
+document.addEventListener('alpine:init', () => {
+  Alpine.data('board', board);
+});

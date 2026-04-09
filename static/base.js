@@ -126,8 +126,9 @@ function applyTheme(theme) {
   localStorage.setItem('questline-theme', theme);
 }
 
-function userMenu(currentUser) {
+function userMenu() {
   return {
+    currentUser: null,
     menuOpen: false,
     notificationsOpen: false,
     notifications: [],
@@ -136,12 +137,14 @@ function userMenu(currentUser) {
     savingProfile: false,
     profileError: '',
     profile: {
-      display_name: currentUser?.display_name || '',
+      display_name: '',
       password: '',
     },
 
     async init() {
-      if (currentUser) {
+      this.currentUser = JSON.parse(this.$el.dataset.currentUser || 'null');
+      this.profile.display_name = this.currentUser?.display_name || '';
+      if (this.currentUser) {
         await this.fetchNotifications();
       }
     },
@@ -191,7 +194,7 @@ function userMenu(currentUser) {
     },
 
     openProfile() {
-      this.profile.display_name = currentUser?.display_name || this.profile.display_name;
+      this.profile.display_name = this.currentUser?.display_name || this.profile.display_name;
       this.profile.password = '';
       this.profileError = '';
       this.profileOpen = true;
@@ -218,7 +221,7 @@ function userMenu(currentUser) {
         return;
       }
       const updated = await res.json();
-      currentUser.display_name = updated.display_name;
+      this.currentUser.display_name = updated.display_name;
       this.profile.display_name = updated.display_name;
       this.profile.password = '';
       this.profileOpen = false;
@@ -231,9 +234,29 @@ function userMenu(currentUser) {
   };
 }
 
+function themeToggle() {
+  return {
+    dark: false,
+
+    init() {
+      this.dark = document.documentElement.classList.contains('dark');
+    },
+
+    toggle() {
+      this.dark = !this.dark;
+      applyTheme(this.dark ? 'dark' : 'light');
+    },
+  };
+}
+
 applyTheme(getInitialTheme());
 
 document.addEventListener('DOMContentLoaded', () => {
   const color = document.body.dataset.pageThemeColor || '';
   applyBoardColor(color || null);
+});
+
+document.addEventListener('alpine:init', () => {
+  Alpine.data('userMenu', userMenu);
+  Alpine.data('themeToggle', themeToggle);
 });

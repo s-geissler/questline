@@ -1,7 +1,17 @@
 {% extends "base.html" %}
 {% block content %}
 
-<div x-data="filtersPage({{ board.id }}, {{ board_role | tojson }}, {{ boards | tojson }}, {{ filter_current_user | tojson }}, {{ filter_assignee_options | tojson }})" x-init="init()" x-cloak class="max-w-5xl mx-auto p-6">
+<div
+  x-data="filtersPage()"
+  x-init="init()"
+  x-cloak
+  class="max-w-5xl mx-auto p-6"
+  data-board-id="{{ board.id }}"
+  data-board-role='{{ board_role | tojson }}'
+  data-boards='{{ boards | tojson }}'
+  data-current-user='{{ filter_current_user | tojson }}'
+  data-assignee-options='{{ filter_assignee_options | tojson }}'
+>
 
   <div x-show="!canEdit" class="mb-6 bg-white/85 text-slate-700 text-sm rounded-xl px-4 py-3 shadow">
     Read-only access. Viewers can inspect saved filters but cannot change them.
@@ -56,7 +66,7 @@
               class="h-4 w-4 rounded accent-blue-500"
             >
             <span x-text="board.name"></span>
-            <span x-show="String(board.id) === String(boardId)" class="text-[11px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">Current</span>
+            <span x-show="sameString(board.id, boardId)" class="text-[11px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">Current</span>
             <span
               x-show="board.role"
               class="text-[11px] px-1.5 py-0.5 rounded-full"
@@ -103,8 +113,8 @@
                     <option value="">Select type</option>
                     <template x-for="taskType in customFieldTaskTypes" :key="taskType.id">
                       <option
-                        :value="String(taskType.id)"
-                        :selected="String(rule.custom_task_type_id || '') === String(taskType.id)"
+                        :value="asString(taskType.id)"
+                        :selected="sameString(rule.custom_task_type_id || '', taskType.id)"
                         x-text="taskType.name"
                       ></option>
                     </template>
@@ -121,8 +131,8 @@
                     <option value="">Select field</option>
                     <template x-for="field in customFieldsForRule(rule)" :key="field.id">
                       <option
-                        :value="String(field.id)"
-                        :selected="String(rule.custom_field_id || '') === String(field.id)"
+                        :value="asString(field.id)"
+                        :selected="sameString(rule.custom_field_id || '', field.id)"
                         x-text="field.name"
                       ></option>
                     </template>
@@ -148,7 +158,7 @@
                 <select x-model="rule.value" :disabled="rule.field === '__custom__' && !selectedCustomField(rule)" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
                   <option value="">Select value</option>
                   <template x-for="option in valueOptionsForRule(rule)" :key="option.value">
-                    <option :value="option.value" :selected="String(rule.value ?? '') === String(option.value)" x-text="option.label"></option>
+                    <option :value="option.value" :selected="sameString(rule.value ?? '', option.value)" x-text="option.label"></option>
                   </template>
                 </select>
               </template>
@@ -192,7 +202,7 @@
                         :disabled="operatorWithoutValue(rule.operator) || (rule.field === '__custom__' && !selectedCustomField(rule))"
                         class="h-7 w-7 rounded-full border border-black/10 transition-transform hover:scale-110 disabled:opacity-50 disabled:hover:scale-100"
                         :style="'background:' + color"
-                        :class="String(rule.value || '') === String(color) ? 'ring-2 ring-offset-2 ring-gray-500' : ''"
+                        :class="sameString(rule.value || '', color) ? 'ring-2 ring-offset-2 ring-gray-500' : ''"
                         :title="color"
                       ></button>
                     </template>

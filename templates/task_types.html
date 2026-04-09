@@ -2,7 +2,7 @@
 {% block content %}
 
 <div
-  x-data="taskTypesPage($el)"
+  x-data="taskTypesPage()"
   x-init="init()"
   x-cloak
   class="max-w-4xl mx-auto p-6"
@@ -168,7 +168,7 @@
             class="border rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 bg-white"
           >
             <template x-for="board in boards" :key="board.id">
-              <option :value="String(board.id)" x-text="board.name"></option>
+              <option :value="asString(board.id)" x-text="board.name"></option>
             </template>
           </select>
           <select

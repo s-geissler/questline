@@ -1,10 +1,10 @@
-function filtersPage(boardId, boardRole, boards, currentUser, assigneeOptions) {
+function filtersPage() {
   return {
-    boardId,
-    boardRole,
-    boards,
-    currentUser,
-    assigneeOptions,
+    boardId: 0,
+    boardRole: null,
+    boards: [],
+    currentUser: null,
+    assigneeOptions: [],
     filters: [],
     taskTypes: [],
     editingFilter: null,
@@ -14,7 +14,20 @@ function filtersPage(boardId, boardRole, boards, currentUser, assigneeOptions) {
       return this.boardRole === 'owner' || this.boardRole === 'editor' || this.boardRole === 'admin';
     },
 
+    asString(value) {
+      return value === null || value === undefined ? '' : String(value);
+    },
+
+    sameString(left, right) {
+      return this.asString(left) === this.asString(right);
+    },
+
     async init() {
+      this.boardId = parseInt(this.$el.dataset.boardId || '0', 10);
+      this.boardRole = JSON.parse(this.$el.dataset.boardRole || 'null');
+      this.boards = JSON.parse(this.$el.dataset.boards || '[]');
+      this.currentUser = JSON.parse(this.$el.dataset.currentUser || 'null');
+      this.assigneeOptions = JSON.parse(this.$el.dataset.assigneeOptions || '[]');
       await this.load();
     },
 
@@ -375,3 +388,7 @@ function filtersPage(boardId, boardRole, boards, currentUser, assigneeOptions) {
     },
   };
 }
+
+document.addEventListener('alpine:init', () => {
+  Alpine.data('filtersPage', filtersPage);
+});

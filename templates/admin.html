@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 
-<div x-data="adminPage({{ current_user.id }})" x-init="init()" x-cloak class="max-w-5xl mx-auto p-6">
+<div x-data="adminPage()" x-init="init()" x-cloak class="max-w-5xl mx-auto p-6" data-current-user-id="{{ current_user.id }}">
   <div class="flex items-center justify-between mb-6">
     <div>
       <h1 class="text-2xl font-bold text-white">Admin</h1>

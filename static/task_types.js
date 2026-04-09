@@ -7,15 +7,11 @@ function _parsePageJson(value, fallback) {
   }
 }
 
-function taskTypesPage(rootEl) {
-  const boardId = parseInt(rootEl?.dataset.boardId || '0', 10);
-  const boardRole = _parsePageJson(rootEl?.dataset.boardRole, null);
-  const boards = _parsePageJson(rootEl?.dataset.boards, []);
-
+function taskTypesPage() {
   return {
-    boardId,
-    boardRole,
-    boards,
+    boardId: 0,
+    boardRole: null,
+    boards: [],
     taskTypes: [],
     stages: [],
     stagesByBoard: {},
@@ -24,6 +20,10 @@ function taskTypesPage(rootEl) {
 
     get canEdit() {
       return this.boardRole === 'owner' || this.boardRole === 'editor' || this.boardRole === 'admin';
+    },
+
+    asString(value) {
+      return value === null || value === undefined ? '' : String(value);
     },
 
     blankNewField() {
@@ -53,6 +53,9 @@ function taskTypesPage(rootEl) {
     },
 
     async init() {
+      this.boardId = parseInt(this.$el.dataset.boardId || '0', 10);
+      this.boardRole = _parsePageJson(this.$el.dataset.boardRole, null);
+      this.boards = _parsePageJson(this.$el.dataset.boards, []);
       await this.load();
     },
 
@@ -341,3 +344,7 @@ function taskTypesPage(rootEl) {
     },
   };
 }
+
+document.addEventListener('alpine:init', () => {
+  Alpine.data('taskTypesPage', taskTypesPage);
+});

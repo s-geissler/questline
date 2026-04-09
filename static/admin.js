@@ -1,6 +1,6 @@
-function adminPage(currentUserId) {
+function adminPage() {
   return {
-    currentUserId,
+    currentUserId: null,
     users: [],
     settings: {
       registration_enabled: true,
@@ -13,6 +13,7 @@ function adminPage(currentUserId) {
     savingSettings: false,
 
     async init() {
+      this.currentUserId = parseInt(this.$el.dataset.currentUserId || '0', 10);
       const [usersRes, settingsRes] = await Promise.all([
         fetch('/api/admin/users'),
         fetch('/api/admin/settings'),
@@ -83,3 +84,7 @@ function adminPage(currentUserId) {
     },
   };
 }
+
+document.addEventListener('alpine:init', () => {
+  Alpine.data('adminPage', adminPage);
+});

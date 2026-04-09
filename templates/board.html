@@ -10,7 +10,7 @@
 {% block content %}
 
 <div
-  x-data="board($el)"
+  x-data="board()"
   x-init="init()"
   x-cloak
   @open-board-settings.window="showSettings = true"
@@ -705,7 +705,7 @@
             class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
           >
             <template x-for="stage in realStages" :key="`calendar-create-stage-${stage.id}`">
-              <option :value="String(stage.id)" x-text="stage.name"></option>
+              <option :value="asString(stage.id)" x-text="stage.name"></option>
             </template>
           </select>
         </div>
@@ -863,15 +863,14 @@
     @click.self="closeModal()"
     @keydown.escape.window="closeModal()"
   >
-    <div
-      x-show="selectedTask"
-      x-transition:enter="transition ease-out duration-150"
-      x-transition:enter-start="opacity-0 scale-95"
-      x-transition:enter-end="opacity-100 scale-100"
-      class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
-      @click.stop
-    >
-      <template x-if="selectedTask">
+      <template x-if="showModal && selectedTask">
+        <div
+          x-transition:enter="transition ease-out duration-150"
+          x-transition:enter-start="opacity-0 scale-95"
+          x-transition:enter-end="opacity-100 scale-100"
+          class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+          @click.stop
+        >
         <div class="p-6">
 
           <!-- Title row -->
@@ -921,8 +920,8 @@
                     <option value="" :selected="!selectedTask.task_type_id">Objective (default)</option>
                     <template x-for="tt in taskTypes" :key="tt.id">
                       <option
-                        :value="String(tt.id)"
-                        :selected="String(selectedTask.task_type_id || '') === String(tt.id)"
+                        :value="asString(tt.id)"
+                        :selected="sameString(selectedTask.task_type_id || '', tt.id)"
                         x-text="tt.name + (tt.is_epic ? ' ⚡ Quest' : '')"
                       ></option>
                     </template>
@@ -977,8 +976,8 @@
                 <option value="" :selected="!selectedTask.assignee_user_id">Unassigned</option>
                 <template x-for="member in assignableMembers" :key="member.user_id">
                   <option
-                    :value="String(member.user_id)"
-                    :selected="String(selectedTask.assignee_user_id || '') === String(member.user_id)"
+                    :value="asString(member.user_id)"
+                    :selected="sameString(selectedTask.assignee_user_id || '', member.user_id)"
                     x-text="member.display_name"
                   ></option>
                 </template>
@@ -1118,7 +1117,7 @@
                     class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                   >
                     <template x-for="stage in realStages" :key="`recurrence-stage-${stage.id}`">
-                      <option :value="String(stage.id)" x-text="stage.name"></option>
+                      <option :value="asString(stage.id)" x-text="stage.name"></option>
                     </template>
                   </select>
                 </div>
@@ -1199,7 +1198,7 @@
                     <label class="text-sm text-gray-600 w-1/3 flex-shrink-0" x-text="field.name"></label>
                     <template x-if="field.field_type === 'dropdown'">
                       <select
-                        :value="selectedTask.custom_field_values[String(field.id)] || ''"
+                        :value="selectedTaskCustomFieldValue(field)"
                         @change="updateCustomField(field.id, $event.target.value)"
                         :disabled="!canEditBoard"
                         class="flex-1 border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
@@ -1209,7 +1208,7 @@
                           <option
                             :value="customFieldOptionLabel(opt)"
                             x-text="customFieldOptionLabel(opt)"
-                            :selected="selectedTask.custom_field_values[String(field.id)] === customFieldOptionLabel(opt)"
+                            :selected="selectedTaskCustomFieldValue(field) === customFieldOptionLabel(opt)"
                           ></option>
                         </template>
                       </select>
@@ -1217,7 +1216,7 @@
                     <template x-if="field.field_type !== 'dropdown'">
                       <input
                         :type="field.field_type === 'number' ? 'number' : (field.field_type === 'date' ? 'date' : 'text')"
-                        :value="selectedTask.custom_field_values[String(field.id)] || ''"
+                        :value="selectedTaskCustomFieldValue(field)"
                         @change="updateCustomField(field.id, $event.target.value)"
                         :disabled="!canEditBoard"
                         :placeholder="field.name"
@@ -1361,8 +1360,8 @@
             </div>
           </div>
         </div>
-      </template>
-    </div>
+      </div>
+    </template>
   </div>
 
   <!-- ===== Log Config Modal ===== -->
@@ -1396,7 +1395,7 @@
               <select :key="`log-filter-${logConfigStage.id}-${logConfigStage.filter_id || 'all'}`" x-model="logConfigStage.filter_id" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400">
                 <option value="" :selected="!logConfigStage.filter_id">All objectives</option>
                 <template x-for="savedFilter in savedFilters" :key="savedFilter.id">
-                  <option :value="String(savedFilter.id)" :selected="String(logConfigStage.filter_id || '') === String(savedFilter.id)" x-text="savedFilter.name"></option>
+                  <option :value="asString(savedFilter.id)" :selected="sameString(logConfigStage.filter_id || '', savedFilter.id)" x-text="savedFilter.name"></option>
                 </template>
               </select>
               <a :href="`/board/${boardId}/filters`" class="inline-block mt-2 text-xs text-sky-600 hover:text-sky-700">Manage filters</a>

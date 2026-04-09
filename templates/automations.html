@@ -1,7 +1,14 @@
 {% extends "base.html" %}
 {% block content %}
 
-<div x-data="automationsPage({{ board.id }}, {{ board_role | tojson }})" x-init="init()" x-cloak class="max-w-3xl mx-auto p-6">
+<div
+  x-data="automationsPage()"
+  x-init="init()"
+  x-cloak
+  class="max-w-3xl mx-auto p-6"
+  data-board-id="{{ board.id }}"
+  data-board-role='{{ board_role | tojson }}'
+>
 
   <div x-show="!canEdit" class="mb-6 bg-white/85 text-slate-700 text-sm rounded-xl px-4 py-3 shadow">
     Read-only access. Viewers can inspect automations but cannot change them.

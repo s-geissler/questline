@@ -56,3 +56,7 @@ function homePage() {
     },
   };
 }
+
+document.addEventListener('alpine:init', () => {
+  Alpine.data('homePage', homePage);
+});

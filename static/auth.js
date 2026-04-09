@@ -56,3 +56,8 @@ function registerPage() {
     },
   };
 }
+
+document.addEventListener('alpine:init', () => {
+  Alpine.data('loginPage', loginPage);
+  Alpine.data('registerPage', registerPage);
+});

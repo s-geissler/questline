@@ -1,7 +1,7 @@
-function automationsPage(boardId, boardRole) {
+function automationsPage() {
   return {
-    boardId,
-    boardRole,
+    boardId: 0,
+    boardRole: null,
     automations: [],
     stages: [],
     taskTypes: [],
@@ -22,6 +22,8 @@ function automationsPage(boardId, boardRole) {
     },
 
     async init() {
+      this.boardId = parseInt(this.$el.dataset.boardId || '0', 10);
+      this.boardRole = JSON.parse(this.$el.dataset.boardRole || 'null');
       const [autoRes, stageRes, taskTypesRes] = await Promise.all([
         fetch('/api/automations?board_id=' + this.boardId),
         fetch('/api/stages?board_id=' + this.boardId),
@@ -131,3 +133,7 @@ function automationsPage(boardId, boardRole) {
     },
   };
 }
+
+document.addEventListener('alpine:init', () => {
+  Alpine.data('automationsPage', automationsPage);
+});
