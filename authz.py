@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import os
 import secrets
+from datetime import UTC, datetime, timedelta
 from typing import Optional
 
 from fastapi import HTTPException, Request, Response
@@ -15,6 +16,10 @@ SESSION_COOKIE = "questline_session"
 CSRF_COOKIE = "questline_csrf"
 PASSWORD_HASH_ITERATIONS = 120_000
 BOARD_ROLE_ORDER = {"viewer": 1, "editor": 2, "owner": 3, "admin": 4}
+
+
+def _utcnow() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def _env_flag(name: str) -> Optional[bool]:
@@ -36,6 +41,14 @@ else:
 SESSION_COOKIE_SAMESITE = os.getenv("QUESTLINE_SESSION_COOKIE_SAMESITE", "lax").lower()
 if SESSION_COOKIE_SAMESITE not in {"lax", "strict", "none"}:
     SESSION_COOKIE_SAMESITE = "lax"
+try:
+    SESSION_MAX_AGE_DAYS = int(os.getenv("QUESTLINE_SESSION_MAX_AGE_DAYS", "30"))
+except ValueError as exc:
+    raise RuntimeError("QUESTLINE_SESSION_MAX_AGE_DAYS must be an integer") from exc
+if SESSION_MAX_AGE_DAYS <= 0:
+    raise RuntimeError("QUESTLINE_SESSION_MAX_AGE_DAYS must be greater than 0")
+SESSION_MAX_AGE = timedelta(days=SESSION_MAX_AGE_DAYS)
+SESSION_MAX_AGE_SECONDS = int(SESSION_MAX_AGE.total_seconds())
 
 
 def validate_runtime_security_config():
@@ -167,6 +180,7 @@ def _set_session_cookie(response: Response, token: str, csrf_token: str):
         SESSION_COOKIE,
         token,
         httponly=True,
+        max_age=SESSION_MAX_AGE_SECONDS,
         samesite=SESSION_COOKIE_SAMESITE,
         secure=SESSION_COOKIE_SECURE,
         path="/",
@@ -175,6 +189,7 @@ def _set_session_cookie(response: Response, token: str, csrf_token: str):
         CSRF_COOKIE,
         csrf_token,
         httponly=False,
+        max_age=SESSION_MAX_AGE_SECONDS,
         samesite=SESSION_COOKIE_SAMESITE,
         secure=SESSION_COOKIE_SECURE,
         path="/",
@@ -189,10 +204,12 @@ def _clear_session_cookie(response: Response):
 def create_user_session(user: models.User, db: Session) -> tuple[str, str]:
     token = secrets.token_urlsafe(32)
     csrf_token = secrets.token_urlsafe(32)
+    expires_at = _utcnow() + SESSION_MAX_AGE
     session = models.UserSession(
         user_id=user.id,
         token_hash=_hash_session_token(token),
         csrf_token_hash=_hash_csrf_token(csrf_token),
+        expires_at=expires_at,
     )
     db.add(session)
     db.commit()
@@ -236,6 +253,10 @@ def get_optional_current_user(request: Request, db: Session) -> Optional[models.
         .first()
     )
     if not session or not session.user:
+        return None
+    if not session.expires_at or session.expires_at <= _utcnow():
+        db.delete(session)
+        db.commit()
         return None
     if not session.user.is_active:
         db.delete(session)

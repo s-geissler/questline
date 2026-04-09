@@ -5,8 +5,8 @@ import os
 import re
 import time
 import threading
+from datetime import UTC, date, datetime, timedelta
 from collections import defaultdict, deque
-from datetime import date, datetime, timedelta
 from fastapi import FastAPI, Depends, HTTPException, Request, Response
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -20,6 +20,7 @@ import models
 from database import engine, SessionLocal, get_db
 from authz import (
     CSRF_COOKIE,
+    SESSION_MAX_AGE,
     _authorize_board_request,
     _board_id_for_automation,
     _board_id_for_saved_filter,
@@ -122,6 +123,10 @@ def _parse_trusted_proxy_networks() -> tuple[ipaddress._BaseNetwork, ...]:
 TRUSTED_PROXY_NETWORKS = _parse_trusted_proxy_networks()
 
 
+def _utcnow() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
 def _run_column_migrations():
     migrations = [
         ("boards",           "owner_user_id", "INTEGER REFERENCES users(id)"),
@@ -153,6 +158,7 @@ def _run_column_migrations():
         ("instance_settings", "value", "TEXT"),
         ("task_recurrences", "mode", "VARCHAR"),
         ("user_sessions", "csrf_token_hash", "VARCHAR"),
+        ("user_sessions", "expires_at", "DATETIME"),
     ]
     with engine.begin() as conn:
         for table, col, col_type in migrations:
@@ -204,6 +210,19 @@ def _run_index_migrations():
     with engine.begin() as conn:
         for _, sql in indexes:
             conn.execute(text(sql))
+
+
+def _backfill_session_expirations():
+    db = SessionLocal()
+    try:
+        expiration_cutoff = _utcnow() + SESSION_MAX_AGE
+        db.query(models.UserSession).filter(models.UserSession.expires_at.is_(None)).update(
+            {"expires_at": expiration_cutoff},
+            synchronize_session=False,
+        )
+        db.commit()
+    finally:
+        db.close()
 
 
 def _migrate_orphan_data():
@@ -318,6 +337,7 @@ _migrate_board_memberships()
 _migrate_admin_role()
 _dedupe_board_memberships()
 _run_index_migrations()
+_backfill_session_expirations()
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")

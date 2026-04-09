@@ -131,6 +131,7 @@ class UserSession(Base):
     token_hash = Column(String, nullable=False, unique=True)
     csrf_token_hash = Column(String, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
+    expires_at = Column(DateTime, nullable=True)
     user = relationship("User", back_populates="sessions")
 
 

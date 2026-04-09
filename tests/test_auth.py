@@ -1,8 +1,13 @@
 import importlib
 import sys
+from datetime import UTC, datetime, timedelta
 
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
+
+
+def utcnow():
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def request_with_cookie(cookie=None):
@@ -330,6 +335,7 @@ def test_session_cookie_flags_are_secure_by_default(tmp_path, monkeypatch):
         cookie_header = response.headers.get("set-cookie")
         assert "Secure" in cookie_header
         assert "SameSite=strict" in cookie_header
+        assert "Max-Age=2592000" in cookie_header
     finally:
         db.close()
 
@@ -360,8 +366,80 @@ def test_session_cookie_flags_can_allow_local_insecure_override(tmp_path, monkey
         cookie_header = response.headers.get("set-cookie")
         assert "Secure" not in cookie_header
         assert "SameSite=lax" in cookie_header
+        assert "Max-Age=2592000" in cookie_header
     finally:
         db.close()
+
+
+def test_expired_session_is_rejected_and_deleted(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+
+    response = main.Response()
+    main.auth_register(
+        main.RegisterRequest(
+            email="expired@example.com",
+            password="supersecret",
+            display_name="Expired User",
+        ),
+        response,
+        db,
+    )
+    session_token = response.headers.get("set-cookie").split(";", 1)[0]
+    session = db.query(main.models.UserSession).first()
+    session.expires_at = utcnow() - timedelta(seconds=1)
+    db.commit()
+
+    assert main.get_optional_current_user(request_with_cookie(session_token), db) is None
+    assert db.query(main.models.UserSession).count() == 0
+
+
+def test_session_max_age_days_can_be_configured(tmp_path, monkeypatch):
+    db_path = tmp_path / "cookie-max-age.db"
+    monkeypatch.setenv("QUESTLINE_DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("QUESTLINE_ENV", "development")
+    monkeypatch.setenv("QUESTLINE_ALLOW_INSECURE_COOKIES", "true")
+    monkeypatch.setenv("QUESTLINE_SESSION_MAX_AGE_DAYS", "7")
+
+    for module_name in ("main", "models", "database", "authz"):
+        sys.modules.pop(module_name, None)
+
+    main = importlib.import_module("main")
+    db = importlib.import_module("database").SessionLocal()
+    try:
+        response = main.Response()
+        main.auth_register(
+            main.RegisterRequest(
+                email="cookie-max-age@example.com",
+                password="supersecret",
+                display_name="Cookie User",
+            ),
+            response,
+            db,
+        )
+        cookie_header = response.headers.get("set-cookie")
+        session = db.query(main.models.UserSession).first()
+        assert "Max-Age=604800" in cookie_header
+        assert session.expires_at is not None
+        remaining = session.expires_at - utcnow()
+        assert timedelta(days=6, hours=23) <= remaining <= timedelta(days=7, minutes=1)
+    finally:
+        db.close()
+
+
+def test_invalid_session_max_age_days_fails_fast(tmp_path, monkeypatch):
+    db_path = tmp_path / "cookie-max-age-invalid.db"
+    monkeypatch.setenv("QUESTLINE_DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("QUESTLINE_SESSION_MAX_AGE_DAYS", "0")
+
+    for module_name in ("main", "models", "database", "authz"):
+        sys.modules.pop(module_name, None)
+
+    try:
+        importlib.import_module("authz")
+        assert False, "Expected invalid session max age config to fail"
+    except RuntimeError as exc:
+        assert "QUESTLINE_SESSION_MAX_AGE_DAYS" in str(exc)
 
 
 def test_runtime_security_defaults_to_production(tmp_path, monkeypatch):
