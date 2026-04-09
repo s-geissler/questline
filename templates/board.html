@@ -80,6 +80,7 @@
           >
             <div
               class="flex items-center justify-between px-3 pt-3 pb-2 border-b"
+              data-stage-drag-handle
               :class="stage.is_log ? 'log-stage-header' : 'border-transparent'"
             >
               <div class="min-w-0 flex-1">
@@ -260,6 +261,7 @@
                   </template>
                 </div>
               </template>
+              <div class="hidden" aria-hidden="true" data-stage-sortable-sentinel><span></span></div>
             </div>
 
             <div class="px-2 pb-2 pt-1" x-show="!stage.is_log && canEditBoard">
@@ -338,12 +340,13 @@
               <template x-if="slot.stage">
                 <div
                   class="board-stage rounded-xl shadow w-72 flex-shrink-0 flex flex-col overflow-visible"
-                  :class="slot.stage.is_log ? 'log-stage' : 'bg-gray-100'"
-                  :data-stage-column-id="slot.stage.id"
+                  :class="slot.stage && slot.stage.is_log ? 'log-stage' : 'bg-gray-100'"
+                  :data-stage-column-id="slot.stage ? slot.stage.id : ''"
                 >
                     <div
                       class="flex items-center justify-between px-3 pt-3 pb-2 border-b"
-                      :class="slot.stage.is_log ? 'log-stage-header' : 'border-transparent'"
+                      data-stage-drag-handle
+                      :class="slot.stage && slot.stage.is_log ? 'log-stage-header' : 'border-transparent'"
                     >
                       <div class="min-w-0 flex-1">
                         <input
@@ -352,9 +355,9 @@
                           @keydown.enter="$el.blur()"
                           :disabled="!canEditBoard"
                           class="stage-title-input font-medium bg-transparent w-full rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400 text-sm"
-                          :class="slot.stage.is_log ? 'log-stage-title' : 'text-gray-700 hover:bg-black/5 focus:bg-black/5'"
+                          :class="slot.stage && slot.stage.is_log ? 'log-stage-title' : 'text-gray-700 hover:bg-black/5 focus:bg-black/5'"
                         >
-                        <div x-show="slot.stage.is_log" class="mt-1 px-1 space-y-1">
+                        <div x-show="slot.stage && slot.stage.is_log" class="mt-1 px-1 space-y-1">
                           <div class="flex items-center gap-1.5 flex-wrap">
                             <span class="log-stage-badge text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded-full font-semibold">Filter Log</span>
                             <span class="log-stage-summary text-[10px] font-medium">⌕ Read-only view</span>
@@ -387,13 +390,13 @@
                             @click="sortStageByDueDate(slot.stage); open = false"
                             class="block w-full text-left text-xs text-gray-600 hover:text-blue-600 px-3 py-2 hover:bg-gray-100 transition-colors"
                             title="Sort dated objectives by due date"
-                            x-show="!slot.stage.is_log"
+                            x-show="slot.stage && !slot.stage.is_log"
                           >Sort by due date</button>
                           <button
                             @click="clearCompletedStage(slot.stage); open = false"
                             class="block w-full text-left text-xs text-gray-600 hover:text-amber-600 px-3 py-2 hover:bg-gray-100 transition-colors"
                             title="Clear completed objectives"
-                            x-show="!slot.stage.is_log"
+                            x-show="slot.stage && !slot.stage.is_log"
                           >Clear completed</button>
                           <button
                             @click="deleteStage(slot.stage.id); open = false"
@@ -406,11 +409,11 @@
 
                     <div
                       class="board-stage-body px-2 pb-1 space-y-2 min-h-[8px]"
-                      :class="slot.stage.is_log ? 'log-stage-body' : ''"
-                      :id="'stage-' + slot.stage.id"
-                      :data-stage-id="slot.stage.id"
+                      :class="slot.stage && slot.stage.is_log ? 'log-stage-body' : ''"
+                      :id="'stage-' + (slot.stage ? slot.stage.id : '')"
+                      :data-stage-id="slot.stage ? slot.stage.id : ''"
                     >
-                      <template x-for="task in slot.stage.tasks" :key="`${task.id}-${task.position}`">
+                      <template x-for="task in (slot.stage ? slot.stage.tasks : [])" :key="`${task.id}-${task.position}`">
                         <div
                           class="board-task-card bg-white rounded-lg p-2.5 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
                           :class="task.done ? 'opacity-60' : ''"
@@ -485,7 +488,7 @@
                               <span>☑</span>
                               <span x-text="checklistProgress(task)"></span>
                             </span>
-                            <template x-if="slot.stage.is_log">
+                            <template x-if="slot.stage && slot.stage.is_log">
                               <span
                                 class="text-xs px-2 py-0.5 rounded font-medium bg-slate-100 text-slate-600"
                                 x-text="'In ' + sourceStageName(task)"
@@ -523,16 +526,17 @@
                           </template>
                         </div>
                       </template>
+                      <div class="hidden" aria-hidden="true" data-stage-sortable-sentinel><span></span></div>
                     </div>
 
-                    <div class="px-2 pb-2 pt-1" x-show="!slot.stage.is_log && canEditBoard">
-                      <div x-show="showNewTask[slot.stage.id] !== true">
+                    <div class="px-2 pb-2 pt-1" x-show="slot.stage && !slot.stage.is_log && canEditBoard">
+                      <div x-show="slot.stage && showNewTask[slot.stage.id] !== true">
                         <button
                           @click="showNewTask = {...showNewTask, [slot.stage.id]: true}; newTaskTitles = {...newTaskTitles, [slot.stage.id]: ''}; $nextTick(() => document.getElementById('new-task-input-' + slot.stage.id)?.focus())"
                           class="text-gray-500 hover:text-gray-800 text-sm w-full text-left px-1 py-1 rounded hover:bg-gray-200 transition-colors"
                         >+ Add an objective</button>
                       </div>
-                      <div x-show="showNewTask[slot.stage.id] === true">
+                      <div x-show="slot.stage && showNewTask[slot.stage.id] === true">
                         <input
                           :id="'new-task-input-' + slot.stage.id"
                           :value="newTaskTitles[slot.stage.id] || ''"
@@ -1444,6 +1448,7 @@ function board() {
     showStageDropTargets: false,
     _stagePersistTimer: null,
     _pendingStagePlacements: null,
+    _initialized: false,
 
     get canEditBoard() {
       return this.currentBoardRole === 'owner' || this.currentBoardRole === 'editor' || this.currentBoardRole === 'admin';
@@ -1569,6 +1574,8 @@ function board() {
     },
 
     async init() {
+      if (this._initialized) return;
+      this._initialized = true;
       this.boardView = this.getRequestedBoardView();
       this.calendarCursor = this.getInitialCalendarCursor();
       window.addEventListener('resize', () => this.updateStageLifts());
@@ -1596,6 +1603,15 @@ function board() {
       this.$nextTick(() => {
         this.initSortable();
       });
+    },
+
+    async reloadStagesAfterDrag() {
+      await new Promise(resolve => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(resolve);
+        });
+      });
+      await this.loadStages();
     },
 
     async loadMetadata() {
@@ -1627,8 +1643,6 @@ function board() {
     },
 
     initSortable() {
-      this._sortables.forEach(s => s.destroy());
-      this._sortables = [];
       this.showStageDropTargets = false;
       if (this.boardView === 'calendar') {
         this.disconnectStageLiftObserver();
@@ -1646,11 +1660,12 @@ function board() {
       this.$nextTick(() => this.updateStageLifts());
       if (!this.canEditBoard) return;
       const topRow = document.querySelector('[data-stage-top-row]');
-      if (topRow) {
+      if (topRow && !Sortable.get(topRow)) {
         const topRowSortable = Sortable.create(topRow, {
           group: 'stages',
           animation: 150,
           draggable: '[data-stage-column-id]',
+          handle: '[data-stage-drag-handle]',
           ghostClass: 'task-ghost',
           onStart: () => {
             this.showStageDropTargets = true;
@@ -1665,10 +1680,12 @@ function board() {
 
       const secondRowSlots = Array.from(document.querySelectorAll('[data-stage-slot-position]'));
       secondRowSlots.forEach(slotEl => {
+        if (Sortable.get(slotEl)) return;
         const slotSortable = Sortable.create(slotEl, {
           group: 'stages',
           animation: 150,
           draggable: '[data-stage-column-id]',
+          handle: '[data-stage-drag-handle]',
           ghostClass: 'task-ghost',
           onStart: () => {
             this.showStageDropTargets = true;
@@ -1688,9 +1705,11 @@ function board() {
         const el = document.getElementById('stage-' + stage.id);
         if (!el) return;
         if (stage.is_log) return;
+        if (Sortable.get(el)) return;
         const s = Sortable.create(el, {
           group: 'tasks',
           animation: 150,
+          draggable: '[data-task-id]',
           ghostClass: 'task-ghost',
           onEnd: async (evt) => {
             const newStageId = parseInt(evt.to.dataset.stageId);
@@ -1727,7 +1746,7 @@ function board() {
               headers: {'Content-Type': 'application/json'},
               body: JSON.stringify({stage_id: newStageId, ids}),
             });
-            await this.loadStages();
+            await this.reloadStagesAfterDrag();
           },
         });
         this._sortables.push(s);
@@ -1739,6 +1758,7 @@ function board() {
       dayContainers.forEach(dayEl => {
         const taskList = dayEl.querySelector('[data-calendar-dropzone]');
         if (!taskList) return;
+        if (Sortable.get(taskList)) return;
         const sortable = Sortable.create(taskList, {
           group: 'calendar-tasks',
           animation: 150,
@@ -1749,7 +1769,7 @@ function board() {
             const targetDate = evt.to.closest('[data-calendar-date]')?.dataset.calendarDate;
             const sourceDate = evt.from.closest('[data-calendar-date]')?.dataset.calendarDate;
             if (!taskId || !targetDate || targetDate === sourceDate) {
-              await this.loadStages();
+              await this.reloadStagesAfterDrag();
               return;
             }
             await this.handleCalendarTaskDrop(taskId, targetDate);
