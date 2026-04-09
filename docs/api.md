@@ -4,7 +4,7 @@ All API endpoints are prefixed with `/api`. Authentication is via session cookie
 
 The interactive Swagger UI is available at `/docs` when the server is running.
 
-Unsafe `/api/` requests (`POST`, `PUT`, `PATCH`, `DELETE`) must send `X-Requested-With: XMLHttpRequest`. Authenticated unsafe requests must also send the session-bound CSRF token in `X-CSRF-Token`. `POST /api/auth/login` is rate-limited and returns `429` after too many failed attempts.
+Unsafe `/api/` requests (`POST`, `PUT`, `PATCH`, `DELETE`) must send `X-Requested-With: XMLHttpRequest`. Authenticated unsafe requests must also send the session-bound CSRF token in `X-CSRF-Token`. `POST /api/auth/login` is rate-limited and returns `429` after too many failed attempts. Sessions expire after `QUESTLINE_SESSION_MAX_AGE_DAYS` days (30 by default).
 
 ---
 

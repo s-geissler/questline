@@ -58,6 +58,8 @@ Tests use an isolated temporary SQLite database file per test run and do not req
 - Notification creation
 - API security checks
 
+If you need to exercise reverse-proxy behavior locally, set `QUESTLINE_TRUSTED_PROXIES` to the address range of your local proxy. When unset, forwarded client IP headers are ignored.
+
 To run a specific test file:
 
 ```bash

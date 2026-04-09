@@ -40,7 +40,7 @@ users
   id, email, display_name, password_hash, role (user|admin), is_active, created_at
 
 user_sessions
-  id, user_id → users, token_hash, csrf_token_hash, created_at
+  id, user_id → users, token_hash, csrf_token_hash, created_at, expires_at
 
 boards
   id, name, color, position, owner_user_id → users
@@ -111,6 +111,8 @@ HTTP request
   → create_notification() if relevant event
   → JSON response
 ```
+
+For request-derived client IPs, Questline trusts `X-Forwarded-For` only when the immediate peer address is inside `QUESTLINE_TRUSTED_PROXIES`; otherwise it uses the socket peer IP directly.
 
 ## Performance Indexes
 

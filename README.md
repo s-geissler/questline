@@ -65,3 +65,9 @@ To run this project, you will need:
 *   `templates/`: Stores the Jinja2 HTML templates for the frontend.
 *   `static/`: Contains static assets, including CSS and client-side logic.
 *   `tests/`: Includes the suite of unit and integration tests to ensure application stability.
+
+## Deployment Notes
+
+For internet exposure, run Questline behind HTTPS at a reverse proxy such as nginx. Configure HSTS at the proxy edge, not in the application, and set `QUESTLINE_TRUSTED_PROXIES` to the proxy addresses that connect directly to the app.
+
+See [`docs/deployment.md`](docs/deployment.md) for deployment guidance and recommended production environment settings.

@@ -29,6 +29,8 @@ The first registered account is automatically promoted to admin.
 | `QUESTLINE_ALLOW_INSECURE_COOKIES` | unset | Set to `1` or `true` in development to allow non-`Secure` cookies |
 | `QUESTLINE_SESSION_COOKIE_SECURE` | unset | Explicit override for whether the session cookie uses the `Secure` flag |
 | `QUESTLINE_SESSION_COOKIE_SAMESITE` | `lax` | Cookie SameSite policy (`lax`, `strict`, or `none`) |
+| `QUESTLINE_SESSION_MAX_AGE_DAYS` | `30` | Absolute server-side session lifetime in days; also applied as cookie `Max-Age` |
+| `QUESTLINE_TRUSTED_PROXIES` | unset | Comma-separated proxy IPs/CIDRs allowed to supply `X-Forwarded-For`; unset means forwarded headers are ignored |
 
 ## Built-in URLs
 
@@ -51,4 +53,5 @@ The first registered account is automatically promoted to admin.
 - [api.md](api.md) — REST API reference
 - [automations.md](automations.md) — Automation engine: triggers, conditions, actions
 - [custom-fields.md](custom-fields.md) — Custom field types and usage
+- [deployment.md](deployment.md) — HTTPS, reverse proxy, HSTS, and recommended production settings
 - [development.md](development.md) — Local setup, testing, contributing
