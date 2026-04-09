@@ -1,5 +1,7 @@
 import json
+import ipaddress
 import logging
+import os
 import re
 import time
 import threading
@@ -101,6 +103,23 @@ SECURITY_HEADERS = {
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "X-Content-Type-Options": "nosniff",
 }
+
+
+def _parse_trusted_proxy_networks() -> tuple[ipaddress._BaseNetwork, ...]:
+    configured = os.getenv("QUESTLINE_TRUSTED_PROXIES", "")
+    networks = []
+    for raw_value in configured.split(","):
+        value = raw_value.strip()
+        if not value:
+            continue
+        try:
+            networks.append(ipaddress.ip_network(value, strict=False))
+        except ValueError as exc:
+            raise RuntimeError(f"Invalid QUESTLINE_TRUSTED_PROXIES entry: {value}") from exc
+    return tuple(networks)
+
+
+TRUSTED_PROXY_NETWORKS = _parse_trusted_proxy_networks()
 
 
 def _run_column_migrations():
@@ -324,11 +343,22 @@ recurrence_worker_thread = None
 def _request_client_ip(request: Optional[Request]) -> str:
     if request is None:
         return "unknown"
-    forwarded_for = request.headers.get("x-forwarded-for")
-    if forwarded_for:
-        return forwarded_for.split(",", 1)[0].strip() or "unknown"
     client = getattr(request, "client", None)
-    return client.host if client and client.host else "unknown"
+    peer_host = client.host if client and client.host else "unknown"
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for and peer_host != "unknown":
+        try:
+            peer_ip = ipaddress.ip_address(peer_host)
+        except ValueError:
+            peer_ip = None
+        if peer_ip and any(peer_ip in network for network in TRUSTED_PROXY_NETWORKS):
+            forwarded_host = forwarded_for.split(",", 1)[0].strip()
+            if forwarded_host:
+                try:
+                    return str(ipaddress.ip_address(forwarded_host))
+                except ValueError:
+                    return peer_host
+    return peer_host
 
 
 def _login_rate_limit_key(email: str, request: Optional[Request]) -> str:
