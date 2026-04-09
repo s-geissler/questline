@@ -36,29 +36,6 @@
   </div>
 </div>
 
-<script>
-function loginPage() {
-  return {
-    email: '',
-    password: '',
-    error: '',
-
-    async login() {
-      this.error = '';
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({email: this.email, password: this.password}),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        this.error = data.detail || 'Login failed';
-        return;
-      }
-      window.location.href = '/';
-    },
-  };
-}
-</script>
+<script src="/static/auth.js"></script>
 
 {% endblock %}
