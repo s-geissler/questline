@@ -47,6 +47,9 @@ function board() {
     _stagePersistTimer: null,
     _pendingStagePlacements: null,
     _initialized: false,
+    activeStageMenuId: null,
+    taskActionMenuOpen: false,
+    taskColorPickerOpen: false,
 
     get canEditBoard() {
       return this.currentBoardRole === 'owner' || this.currentBoardRole === 'editor' || this.currentBoardRole === 'admin';
@@ -66,6 +69,16 @@ function board() {
 
     get canViewSettings() {
       return !!this.currentBoardRole;
+    },
+
+    get selectedTaskDoneLabel() {
+      return this.selectedTask?.done ? '✓ Done' : 'Mark Done';
+    },
+
+    get selectedTaskDoneButtonClass() {
+      return this.selectedTask?.done
+        ? 'bg-green-100 text-green-700 hover:bg-green-200'
+        : 'bg-gray-100 text-gray-600 hover:bg-gray-200';
     },
 
     get selectedTaskType() {
@@ -639,6 +652,8 @@ function board() {
       this.recurrenceExpanded = false;
       this.newChecklistItem = '';
       this.descriptionEditing = false;
+      this.taskActionMenuOpen = false;
+      this.taskColorPickerOpen = false;
       this.showModal = true;
     },
 
@@ -647,6 +662,8 @@ function board() {
       this.recurrenceExpanded = false;
       this.descriptionEditing = false;
       this.newChecklistItem = '';
+      this.taskActionMenuOpen = false;
+      this.taskColorPickerOpen = false;
     },
 
     async openSpawnedTask(taskId) {
@@ -666,6 +683,48 @@ function board() {
       this.showModal = true;
       this.newChecklistItem = '';
       this.descriptionEditing = false;
+      this.taskActionMenuOpen = false;
+      this.taskColorPickerOpen = false;
+    },
+
+    toggleStageMenu(stageId) {
+      this.activeStageMenuId = this.activeStageMenuId === stageId ? null : stageId;
+    },
+
+    closeStageMenu() {
+      this.activeStageMenuId = null;
+    },
+
+    isStageMenuOpen(stageId) {
+      return this.activeStageMenuId === stageId;
+    },
+
+    toggleTaskActionMenu() {
+      this.taskActionMenuOpen = !this.taskActionMenuOpen;
+    },
+
+    closeTaskActionMenu() {
+      this.taskActionMenuOpen = false;
+    },
+
+    toggleTaskColorPicker() {
+      this.taskColorPickerOpen = !this.taskColorPickerOpen;
+    },
+
+    closeTaskColorPicker() {
+      this.taskColorPickerOpen = false;
+    },
+
+    selectedTaskColorStyle() {
+      return this.selectedTask?.color ? `background:${this.selectedTask.color}` : 'background:#e5e7eb';
+    },
+
+    colorSwatchStyle(color) {
+      return `background:${color}`;
+    },
+
+    selectedColorClass(currentColor, color) {
+      return currentColor === color ? 'ring-2 ring-offset-1 ring-gray-500' : '';
     },
 
     async openParentTask() {

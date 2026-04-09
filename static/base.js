@@ -141,6 +141,22 @@ function userMenu() {
       password: '',
     },
 
+    get hasUnreadNotifications() {
+      return this.unreadCount > 0;
+    },
+
+    get unreadBadgeText() {
+      return this.unreadCount > 9 ? '9+' : String(this.unreadCount || '');
+    },
+
+    get showEmptyNotifications() {
+      return this.notifications.length === 0;
+    },
+
+    get saveProfileLabel() {
+      return this.savingProfile ? 'Saving...' : 'Save';
+    },
+
     async init() {
       this.currentUser = JSON.parse(this.$el.dataset.currentUser || 'null');
       this.profile.display_name = this.currentUser?.display_name || '';
@@ -162,6 +178,10 @@ function userMenu() {
       if (this.notificationsOpen) {
         await this.fetchNotifications();
       }
+    },
+
+    closeNotifications() {
+      this.notificationsOpen = false;
     },
 
     async openNotification(notification) {
@@ -200,10 +220,23 @@ function userMenu() {
       this.profileOpen = true;
     },
 
+    openProfileFromMenu() {
+      this.menuOpen = false;
+      this.openProfile();
+    },
+
     closeProfile() {
       this.profileOpen = false;
       this.profile.password = '';
       this.profileError = '';
+    },
+
+    toggleMenu() {
+      this.menuOpen = !this.menuOpen;
+    },
+
+    closeMenu() {
+      this.menuOpen = false;
     },
 
     async saveProfile() {
@@ -234,6 +267,20 @@ function userMenu() {
   };
 }
 
+function dropdownMenu() {
+  return {
+    open: false,
+
+    toggle() {
+      this.open = !this.open;
+    },
+
+    close() {
+      this.open = false;
+    },
+  };
+}
+
 function themeToggle() {
   return {
     dark: false,
@@ -246,6 +293,18 @@ function themeToggle() {
       this.dark = !this.dark;
       applyTheme(this.dark ? 'dark' : 'light');
     },
+
+    get ariaLabel() {
+      return this.dark ? 'Switch to light mode' : 'Switch to dark mode';
+    },
+
+    get showLightIcon() {
+      return !this.dark;
+    },
+
+    get showDarkIcon() {
+      return this.dark;
+    },
   };
 }
 
@@ -257,6 +316,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 document.addEventListener('alpine:init', () => {
+  Alpine.data('dropdownMenu', dropdownMenu);
   Alpine.data('userMenu', userMenu);
   Alpine.data('themeToggle', themeToggle);
 });

@@ -72,7 +72,7 @@
               @click="tt.showColorPicker = !tt.showColorPicker"
               :disabled="!canEdit"
               class="w-6 h-6 rounded-full border-2 border-gray-200 hover:scale-110 transition-transform shadow-sm"
-              :style="tt.color ? 'background:' + tt.color : 'background:#e5e7eb'"
+              :style="taskTypeSwatchStyle(tt)"
               title="Pick color"
             ></button>
             <div x-show="tt.showColorPicker" x-cloak
@@ -82,8 +82,8 @@
                   <button
                     @click="setTypeColor(tt, c); tt.showColorPicker = false"
                     class="w-6 h-6 rounded-full hover:scale-110 transition-transform border border-black/10"
-                    :style="'background:' + c"
-                    :class="tt.color === c ? 'ring-2 ring-offset-1 ring-gray-500' : ''"
+                    :style="colorSwatchStyle(c)"
+                    :class="selectedColorClass(tt.color, c)"
                   ></button>
                 </template>
                 <button
@@ -97,7 +97,7 @@
           <div class="flex-1 flex items-center gap-2">
             <template x-if="tt.editing">
               <input
-                :x-ref="'type-name-' + tt.id"
+                :id="typeInputId(tt)"
                 x-model="tt.editName"
                 @blur="saveTypeName(tt)"
                 @keydown.enter="$el.blur()"
@@ -197,7 +197,7 @@
           </div>
 
           <!-- Existing fields -->
-          <div class="space-y-1 mb-2" x-show="tt.custom_fields && tt.custom_fields.length > 0">
+          <div class="space-y-1 mb-2" x-show="hasCustomFields(tt)">
             <template x-for="field in tt.custom_fields" :key="field.id">
               <div class="bg-gray-50 rounded-lg group">
                 <!-- Field header row -->
@@ -209,7 +209,7 @@
                         @click="field.showColorPicker = !field.showColorPicker"
                         :disabled="!canEdit"
                         class="w-4 h-4 rounded border border-black/15 hover:scale-110 transition-transform"
-                        :style="field.color ? 'background:' + field.color : 'background:#e5e7eb'"
+                        :style="fieldSwatchStyle(field)"
                         title="Pick color"
                       ></button>
                       <div x-show="field.showColorPicker" x-cloak
@@ -219,8 +219,8 @@
                             <button
                               @click="setFieldColor(tt, field, c); field.showColorPicker = false"
                               class="w-6 h-6 rounded-full hover:scale-110 transition-transform border border-black/10"
-                              :style="'background:' + c"
-                              :class="field.color === c ? 'ring-2 ring-offset-1 ring-gray-500' : ''"
+                              :style="colorSwatchStyle(c)"
+                              :class="selectedColorClass(field.color, c)"
                             ></button>
                           </template>
                           <button
@@ -282,10 +282,10 @@
                             <div class="flex flex-wrap gap-2">
                               <template x-for="c in PRESET_COLORS" :key="c">
                                 <button
-                                  @click="setFieldOptionColor(tt, field, idx, c); opt.showColorPicker = false"
-                                  class="w-6 h-6 rounded-full hover:scale-110 transition-transform border border-black/10"
-                                  :style="'background:' + c"
-                                  :class="opt.color === c ? 'ring-2 ring-offset-1 ring-gray-500' : ''"
+                              @click="setFieldOptionColor(tt, field, idx, c); opt.showColorPicker = false"
+                              class="w-6 h-6 rounded-full hover:scale-110 transition-transform border border-black/10"
+                                  :style="colorSwatchStyle(c)"
+                                  :class="selectedColorClass(opt.color, c)"
                                 ></button>
                               </template>
                               <button
@@ -318,7 +318,7 @@
           </div>
 
           <p
-            x-show="!tt.custom_fields || tt.custom_fields.length === 0"
+            x-show="!hasCustomFields(tt)"
             class="text-sm text-gray-400 italic py-1"
           >No custom fields yet.</p>
 
@@ -328,7 +328,7 @@
               <div class="flex-1 min-w-32">
                 <label class="block text-xs text-gray-500 mb-1">Field name</label>
                 <input
-                  :id="'field-name-' + tt.id"
+                  :id="fieldNameInputId(tt)"
                   x-model="tt.newField.name"
                   @keydown.enter="tt.newField.field_type !== 'dropdown' && addField(tt)"
                   @keydown.escape="tt.showAddField = false"
@@ -390,10 +390,10 @@
                       <div class="flex flex-wrap gap-2">
                         <template x-for="c in PRESET_COLORS" :key="c">
                           <button
-                            @click="setNewFieldOptionColor(tt, idx, c); opt.showColorPicker = false"
-                            class="w-6 h-6 rounded-full hover:scale-110 transition-transform border border-black/10"
-                            :style="'background:' + c"
-                            :class="opt.color === c ? 'ring-2 ring-offset-1 ring-gray-500' : ''"
+                          @click="setNewFieldOptionColor(tt, idx, c); opt.showColorPicker = false"
+                          class="w-6 h-6 rounded-full hover:scale-110 transition-transform border border-black/10"
+                            :style="colorSwatchStyle(c)"
+                            :class="selectedColorClass(opt.color, c)"
                           ></button>
                         </template>
                         <button
@@ -426,7 +426,7 @@
       </div>
     </template>
 
-    <p x-show="taskTypes.length === 0" class="text-white text-center opacity-70 py-8">
+    <p x-show="!hasTaskTypes" class="text-white text-center opacity-70 py-8">
       No objective types yet. Create one to get started.
     </p>
   </div>

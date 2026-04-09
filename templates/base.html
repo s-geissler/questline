@@ -383,10 +383,10 @@
 
     {% if board %}
     <!-- Board switcher dropdown -->
-    <div x-data="{open: false}" class="relative mr-1">
+    <div x-data="dropdownMenu()" class="relative mr-1">
       <button
-        @click="open = !open"
-        @click.outside="open = false"
+        @click="toggle()"
+        @click.outside="close()"
         class="px-3 py-1.5 rounded hover:bg-black/20 flex items-center gap-1.5 text-sm font-semibold transition-colors"
       >
         <span>{{ board.name }}</span>
@@ -402,7 +402,7 @@
         x-transition:leave-start="opacity-100 scale-100"
         x-transition:leave-end="opacity-0 scale-95"
         class="absolute top-full left-0 mt-1 bg-white text-gray-800 shadow-xl rounded-xl py-1 min-w-[200px] z-50"
-        @click="open = false"
+        @click="close()"
       >
         {% for b in boards %}
         <a
@@ -444,7 +444,7 @@
         <button
           type="button"
           @click="toggleNotifications()"
-          @click.outside="notificationsOpen = false"
+          @click.outside="closeNotifications()"
           class="nav-utility relative"
           aria-label="Notifications"
           title="Notifications"
@@ -453,8 +453,8 @@
             <path d="M12 2a5 5 0 0 0-5 5v2.586c0 .53-.211 1.04-.586 1.414L5.293 12.12A1 1 0 0 0 6 13.828h12a1 1 0 0 0 .707-1.707l-1.121-1.121A2 2 0 0 1 17 9.586V7a5 5 0 0 0-5-5Zm0 20a3 3 0 0 0 2.995-2.824L15 19h-6a3 3 0 0 0 3 3Z"/>
           </svg>
           <span
-            x-show="unreadCount > 0"
-            x-text="unreadCount > 9 ? '9+' : unreadCount"
+            x-show="hasUnreadNotifications"
+            x-text="unreadBadgeText"
             class="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-semibold flex items-center justify-center"
           ></span>
         </button>
@@ -472,14 +472,14 @@
           <div class="flex items-center justify-between px-3 pb-2 border-b border-gray-100">
             <div class="text-sm font-semibold text-gray-800">Notifications</div>
             <button
-              x-show="unreadCount > 0"
+              x-show="hasUnreadNotifications"
               type="button"
               @click="markAllNotificationsRead()"
               class="text-xs text-blue-600 hover:text-blue-700"
             >Mark all read</button>
           </div>
           <div class="max-h-[360px] overflow-y-auto">
-            <template x-if="notifications.length === 0">
+            <template x-if="showEmptyNotifications">
               <div class="px-3 py-4 text-sm text-gray-500">No notifications</div>
             </template>
             <template x-for="notification in notifications" :key="notification.id">
@@ -515,12 +515,12 @@
         @click="toggle()"
         class="nav-utility"
         title="Toggle theme"
-        :aria-label="dark ? 'Switch to light mode' : 'Switch to dark mode'"
+        :aria-label="ariaLabel"
       >
-        <svg x-show="!dark" x-cloak xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <svg x-show="showLightIcon" x-cloak xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <path d="M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12Zm0-16a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0V3a1 1 0 0 1 1-1Zm0 17a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0v-2a1 1 0 0 1 1-1Zm10-7a1 1 0 0 1-1 1h-2a1 1 0 1 1 0-2h2a1 1 0 0 1 1 1ZM5 12a1 1 0 0 1-1 1H2a1 1 0 1 1 0-2h2a1 1 0 0 1 1 1Zm12.657 6.243a1 1 0 0 1 0 1.414l-1.414 1.414a1 1 0 1 1-1.414-1.414l1.414-1.414a1 1 0 0 1 1.414 0ZM9.172 9.172a1 1 0 0 1-1.414 0L6.343 7.757A1 1 0 0 1 7.757 6.343l1.415 1.414a1 1 0 0 1 0 1.415Zm11.485-2.829a1 1 0 0 1 0 1.414l-1.414 1.415a1 1 0 1 1-1.414-1.415l1.414-1.414a1 1 0 0 1 1.414 0ZM9.172 14.828a1 1 0 0 1 0 1.415l-1.415 1.414a1 1 0 1 1-1.414-1.414l1.415-1.415a1 1 0 0 1 1.414 0Z"/>
         </svg>
-        <svg x-show="dark" x-cloak xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <svg x-show="showDarkIcon" x-cloak xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <path d="M21 14.129A9 9 0 1 1 9.871 3a1 1 0 0 1 1.065 1.57A7 7 0 1 0 19.43 13.064 1 1 0 0 1 21 14.13Z"/>
         </svg>
       </button>
@@ -529,8 +529,8 @@
       <div class="relative">
         <button
           type="button"
-          @click="menuOpen = !menuOpen"
-          @click.outside="menuOpen = false"
+          @click="toggleMenu()"
+          @click.outside="closeMenu()"
           class="nav-utility"
         >
           <span x-text="profile.display_name"></span>
@@ -551,7 +551,7 @@
         >
           <button
             type="button"
-            @click="menuOpen = false; openProfile()"
+            @click="openProfileFromMenu()"
             class="w-full text-left px-3 py-2 hover:bg-gray-100 text-sm transition-colors"
           >Profile</button>
           {% if current_user and current_user.role == 'admin' %}
@@ -603,7 +603,7 @@
           <div class="mt-6 flex justify-end gap-2">
             <button type="button" @click="closeProfile()" class="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
             <button type="button" @click="saveProfile()" :disabled="savingProfile" class="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60">
-              <span x-text="savingProfile ? 'Saving...' : 'Save'"></span>
+              <span x-text="saveProfileLabel"></span>
             </button>
           </div>
         </div>

@@ -110,14 +110,14 @@
                   <div class="log-stage-summary text-[11px] leading-snug" x-text="logStageSummary(stage)"></div>
                 </div>
               </div>
-              <div x-show="canEditBoard" x-data="{ open: false }" @click.outside="open = false" class="relative ml-2 flex-shrink-0">
+              <div x-show="canEditBoard" @click.outside="closeStageMenu()" class="relative ml-2 flex-shrink-0">
                 <button
-                  @click="open = !open"
+                  @click="toggleStageMenu(stage.id)"
                   class="text-gray-400 hover:text-gray-700 px-2 py-1 rounded hover:bg-white transition-colors text-lg leading-none"
                   title="Stage actions"
                 >☰</button>
                 <div
-                  x-show="open"
+                  x-show="isStageMenuOpen(stage.id)"
                   x-cloak
                   x-transition:enter="transition ease-out duration-100"
                   x-transition:enter-start="opacity-0 scale-95"
@@ -128,23 +128,23 @@
                   class="absolute top-full right-0 mt-1 bg-white text-gray-800 shadow-xl rounded-xl py-1 min-w-[170px] z-20"
                 >
                   <button
-                    @click="openLogConfig(stage); open = false"
+                    @click="openLogConfig(stage); closeStageMenu()"
                     class="block w-full text-left text-xs text-gray-600 hover:text-sky-600 px-3 py-2 hover:bg-gray-100 transition-colors"
                   >Configure log</button>
                   <button
-                    @click="sortStageByDueDate(stage); open = false"
+                    @click="sortStageByDueDate(stage); closeStageMenu()"
                     class="block w-full text-left text-xs text-gray-600 hover:text-blue-600 px-3 py-2 hover:bg-gray-100 transition-colors"
                     title="Sort dated objectives by due date"
                     x-show="!stage.is_log"
                   >Sort by due date</button>
                   <button
-                    @click="clearCompletedStage(stage); open = false"
+                    @click="clearCompletedStage(stage); closeStageMenu()"
                     class="block w-full text-left text-xs text-gray-600 hover:text-amber-600 px-3 py-2 hover:bg-gray-100 transition-colors"
                     title="Clear completed objectives"
                     x-show="!stage.is_log"
                   >Clear completed</button>
                   <button
-                    @click="deleteStage(stage.id); open = false"
+                    @click="deleteStage(stage.id); closeStageMenu()"
                     class="block w-full text-left text-xs text-gray-600 hover:text-red-600 px-3 py-2 hover:bg-gray-100 transition-colors"
                     title="Delete stage"
                   >Delete stage</button>
@@ -373,14 +373,14 @@
                           <div class="log-stage-summary text-[11px] leading-snug" x-text="logStageSummary(slot.stage)"></div>
                         </div>
                       </div>
-                      <div x-show="canEditBoard" x-data="{ open: false }" @click.outside="open = false" class="relative ml-2 flex-shrink-0">
+                      <div x-show="canEditBoard" @click.outside="closeStageMenu()" class="relative ml-2 flex-shrink-0">
                         <button
-                          @click="open = !open"
+                          @click="toggleStageMenu(slot.stage.id)"
                           class="text-gray-400 hover:text-gray-700 px-2 py-1 rounded hover:bg-white transition-colors text-lg leading-none"
                           title="Stage actions"
                         >☰</button>
                         <div
-                          x-show="open"
+                          x-show="isStageMenuOpen(slot.stage.id)"
                           x-cloak
                           x-transition:enter="transition ease-out duration-100"
                           x-transition:enter-start="opacity-0 scale-95"
@@ -391,23 +391,23 @@
                           class="absolute top-full right-0 mt-1 bg-white text-gray-800 shadow-xl rounded-xl py-1 min-w-[170px] z-20"
                         >
                           <button
-                            @click="openLogConfig(slot.stage); open = false"
+                            @click="openLogConfig(slot.stage); closeStageMenu()"
                             class="block w-full text-left text-xs text-gray-600 hover:text-sky-600 px-3 py-2 hover:bg-gray-100 transition-colors"
                           >Configure log</button>
                           <button
-                            @click="sortStageByDueDate(slot.stage); open = false"
+                            @click="sortStageByDueDate(slot.stage); closeStageMenu()"
                             class="block w-full text-left text-xs text-gray-600 hover:text-blue-600 px-3 py-2 hover:bg-gray-100 transition-colors"
                             title="Sort dated objectives by due date"
                             x-show="slot.stage && !slot.stage.is_log"
                           >Sort by due date</button>
                           <button
-                            @click="clearCompletedStage(slot.stage); open = false"
+                            @click="clearCompletedStage(slot.stage); closeStageMenu()"
                             class="block w-full text-left text-xs text-gray-600 hover:text-amber-600 px-3 py-2 hover:bg-gray-100 transition-colors"
                             title="Clear completed objectives"
                             x-show="slot.stage && !slot.stage.is_log"
                           >Clear completed</button>
                           <button
-                            @click="deleteStage(slot.stage.id); open = false"
+                            @click="deleteStage(slot.stage.id); closeStageMenu()"
                             class="block w-full text-left text-xs text-gray-600 hover:text-red-600 px-3 py-2 hover:bg-gray-100 transition-colors"
                             title="Delete stage"
                           >Delete stage</button>
@@ -888,19 +888,17 @@
               x-show="canEditBoard"
               @click="toggleDone()"
               class="flex-shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
-              :class="selectedTask.done
-                ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'"
-              x-text="selectedTask.done ? '✓ Done' : 'Mark Done'"
+              :class="selectedTaskDoneButtonClass"
+              x-text="selectedTaskDoneLabel"
             ></button>
-            <div x-show="canEditBoard" x-data="{ open: false }" @click.outside="open = false" class="relative flex-shrink-0">
+            <div x-show="canEditBoard" @click.outside="closeTaskActionMenu()" class="relative flex-shrink-0">
               <button
-                @click="open = !open"
+                @click="toggleTaskActionMenu()"
                 class="px-3 py-1.5 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 text-sm font-medium transition-colors"
                 title="Objective actions"
               >☰</button>
               <div
-                x-show="open"
+                x-show="taskActionMenuOpen"
                 x-cloak
                 x-transition:enter="transition ease-out duration-100"
                 x-transition:enter-start="opacity-0 scale-95"
@@ -914,7 +912,7 @@
                   <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Objective Type</label>
                   <select
                     x-model="selectedTask.task_type_id"
-                    @change="updateTaskType(); open = false"
+                    @change="updateTaskType(); closeTaskActionMenu()"
                     class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                   >
                     <option value="" :selected="!selectedTask.task_type_id">Objective (default)</option>
@@ -931,7 +929,7 @@
                   <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Stage</label>
                   <select
                     x-model="selectedTask.stage_id"
-                    @change="moveTask(); open = false"
+                    @change="moveTask(); closeTaskActionMenu()"
                     class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                   >
                     <template x-for="stage in realStages" :key="stage.id">
@@ -942,18 +940,18 @@
                 <div class="border-t pt-3">
                   <button
                     x-show="!selectedTask.recurrence"
-                    @click="enableRecurrence(); open = false"
+                    @click="enableRecurrence(); closeTaskActionMenu()"
                     class="w-full text-left text-sm text-blue-600 hover:text-blue-800 transition-colors"
                   >Make this a recurring objective</button>
                   <button
                     x-show="selectedTask.recurrence"
-                    @click="disableRecurrence(); open = false"
+                    @click="disableRecurrence(); closeTaskActionMenu()"
                     class="w-full text-left text-sm text-amber-600 hover:text-amber-800 transition-colors"
                   >Stop this objective from recurring</button>
                 </div>
                 <div class="border-t pt-3">
                   <button
-                    @click="deleteTask(); open = false"
+                    @click="deleteTask(); closeTaskActionMenu()"
                     class="w-full text-left text-sm text-red-500 hover:text-red-700 transition-colors"
                   >Delete objective</button>
                 </div>
@@ -993,28 +991,28 @@
                 class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               >
             </div>
-            <div x-data="{showColorPicker: false}" @click.outside="showColorPicker = false" class="relative pb-0.5">
+            <div @click.outside="closeTaskColorPicker()" class="relative pb-0.5">
               <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Color</label>
               <button
-                @click="showColorPicker = !showColorPicker"
+                @click="toggleTaskColorPicker()"
                 :disabled="!canEditBoard"
                 class="w-8 h-8 rounded-full border-2 border-gray-200 hover:scale-110 transition-transform shadow-sm"
-                :style="selectedTask.color ? 'background:' + selectedTask.color : 'background:#e5e7eb'"
+                :style="selectedTaskColorStyle()"
                 title="Pick color"
               ></button>
-              <div x-show="showColorPicker" x-cloak
+              <div x-show="taskColorPickerOpen" x-cloak
                    class="absolute top-full right-0 mt-1 bg-white shadow-xl rounded-xl p-3 z-30 w-48">
                 <div class="flex flex-wrap gap-2">
                   <template x-for="c in PRESET_COLORS" :key="c">
                     <button
-                      @click="selectedTask.color = c; updateTaskField('color', c); showColorPicker = false"
+                      @click="selectedTask.color = c; updateTaskField('color', c); closeTaskColorPicker()"
                       class="w-6 h-6 rounded-full hover:scale-110 transition-transform border border-black/10"
-                      :style="'background:' + c"
-                      :class="selectedTask.color === c ? 'ring-2 ring-offset-1 ring-gray-500' : ''"
+                      :style="colorSwatchStyle(c)"
+                      :class="selectedColorClass(selectedTask.color, c)"
                     ></button>
                   </template>
                   <button
-                    @click="selectedTask.color = null; updateTaskField('color', null); showColorPicker = false"
+                    @click="selectedTask.color = null; updateTaskField('color', null); closeTaskColorPicker()"
                     class="w-6 h-6 rounded-full bg-gray-100 border border-dashed border-gray-300 flex items-center justify-center text-gray-400 text-xs hover:bg-gray-200"
                     title="No color"
                   >✕</button>

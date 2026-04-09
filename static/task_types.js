@@ -22,8 +22,40 @@ function taskTypesPage() {
       return this.boardRole === 'owner' || this.boardRole === 'editor' || this.boardRole === 'admin';
     },
 
+    get hasTaskTypes() {
+      return this.taskTypes.length > 0;
+    },
+
     asString(value) {
       return value === null || value === undefined ? '' : String(value);
+    },
+
+    typeInputId(tt) {
+      return `type-name-${tt.id}`;
+    },
+
+    fieldNameInputId(tt) {
+      return `field-name-${tt.id}`;
+    },
+
+    taskTypeSwatchStyle(tt) {
+      return tt.color ? `background:${tt.color}` : 'background:#e5e7eb';
+    },
+
+    fieldSwatchStyle(field) {
+      return field.color ? `background:${field.color}` : 'background:#e5e7eb';
+    },
+
+    colorSwatchStyle(color) {
+      return `background:${color}`;
+    },
+
+    selectedColorClass(currentColor, color) {
+      return currentColor === color ? 'ring-2 ring-offset-1 ring-gray-500' : '';
+    },
+
+    hasCustomFields(tt) {
+      return !!(tt.custom_fields && tt.custom_fields.length > 0);
     },
 
     blankNewField() {
@@ -129,7 +161,7 @@ function taskTypesPage() {
       tt.editing = true;
       tt.editName = tt.name;
       this.$nextTick(() => {
-        const el = document.querySelector(`[x-ref="type-name-${tt.id}"]`);
+        const el = document.getElementById(this.typeInputId(tt));
         el?.focus();
       });
     },
@@ -238,7 +270,7 @@ function taskTypesPage() {
       tt.showAddField = !tt.showAddField;
       if (!tt.showAddField) return;
       tt.newField = this.blankNewField();
-      this.$nextTick(() => document.getElementById(`field-name-${tt.id}`)?.focus());
+      this.$nextTick(() => document.getElementById(this.fieldNameInputId(tt))?.focus());
     },
 
     addNewFieldOption(tt) {

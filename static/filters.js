@@ -14,6 +14,10 @@ function filtersPage() {
       return this.boardRole === 'owner' || this.boardRole === 'editor' || this.boardRole === 'admin';
     },
 
+    get hasFilters() {
+      return this.filters.length > 0;
+    },
+
     asString(value) {
       return value === null || value === undefined ? '' : String(value);
     },
@@ -56,6 +60,22 @@ function filtersPage() {
 
     get customFieldTaskTypes() {
       return this.taskTypes.filter(taskType => (taskType.custom_fields || []).length > 0);
+    },
+
+    editorTitle() {
+      return this.editingFilter?.id ? 'Edit Filter' : 'New Filter';
+    },
+
+    boardRoleClasses(board) {
+      if (board.role === 'admin') return 'bg-fuchsia-100 text-fuchsia-700';
+      if (board.role === 'owner') return 'bg-blue-100 text-blue-700';
+      if (board.role === 'editor') return 'bg-amber-100 text-amber-700';
+      return 'bg-emerald-100 text-emerald-700';
+    },
+
+    boardRoleLabel(board) {
+      if (!board?.role) return '';
+      return board.role.charAt(0).toUpperCase() + board.role.slice(1);
     },
 
     customFieldsForRule(rule) {
@@ -185,6 +205,14 @@ function filtersPage() {
       return option?.label || option?.value || '';
     },
 
+    customRuleTypeDisabled(rule) {
+      return rule.field === '__custom__' && !this.selectedCustomField(rule);
+    },
+
+    ruleValueDisabled(rule) {
+      return this.operatorWithoutValue(rule.operator) || this.customRuleTypeDisabled(rule);
+    },
+
     inputTypeForRule(rule) {
       const field = this.fieldConfigForRule(rule);
       return field?.type === 'date' ? 'date' : (field?.type === 'number' ? 'number' : 'text');
@@ -196,6 +224,34 @@ function filtersPage() {
 
     dateValueMode(rule) {
       return rule.value === 'today' ? 'today' : 'date';
+    },
+
+    showSpecificDateInput(rule) {
+      return this.dateValueMode(rule) === 'date' && !this.operatorWithoutValue(rule.operator);
+    },
+
+    colorSwatchStyle(color) {
+      return `background:${color}`;
+    },
+
+    colorButtonClasses(rule, color) {
+      return this.sameString(rule.value || '', color) ? 'ring-2 ring-offset-2 ring-gray-500' : '';
+    },
+
+    clearColorButtonClasses(rule) {
+      return !rule.value ? 'ring-2 ring-offset-2 ring-gray-400' : '';
+    },
+
+    showColorHelp(rule) {
+      return !this.operatorWithoutValue(rule.operator);
+    },
+
+    showColorSelection(rule) {
+      return !!rule.value;
+    },
+
+    colorSelectionLabel(rule) {
+      return `Selected: ${rule.value}`;
     },
 
     setDateValueMode(rule, mode) {

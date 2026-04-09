@@ -29,7 +29,7 @@
   <template x-if="editingFilter && canEdit">
     <div class="bg-white rounded-xl shadow p-5 mb-6">
     <div class="flex items-center justify-between mb-4">
-      <h2 class="font-semibold text-gray-700" x-text="editingFilter.id ? 'Edit Filter' : 'New Filter'"></h2>
+      <h2 class="font-semibold text-gray-700" x-text="editorTitle()"></h2>
       <button @click="cancelEdit()" class="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
     </div>
 
@@ -70,14 +70,8 @@
             <span
               x-show="board.role"
               class="text-[11px] px-1.5 py-0.5 rounded-full"
-              :class="board.role === 'admin'
-                ? 'bg-fuchsia-100 text-fuchsia-700'
-                : (board.role === 'owner'
-                  ? 'bg-blue-100 text-blue-700'
-                : (board.role === 'editor'
-                  ? 'bg-amber-100 text-amber-700'
-                  : 'bg-emerald-100 text-emerald-700'))"
-              x-text="board.role.charAt(0).toUpperCase() + board.role.slice(1)"
+              :class="boardRoleClasses(board)"
+              x-text="boardRoleLabel(board)"
             ></span>
           </label>
         </template>
@@ -144,7 +138,7 @@
               <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Operator</label>
               <select
                 x-model="rule.operator"
-                :disabled="rule.field === '__custom__' && !selectedCustomField(rule)"
+                :disabled="customRuleTypeDisabled(rule)"
                 class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               >
                 <template x-for="operator in operatorsForRule(rule)" :key="operator.value">
@@ -155,7 +149,7 @@
             <div>
               <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Value</label>
               <template x-if="usesDropdownValue(rule)">
-                <select x-model="rule.value" :disabled="rule.field === '__custom__' && !selectedCustomField(rule)" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+                <select x-model="rule.value" :disabled="customRuleTypeDisabled(rule)" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
                   <option value="">Select value</option>
                   <template x-for="option in valueOptionsForRule(rule)" :key="option.value">
                     <option :value="option.value" :selected="sameString(rule.value ?? '', option.value)" x-text="option.label"></option>
@@ -174,7 +168,7 @@
                     <option value="today" :selected="dateValueMode(rule) === 'today'">Today</option>
                   </select>
                   <input
-                    x-show="dateValueMode(rule) === 'date' && !operatorWithoutValue(rule.operator)"
+                    x-show="showSpecificDateInput(rule)"
                     type="date"
                     x-model="rule.value"
                     class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
@@ -186,7 +180,7 @@
                   <input
                     :type="inputTypeForRule(rule)"
                     x-model="rule.value"
-                    :disabled="operatorWithoutValue(rule.operator) || (rule.field === '__custom__' && !selectedCustomField(rule))"
+                    :disabled="ruleValueDisabled(rule)"
                     class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                     placeholder="Value"
                   >
@@ -199,24 +193,24 @@
                       <button
                         type="button"
                         @click="rule.value = color"
-                        :disabled="operatorWithoutValue(rule.operator) || (rule.field === '__custom__' && !selectedCustomField(rule))"
+                        :disabled="ruleValueDisabled(rule)"
                         class="h-7 w-7 rounded-full border border-black/10 transition-transform hover:scale-110 disabled:opacity-50 disabled:hover:scale-100"
-                        :style="'background:' + color"
-                        :class="sameString(rule.value || '', color) ? 'ring-2 ring-offset-2 ring-gray-500' : ''"
+                        :style="colorSwatchStyle(color)"
+                        :class="colorButtonClasses(rule, color)"
                         :title="color"
                       ></button>
                     </template>
                     <button
                       type="button"
                       @click="rule.value = ''"
-                      :disabled="operatorWithoutValue(rule.operator) || (rule.field === '__custom__' && !selectedCustomField(rule))"
+                      :disabled="ruleValueDisabled(rule)"
                       class="h-7 w-7 rounded-full border border-dashed border-gray-300 bg-gray-100 text-xs text-gray-400 transition-colors hover:bg-gray-200 disabled:opacity-50"
-                      :class="!rule.value ? 'ring-2 ring-offset-2 ring-gray-400' : ''"
+                      :class="clearColorButtonClasses(rule)"
                       title="No color"
                     >✕</button>
                   </div>
-                  <div class="text-xs text-gray-500" x-show="!operatorWithoutValue(rule.operator)">
-                    <span x-show="rule.value" x-text="'Selected: ' + rule.value"></span>
+                  <div class="text-xs text-gray-500" x-show="showColorHelp(rule)">
+                    <span x-show="showColorSelection(rule)" x-text="colorSelectionLabel(rule)"></span>
                     <span x-show="!rule.value">Choose a color</span>
                   </div>
                 </div>
@@ -255,7 +249,7 @@
       </div>
     </template>
 
-    <p x-show="filters.length === 0" class="text-white text-center opacity-70 py-8">
+    <p x-show="!hasFilters" class="text-white text-center opacity-70 py-8">
       No filters yet. Create one to drive log stages.
     </p>
   </div>
