@@ -31,6 +31,8 @@ The first registered account is automatically promoted to admin.
 | `QUESTLINE_SESSION_COOKIE_SAMESITE` | `lax` | Cookie SameSite policy (`lax`, `strict`, or `none`) |
 | `QUESTLINE_SESSION_MAX_AGE_DAYS` | `30` | Absolute server-side session lifetime in days; also applied as cookie `Max-Age` |
 | `QUESTLINE_TRUSTED_PROXIES` | unset | Comma-separated proxy IPs/CIDRs allowed to supply `X-Forwarded-For`; unset means forwarded headers are ignored |
+| `QUESTLINE_AUDIT_LOG_LEVEL` | `INFO` | Log level for the `questline.audit` logger |
+| `QUESTLINE_AUDIT_LOG_PATH` | unset | Optional file path for JSON-line audit logs; if unset, audit events flow through normal stdout/stderr logging |
 
 ## Built-in URLs
 

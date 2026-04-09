@@ -54,6 +54,8 @@ Additional guidance:
 - Leave `QUESTLINE_ALLOW_INSECURE_COOKIES` unset in deployed environments.
 - Leave `QUESTLINE_SESSION_COOKIE_SECURE` unset unless you need an explicit override.
 - Consider `QUESTLINE_SESSION_MAX_AGE_DAYS=7` or `14` if you want shorter-lived sessions.
+- Leave `QUESTLINE_AUDIT_LOG_PATH` unset if you want audit events captured by `systemd`/journald or container stdout logging.
+- Set `QUESTLINE_AUDIT_LOG_PATH` only if you explicitly want a dedicated audit log file.
 
 ## nginx Notes
 
@@ -64,6 +66,22 @@ Suggested baseline responsibilities for nginx:
 - HSTS header
 - forwarding `Host`, `X-Forwarded-Proto`, and `X-Forwarded-For`
 - request size and timeout limits appropriate for your environment
+
+## Audit Logs
+
+Questline emits security-sensitive audit events on the `questline.audit` logger as JSON lines.
+
+Recommended defaults:
+
+- use stdout/stderr logging and let `systemd` capture events in journald
+- inspect with `journalctl -u <service-name>`
+
+Optional file logging:
+
+```bash
+QUESTLINE_AUDIT_LOG_PATH=/var/log/questline/audit.log
+QUESTLINE_AUDIT_LOG_LEVEL=INFO
+```
 
 ## Verification
 

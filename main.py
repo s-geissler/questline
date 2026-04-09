@@ -3,6 +3,7 @@ import ipaddress
 import logging
 import os
 import re
+import sys
 import time
 import threading
 from datetime import UTC, date, datetime, timedelta
@@ -71,6 +72,10 @@ from filters_logic import (
 # Schema migrations (add board_id columns to existing tables if missing)
 # ---------------------------------------------------------------------------
 logger = logging.getLogger("questline.app")
+AUDIT_LOGGER = logging.getLogger("questline.audit")
+AUDIT_LOG_PATH = os.getenv("QUESTLINE_AUDIT_LOG_PATH")
+AUDIT_LOG_LEVEL_NAME = os.getenv("QUESTLINE_AUDIT_LOG_LEVEL", "INFO").upper()
+AUDIT_LOG_LEVEL = getattr(logging, AUDIT_LOG_LEVEL_NAME, logging.INFO)
 LOGIN_WINDOW_SECONDS = 60
 LOGIN_MAX_ATTEMPTS = 5
 REGISTRATION_WINDOW_SECONDS = 600
@@ -125,6 +130,55 @@ TRUSTED_PROXY_NETWORKS = _parse_trusted_proxy_networks()
 
 def _utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
+
+
+def _configure_audit_logger():
+    AUDIT_LOGGER.setLevel(AUDIT_LOG_LEVEL)
+    AUDIT_LOGGER.propagate = True
+    if not any(
+        isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler)
+        for handler in AUDIT_LOGGER.handlers
+    ):
+        stream_handler = logging.StreamHandler(sys.stderr)
+        stream_handler.setLevel(AUDIT_LOG_LEVEL)
+        stream_handler.setFormatter(logging.Formatter("%(message)s"))
+        AUDIT_LOGGER.addHandler(stream_handler)
+    if AUDIT_LOG_PATH and not any(
+        isinstance(handler, logging.FileHandler) and getattr(handler, "baseFilename", None) == os.path.abspath(AUDIT_LOG_PATH)
+        for handler in AUDIT_LOGGER.handlers
+    ):
+        file_handler = logging.FileHandler(AUDIT_LOG_PATH)
+        file_handler.setLevel(AUDIT_LOG_LEVEL)
+        file_handler.setFormatter(logging.Formatter("%(message)s"))
+        AUDIT_LOGGER.addHandler(file_handler)
+
+
+def _audit_log(
+    event: str,
+    request: Optional[Request] = None,
+    actor_user_id: Optional[int] = None,
+    target_user_id: Optional[int] = None,
+    board_id: Optional[int] = None,
+    outcome: str = "success",
+    reason: Optional[str] = None,
+    email: Optional[str] = None,
+    details: Optional[dict] = None,
+):
+    payload = {
+        "event": event,
+        "actor_user_id": actor_user_id,
+        "target_user_id": target_user_id,
+        "board_id": board_id,
+        "remote_ip": _request_client_ip(request),
+        "outcome": outcome,
+    }
+    if reason is not None:
+        payload["reason"] = reason
+    if email is not None:
+        payload["email"] = email
+    if details:
+        payload.update(details)
+    AUDIT_LOGGER.info(json.dumps(payload, sort_keys=True, separators=(",", ":")))
 
 
 def _run_column_migrations():
@@ -338,6 +392,7 @@ _migrate_admin_role()
 _dedupe_board_memberships()
 _run_index_migrations()
 _backfill_session_expirations()
+_configure_audit_logger()
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -1465,15 +1520,19 @@ def auth_register(
     password = data.password or ""
     display_name = (data.display_name or "").strip() or email.split("@", 1)[0]
     if not email or "@" not in email:
+        _audit_log("registration_failed", request=request, outcome="failure", reason="invalid_email", email=email or None)
         raise HTTPException(status_code=400, detail="Registration failed")
     if len(password) < 8:
+        _audit_log("registration_failed", request=request, outcome="failure", reason="password_too_short", email=email)
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
     existing = db.query(models.User).filter(models.User.email == email).first()
     if existing:
         _record_registration_attempt(request)
+        _audit_log("registration_failed", request=request, outcome="failure", reason="duplicate_email", email=email)
         raise HTTPException(status_code=400, detail="Registration failed")
     existing_user_count = db.query(models.User).count()
     if existing_user_count > 0 and not get_instance_settings(db)["registration_enabled"]:
+        _audit_log("registration_failed", request=request, outcome="failure", reason="registration_disabled", email=email)
         raise HTTPException(status_code=403, detail="Registration is currently disabled")
     user_role = "admin" if existing_user_count == 0 else "user"
     is_active = True if existing_user_count == 0 else get_instance_settings(db)["new_accounts_active_by_default"]
@@ -1492,6 +1551,14 @@ def auth_register(
     if user.is_active:
         token, csrf_token = create_user_session(user, db)
         _set_session_cookie(response, token, csrf_token)
+    _audit_log(
+        "registration_succeeded",
+        request=request,
+        actor_user_id=user.id,
+        target_user_id=user.id,
+        email=user.email,
+        details={"role": user.role, "is_active": user.is_active},
+    )
     return user_to_dict(user)
 
 
@@ -1507,25 +1574,35 @@ def auth_login(
     user = db.query(models.User).filter(models.User.email == email).first()
     if not user or not verify_password(data.password or "", user.password_hash):
         _record_login_failure(email, request)
+        _audit_log("login_failed", request=request, outcome="failure", reason="invalid_credentials", email=email)
         raise HTTPException(status_code=401, detail="Invalid email or password")
     if not user.is_active:
         _record_login_failure(email, request)
+        _audit_log("login_failed", request=request, target_user_id=user.id, outcome="failure", reason="inactive_account", email=email)
         raise HTTPException(status_code=403, detail="Account is awaiting activation")
     _clear_login_failures(email, request)
     token, csrf_token = create_user_session(user, db)
     _set_session_cookie(response, token, csrf_token)
+    _audit_log("login_succeeded", request=request, actor_user_id=user.id, target_user_id=user.id, email=user.email)
     return user_to_dict(user)
 
 
 @app.post("/api/auth/logout")
 def auth_logout(request: Request, response: Response, db: Session = Depends(get_db)):
     token = request.cookies.get(SESSION_COOKIE)
+    current_user = get_optional_current_user(request, db) if token else None
     if token:
         db.query(models.UserSession).filter(
             models.UserSession.token_hash == _hash_session_token(token)
         ).delete()
         db.commit()
     _clear_session_cookie(response)
+    _audit_log(
+        "logout_succeeded",
+        request=request,
+        actor_user_id=current_user.id if current_user else None,
+        target_user_id=current_user.id if current_user else None,
+    )
     return {"ok": True}
 
 
@@ -1545,6 +1622,7 @@ def auth_update_profile(data: ProfileUpdate, request: Request, response: Respons
     if data.password is not None and data.password != "":
         token, csrf_token = create_user_session(user, db)
         _set_session_cookie(response, token, csrf_token)
+        _audit_log("password_changed", request=request, actor_user_id=user.id, target_user_id=user.id)
     db.refresh(user)
     return user_to_dict(user)
 
@@ -1708,7 +1786,7 @@ def get_admin_settings(request: Request, db: Session = Depends(get_db)):
 
 @app.put("/api/admin/settings")
 def update_admin_settings(data: AdminSettingsUpdate, request: Request, db: Session = Depends(get_db)):
-    require_admin(request, db)
+    current_user = require_admin(request, db)
     default_board_color = _validated_hex_color(
         data.default_board_color,
         INSTANCE_SETTINGS_DEFAULTS["default_board_color"],
@@ -1724,7 +1802,7 @@ def update_admin_settings(data: AdminSettingsUpdate, request: Request, db: Sessi
             status_code=400,
             detail=f"Recurrence worker interval must be at least {RECURRENCE_MIN_INTERVAL_SECONDS} seconds",
         )
-    return set_instance_settings(
+    updated = set_instance_settings(
         db,
         {
             "registration_enabled": "true" if data.registration_enabled else "false",
@@ -1734,6 +1812,17 @@ def update_admin_settings(data: AdminSettingsUpdate, request: Request, db: Sessi
             "recurrence_worker_interval_seconds": str(data.recurrence_worker_interval_seconds),
         },
     )
+    _audit_log(
+        "admin_settings_updated",
+        request=request,
+        actor_user_id=current_user.id,
+        details={
+            "registration_enabled": updated["registration_enabled"],
+            "new_accounts_active_by_default": updated["new_accounts_active_by_default"],
+            "recurrence_worker_interval_seconds": updated["recurrence_worker_interval_seconds"],
+        },
+    )
+    return updated
 
 
 @app.put("/api/admin/users/{user_id}")
@@ -1749,6 +1838,8 @@ def update_admin_user(user_id: int, data: AdminUserUpdate, request: Request, db:
         admin_count = db.query(models.User).filter(models.User.role == "admin").count()
         if admin_count <= 1:
             raise HTTPException(status_code=400, detail="Questline must have at least one admin")
+    previous_role = user.role
+    previous_is_active = user.is_active
     user.role = target_role
     if data.is_active is not None:
         if user.id == current_user.id and data.is_active is False:
@@ -1757,6 +1848,19 @@ def update_admin_user(user_id: int, data: AdminUserUpdate, request: Request, db:
         if data.is_active is False:
             db.query(models.UserSession).filter(models.UserSession.user_id == user.id).delete()
     db.commit()
+    if previous_role != user.role or previous_is_active != user.is_active:
+        _audit_log(
+            "admin_user_updated",
+            request=request,
+            actor_user_id=current_user.id,
+            target_user_id=user.id,
+            details={
+                "previous_role": previous_role,
+                "new_role": user.role,
+                "previous_is_active": previous_is_active,
+                "new_is_active": user.is_active,
+            },
+        )
     return user_to_dict(user)
 
 @app.put("/api/boards/{board_id}")

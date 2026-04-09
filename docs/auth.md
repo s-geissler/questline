@@ -28,6 +28,17 @@ Passwords are stored as `pbkdf2_sha256$<iterations>$<salt>$<digest>` using 120,0
 
 If `QUESTLINE_TRUSTED_PROXIES` is unset, Questline ignores `X-Forwarded-For` and uses the direct peer IP for login and registration rate limiting. Set this when running behind nginx or another reverse proxy and include only the proxy addresses that connect directly to the app.
 
+### Audit Logging
+
+Questline emits JSON-line audit events on the `questline.audit` logger for security-sensitive authentication and admin-account actions.
+
+| Env var | Default | Effect |
+|---|---|---|
+| `QUESTLINE_AUDIT_LOG_LEVEL` | `INFO` | Log level for audit events |
+| `QUESTLINE_AUDIT_LOG_PATH` | unset | Optional file path for audit logs; when unset, events are emitted through the normal process logger output |
+
+The default behavior is suitable for `systemd` or container deployments where stdout/stderr is collected by journald or the platform logging stack.
+
 ### Registration
 
 - Open registration can be toggled by an admin via instance settings.

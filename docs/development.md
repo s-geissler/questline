@@ -73,6 +73,7 @@ Questline uses Python's standard `logging` module. Loggers:
 | Logger | What it covers |
 |---|---|
 | `questline.app` | Application-level events |
+| `questline.audit` | Security-sensitive auth and admin events |
 | `questline.db` | Slow SQL queries (threshold: `QUESTLINE_SLOW_QUERY_MS`) |
 | `questline.logs` | Slow Log Stage filter evaluations (threshold: 150 ms) |
 
