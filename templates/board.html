@@ -30,32 +30,32 @@
   <div class="fixed top-16 right-4 z-30 flex flex-col items-end gap-2">
     <button
       type="button"
-      @click="setBoardView(boardView === 'stages' ? 'calendar' : 'stages')"
+      @click="setBoardView(nextBoardView)"
       class="view-toggle-shell flex items-center gap-3 rounded-2xl border px-3 py-2 shadow-lg backdrop-blur-sm transition-colors"
       :aria-pressed="boardView === 'calendar'"
-      :title="boardView === 'stages' ? 'Switch to calendar view' : 'Switch to stage view'"
+      :title="boardViewToggleTitle"
     >
       <span
         class="text-xs font-semibold uppercase tracking-[0.18em] transition-colors"
-        :class="boardView === 'stages' ? 'view-toggle-label-active' : 'view-toggle-label-inactive'"
+        :class="stagesLabelClass"
       >Stages</span>
       <span
         class="relative inline-flex h-7 w-14 items-center rounded-full transition-colors"
-        :class="boardView === 'calendar' ? 'view-toggle-track-on' : 'view-toggle-track-off'"
+        :class="boardViewTrackClass"
       >
         <span
           class="view-toggle-knob inline-block h-5 w-5 transform rounded-full shadow-sm transition-transform duration-200"
-          :class="boardView === 'calendar' ? 'translate-x-8' : 'translate-x-1'"
+          :class="boardViewKnobClass"
         ></span>
       </span>
       <span
         class="text-xs font-semibold uppercase tracking-[0.18em] transition-colors"
-        :class="boardView === 'calendar' ? 'view-toggle-label-active' : 'view-toggle-label-inactive'"
+        :class="calendarLabelClass"
       >Calendar</span>
     </button>
   </div>
 
-  <div x-show="boardView === 'calendar'" class="fixed top-16 left-1/2 -translate-x-1/2 z-20">
+  <div x-show="isCalendarView" class="fixed top-16 left-1/2 -translate-x-1/2 z-20">
     <div class="flex items-center gap-2 rounded-2xl bg-white/80 px-2 py-2 shadow-lg backdrop-blur-sm">
       <button
         type="button"
@@ -79,19 +79,19 @@
   </div>
 
   <!-- Board -->
-  <div x-show="boardView === 'stages'" class="p-4 overflow-auto h-[calc(100vh-4rem)]">
+  <div x-show="isStagesView" class="p-4 overflow-auto h-[calc(100vh-4rem)]">
     <div id="stages-container" class="min-w-max space-y-4">
       <div class="flex items-start gap-3" data-stage-top-row>
         <template x-for="stage in topRowStages" :key="`${stage.id}-${stage.row}-${stage.position}`">
           <div
             class="board-stage rounded-xl shadow w-72 flex-shrink-0 flex flex-col overflow-visible"
-            :class="stage.is_log ? 'log-stage' : 'bg-gray-100'"
-            :data-stage-column-id="stage.id"
+            :class="stageContainerClass(stage)"
+            :data-stage-column-id="stageColumnId(stage)"
           >
             <div
               class="flex items-center justify-between px-3 pt-3 pb-2 border-b"
               data-stage-drag-handle
-              :class="stage.is_log ? 'log-stage-header' : 'border-transparent'"
+              :class="stageHeaderClass(stage)"
             >
               <div class="min-w-0 flex-1">
                 <input
@@ -100,7 +100,7 @@
                   @keydown.enter="$el.blur()"
                   :disabled="!canEditBoard"
                   class="stage-title-input font-medium bg-transparent w-full rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400 text-sm"
-                  :class="stage.is_log ? 'log-stage-title' : 'text-gray-700 hover:bg-black/5 focus:bg-black/5'"
+                  :class="stageTitleInputClass(stage)"
                 >
                 <div x-show="stage.is_log" class="mt-1 px-1 space-y-1">
                   <div class="flex items-center gap-1.5 flex-wrap">
@@ -135,13 +135,13 @@
                     @click="sortStageByDueDate(stage); closeStageMenu()"
                     class="block w-full text-left text-xs text-gray-600 hover:text-blue-600 px-3 py-2 hover:bg-gray-100 transition-colors"
                     title="Sort dated objectives by due date"
-                    x-show="!stage.is_log"
+                    x-show="canSortStage(stage)"
                   >Sort by due date</button>
                   <button
                     @click="clearCompletedStage(stage); closeStageMenu()"
                     class="block w-full text-left text-xs text-gray-600 hover:text-amber-600 px-3 py-2 hover:bg-gray-100 transition-colors"
                     title="Clear completed objectives"
-                    x-show="!stage.is_log"
+                    x-show="canClearCompletedStage(stage)"
                   >Clear completed</button>
                   <button
                     @click="deleteStage(stage.id); closeStageMenu()"
@@ -154,15 +154,15 @@
 
             <div
               class="board-stage-body px-2 pb-1 space-y-2 min-h-[8px]"
-              :class="stage.is_log ? 'log-stage-body' : ''"
-              :id="'stage-' + stage.id"
+              :class="stageBodyClass(stage)"
+              :id="stageDomId(stage)"
               :data-stage-id="stage.id"
             >
-              <template x-for="task in stage.tasks" :key="`${task.id}-${task.position}`">
+              <template x-for="task in stageTasks(stage)" :key="`${task.id}-${task.position}`">
                 <div
                   class="board-task-card bg-white rounded-lg p-2.5 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
-                  :class="task.done ? 'opacity-60' : ''"
-                  :style="'border-left: 4px solid ' + (task.color || '#e2e8f0')"
+                  :class="taskCardOpacityClass(task)"
+                  :style="taskCardStyle(task)"
                   @click="openTask(task)"
                   :data-task-id="task.id"
                 >
@@ -171,10 +171,8 @@
                       x-show="canEditBoard"
                       @click.stop="toggleTaskDoneFromCard(task)"
                       class="mt-0.5 h-4 overflow-hidden rounded border flex items-center justify-center flex-shrink-0 transition-all duration-150 group-hover/title:w-4 group-hover/title:mr-2 group-hover/title:opacity-100 group-focus-within/title:w-4 group-focus-within/title:mr-2 group-focus-within/title:opacity-100"
-                      :class="task.done
-                        ? 'w-4 mr-2 bg-green-500 border-green-500 text-white opacity-100'
-                        : 'w-0 mr-0 border-gray-300 text-transparent hover:border-green-500 hover:text-green-500 bg-white opacity-0'"
-                      :title="task.done ? 'Mark objective not done' : 'Mark objective done'"
+                      :class="taskDoneToggleClass(task)"
+                      :title="taskDoneToggleTitle(task)"
                     >
                       <span class="text-[11px] leading-none">✓</span>
                     </button>
@@ -182,7 +180,7 @@
                       <div class="flex items-start gap-1.5">
                         <span
                           class="text-sm text-gray-800 leading-snug block min-w-0 flex-1"
-                          :class="task.done ? 'line-through text-gray-400' : ''"
+                          :class="taskTitleClass(task)"
                           x-text="task.title"
                         ></span>
                         <span
@@ -211,7 +209,7 @@
                     <template x-if="task.assignee">
                       <span
                         class="text-xs px-2 py-0.5 rounded font-medium bg-slate-100 text-slate-700"
-                        x-text="'@ ' + task.assignee.display_name"
+                        x-text="assigneeChipLabel(task)"
                       ></span>
                     </template>
                     <template x-if="task.recurrence">
@@ -233,25 +231,25 @@
                       <span>☑</span>
                       <span x-text="checklistProgress(task)"></span>
                     </span>
-                    <template x-if="stage.is_log">
+                    <template x-if="showLogSourceBadge(stage)">
                       <span
                         class="text-xs px-2 py-0.5 rounded font-medium bg-slate-100 text-slate-600"
-                        x-text="'In ' + sourceStageName(task)"
+                        x-text="logSourceLabel(task)"
                       ></span>
                     </template>
                   </div>
                   <template x-if="shouldShowDescriptionOnCard(task)">
                     <div
                       class="mt-1.5 text-xs text-gray-500 leading-snug prose prose-sm max-w-none"
-                      x-html="renderMarkdown(task.description)"
+                      x-html="taskDescriptionHtml(task)"
                     ></div>
                   </template>
                   <template x-if="shouldShowChecklistOnCard(task)">
                     <div class="mt-2 space-y-1">
                       <template x-for="item in task.checklist" :key="item.id">
                         <div class="flex items-start gap-1.5 text-xs text-gray-500">
-                          <span class="mt-0.5 flex-shrink-0" :class="item.done ? 'text-green-500' : 'text-gray-300'" x-text="item.done ? '☑' : '☐'"></span>
-                          <span class="leading-snug" :class="item.done ? 'line-through text-gray-400' : ''" x-text="item.title"></span>
+                          <span class="mt-0.5 flex-shrink-0" :class="checklistItemIconClass(item)" x-text="checklistItemIcon(item)"></span>
+                          <span class="leading-snug" :class="checklistItemTitleClass(item)" x-text="item.title"></span>
                         </div>
                       </template>
                     </div>
@@ -262,7 +260,7 @@
                         <span
                           class="text-xs px-2 py-0.5 rounded font-medium"
                           :style="chipStyle(field, taskCardCustomFieldValue(task, field))"
-                          x-text="field.name + ': ' + taskCardCustomFieldValue(task, field)"
+                          x-text="taskCardCustomFieldLabel(task, field)"
                         ></span>
                       </template>
                     </div>
@@ -272,8 +270,8 @@
               <div class="hidden" aria-hidden="true" data-stage-sortable-sentinel><span></span></div>
             </div>
 
-            <div class="px-2 pb-2 pt-1" x-show="!stage.is_log && canEditBoard">
-              <div x-show="!isNewTaskFormOpen(stage.id)">
+            <div class="px-2 pb-2 pt-1" x-show="canShowNewTaskButton(stage)">
+              <div x-show="!isNewTaskFormVisible(stage)">
                 <button
                   @click="openNewTaskForm(stage.id)"
                   class="text-gray-500 hover:text-gray-800 text-sm w-full text-left px-1 py-1 rounded hover:bg-gray-200 transition-colors"
@@ -281,7 +279,7 @@
               </div>
               <div x-show="isNewTaskFormOpen(stage.id)">
                 <input
-                  :id="'new-task-input-' + stage.id"
+                  :id="newTaskInputId(stage)"
                   :value="newTaskTitles[stage.id] || ''"
                   @input="updateNewTaskTitle(stage.id, $event.target.value)"
                   @keydown.enter="createTask(stage.id)"
@@ -310,7 +308,7 @@
               <button
                 @click="openNewStageForm(0)"
                 class="w-full rounded-xl border border-dashed border-white/30 bg-white/10 px-3 py-3 text-left text-sm font-medium text-white/80 opacity-0 transition-all duration-150 hover:bg-white/15 group-hover/add-top:opacity-100 group-focus-within/add-top:opacity-100"
-                :class="showStageDropTargets ? 'opacity-100' : ''"
+                :class="showStageDropTargetsClass"
             >+ Add stage here</button>
           </div>
           <div x-show="showNewStage && newStageRow === 0" class="bg-gray-100 rounded-xl p-3 shadow">
@@ -348,13 +346,13 @@
               <template x-if="slot.stage">
                 <div
                   class="board-stage rounded-xl shadow w-72 flex-shrink-0 flex flex-col overflow-visible"
-                  :class="slot.stage && slot.stage.is_log ? 'log-stage' : 'bg-gray-100'"
-                  :data-stage-column-id="slot.stage ? slot.stage.id : ''"
+                  :class="stageContainerClass(slot.stage)"
+                  :data-stage-column-id="stageColumnId(slot.stage)"
                 >
                     <div
                       class="flex items-center justify-between px-3 pt-3 pb-2 border-b"
                       data-stage-drag-handle
-                      :class="slot.stage && slot.stage.is_log ? 'log-stage-header' : 'border-transparent'"
+                      :class="stageHeaderClass(slot.stage)"
                     >
                       <div class="min-w-0 flex-1">
                         <input
@@ -363,7 +361,7 @@
                           @keydown.enter="$el.blur()"
                           :disabled="!canEditBoard"
                           class="stage-title-input font-medium bg-transparent w-full rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400 text-sm"
-                          :class="slot.stage && slot.stage.is_log ? 'log-stage-title' : 'text-gray-700 hover:bg-black/5 focus:bg-black/5'"
+                          :class="stageTitleInputClass(slot.stage)"
                         >
                         <div x-show="slot.stage && slot.stage.is_log" class="mt-1 px-1 space-y-1">
                           <div class="flex items-center gap-1.5 flex-wrap">
@@ -398,13 +396,13 @@
                             @click="sortStageByDueDate(slot.stage); closeStageMenu()"
                             class="block w-full text-left text-xs text-gray-600 hover:text-blue-600 px-3 py-2 hover:bg-gray-100 transition-colors"
                             title="Sort dated objectives by due date"
-                            x-show="slot.stage && !slot.stage.is_log"
+                            x-show="canSortStage(slot.stage)"
                           >Sort by due date</button>
                           <button
                             @click="clearCompletedStage(slot.stage); closeStageMenu()"
                             class="block w-full text-left text-xs text-gray-600 hover:text-amber-600 px-3 py-2 hover:bg-gray-100 transition-colors"
                             title="Clear completed objectives"
-                            x-show="slot.stage && !slot.stage.is_log"
+                            x-show="canClearCompletedStage(slot.stage)"
                           >Clear completed</button>
                           <button
                             @click="deleteStage(slot.stage.id); closeStageMenu()"
@@ -417,15 +415,15 @@
 
                     <div
                       class="board-stage-body px-2 pb-1 space-y-2 min-h-[8px]"
-                      :class="slot.stage && slot.stage.is_log ? 'log-stage-body' : ''"
-                      :id="'stage-' + (slot.stage ? slot.stage.id : '')"
-                      :data-stage-id="slot.stage ? slot.stage.id : ''"
+                      :class="stageBodyClass(slot.stage)"
+                      :id="stageDomId(slot.stage)"
+                      :data-stage-id="stageColumnId(slot.stage)"
                     >
-                      <template x-for="task in (slot.stage ? slot.stage.tasks : [])" :key="`${task.id}-${task.position}`">
+                      <template x-for="task in stageTasks(slot.stage)" :key="`${task.id}-${task.position}`">
                         <div
                           class="board-task-card bg-white rounded-lg p-2.5 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
-                          :class="task.done ? 'opacity-60' : ''"
-                          :style="'border-left: 4px solid ' + (task.color || '#e2e8f0')"
+                          :class="taskCardOpacityClass(task)"
+                          :style="taskCardStyle(task)"
                           @click="openTask(task)"
                           :data-task-id="task.id"
                         >
@@ -434,10 +432,8 @@
                               x-show="canEditBoard"
                               @click.stop="toggleTaskDoneFromCard(task)"
                               class="mt-0.5 h-4 overflow-hidden rounded border flex items-center justify-center flex-shrink-0 transition-all duration-150 group-hover/title:w-4 group-hover/title:mr-2 group-hover/title:opacity-100 group-focus-within/title:w-4 group-focus-within/title:mr-2 group-focus-within/title:opacity-100"
-                              :class="task.done
-                                ? 'w-4 mr-2 bg-green-500 border-green-500 text-white opacity-100'
-                                : 'w-0 mr-0 border-gray-300 text-transparent hover:border-green-500 hover:text-green-500 bg-white opacity-0'"
-                              :title="task.done ? 'Mark objective not done' : 'Mark objective done'"
+                              :class="taskDoneToggleClass(task)"
+                              :title="taskDoneToggleTitle(task)"
                             >
                               <span class="text-[11px] leading-none">✓</span>
                             </button>
@@ -445,7 +441,7 @@
                               <div class="flex items-start gap-1.5">
                                 <span
                                   class="text-sm text-gray-800 leading-snug block min-w-0 flex-1"
-                                  :class="task.done ? 'line-through text-gray-400' : ''"
+                                  :class="taskTitleClass(task)"
                                   x-text="task.title"
                                 ></span>
                                 <span
@@ -474,7 +470,7 @@
                             <template x-if="task.assignee">
                               <span
                                 class="text-xs px-2 py-0.5 rounded font-medium bg-slate-100 text-slate-700"
-                                x-text="'@ ' + task.assignee.display_name"
+                                x-text="assigneeChipLabel(task)"
                               ></span>
                             </template>
                             <template x-if="task.recurrence">
@@ -496,25 +492,25 @@
                               <span>☑</span>
                               <span x-text="checklistProgress(task)"></span>
                             </span>
-                            <template x-if="slot.stage && slot.stage.is_log">
+                            <template x-if="showLogSourceBadge(slot.stage)">
                               <span
                                 class="text-xs px-2 py-0.5 rounded font-medium bg-slate-100 text-slate-600"
-                                x-text="'In ' + sourceStageName(task)"
+                                x-text="logSourceLabel(task)"
                               ></span>
                             </template>
                           </div>
                           <template x-if="shouldShowDescriptionOnCard(task)">
                             <div
                               class="mt-1.5 text-xs text-gray-500 leading-snug prose prose-sm max-w-none"
-                              x-html="renderMarkdown(task.description)"
+                              x-html="taskDescriptionHtml(task)"
                             ></div>
                           </template>
                           <template x-if="shouldShowChecklistOnCard(task)">
                             <div class="mt-2 space-y-1">
                               <template x-for="item in task.checklist" :key="item.id">
                                 <div class="flex items-start gap-1.5 text-xs text-gray-500">
-                                  <span class="mt-0.5 flex-shrink-0" :class="item.done ? 'text-green-500' : 'text-gray-300'" x-text="item.done ? '☑' : '☐'"></span>
-                                  <span class="leading-snug" :class="item.done ? 'line-through text-gray-400' : ''" x-text="item.title"></span>
+                                  <span class="mt-0.5 flex-shrink-0" :class="checklistItemIconClass(item)" x-text="checklistItemIcon(item)"></span>
+                                  <span class="leading-snug" :class="checklistItemTitleClass(item)" x-text="item.title"></span>
                                 </div>
                               </template>
                             </div>
@@ -525,7 +521,7 @@
                                 <span
                                   class="text-xs px-2 py-0.5 rounded font-medium"
                                   :style="chipStyle(field, taskCardCustomFieldValue(task, field))"
-                                  x-text="field.name + ': ' + taskCardCustomFieldValue(task, field)"
+                                  x-text="taskCardCustomFieldLabel(task, field)"
                                 ></span>
                               </template>
                             </div>
@@ -535,8 +531,8 @@
                       <div class="hidden" aria-hidden="true" data-stage-sortable-sentinel><span></span></div>
                     </div>
 
-                    <div class="px-2 pb-2 pt-1" x-show="slot.stage && !slot.stage.is_log && canEditBoard">
-                      <div x-show="slot.stage && !isNewTaskFormOpen(slot.stage.id)">
+                    <div class="px-2 pb-2 pt-1" x-show="canShowNewTaskButton(slot.stage)">
+                      <div x-show="slot.stage && !isNewTaskFormVisible(slot.stage)">
                         <button
                           @click="openNewTaskForm(slot.stage.id)"
                           class="text-gray-500 hover:text-gray-800 text-sm w-full text-left px-1 py-1 rounded hover:bg-gray-200 transition-colors"
@@ -544,7 +540,7 @@
                       </div>
                       <div x-show="slot.stage && isNewTaskFormOpen(slot.stage.id)">
                         <input
-                          :id="'new-task-input-' + slot.stage.id"
+                          :id="newTaskInputId(slot.stage)"
                           :value="newTaskTitles[slot.stage.id] || ''"
                           @input="updateNewTaskTitle(slot.stage.id, $event.target.value)"
                           @keydown.enter="createTask(slot.stage.id)"
@@ -571,7 +567,7 @@
                 x-show="!slot.stage && canEditBoard && (!showNewStage || newStageRow !== 1 || newStagePosition !== slot.position)"
                 @click="openNewStageForm(1, slot.position)"
                 class="w-full rounded-xl border border-dashed border-white/30 bg-white/10 px-3 py-3 text-left text-sm font-medium text-white/80 opacity-0 transition-all duration-150 hover:bg-white/15 group-hover/add-bottom:opacity-100 group-focus-within/add-bottom:opacity-100"
-                :class="showStageDropTargets ? 'opacity-100' : ''"
+                :class="showStageDropTargetsClass"
               >+ Add stage here</button>
               <div
                 x-show="!slot.stage && showNewStage && newStageRow === 1 && newStagePosition === slot.position"
@@ -603,7 +599,7 @@
     </div>
   </div>
 
-  <div x-show="boardView === 'calendar'" class="p-4 pt-24">
+  <div x-show="isCalendarView" class="p-4 pt-24">
     <div class="mx-auto max-w-7xl rounded-2xl bg-white/85 shadow-lg overflow-hidden">
       <div class="calendar-header-strip grid grid-cols-7 border-b">
         <template x-for="weekday in calendarWeekdayLabels" :key="weekday">
@@ -622,7 +618,7 @@
             <div class="flex items-center justify-between gap-2">
               <span
                 class="inline-flex items-center justify-center h-8 min-w-8 px-2 rounded-full text-sm font-semibold"
-                :class="day.isToday ? 'bg-slate-900 text-white' : (day.inCurrentMonth ? 'calendar-day-number' : 'calendar-day-number-muted')"
+                :class="calendarDayNumberClass(day)"
                 x-text="day.dayNumber"
               ></span>
               <span x-show="day.entries.length" class="text-[11px] font-medium calendar-day-count" x-text="calendarDayCountLabel(day.entries)"></span>
@@ -636,15 +632,15 @@
                   @keydown.space.prevent="openTask(entry)"
                   data-calendar-task="true"
                   :data-task-id="entry.is_calendar_preview ? null : entry.id"
-                  :data-calendar-draggable="entry.is_calendar_preview ? 'false' : 'true'"
+                  :data-calendar-draggable="calendarEntryDraggableValue(entry)"
                   role="button"
                   tabindex="0"
                   class="w-full rounded-lg px-2.5 py-2 bg-white shadow-sm hover:shadow-md transition-all cursor-pointer"
                   :class="calendarTaskCardClass(entry, day.date)"
-                  :style="'border-left: 4px solid ' + (entry.color || '#e2e8f0')"
+                  :style="taskCardStyle(entry)"
                 >
                   <div class="flex items-start justify-between gap-2">
-                    <span class="text-sm font-medium leading-snug" :class="entry.done ? 'line-through opacity-70' : ''" x-text="entry.title"></span>
+                    <span class="text-sm font-medium leading-snug" :class="calendarEntryTitleClass(entry)" x-text="entry.title"></span>
                     <span x-show="entry.recurrence" class="text-[10px] font-semibold uppercase tracking-wide opacity-70">↻</span>
                   </div>
                   <div class="mt-1.5 flex items-center gap-1.5 flex-wrap">
@@ -767,19 +763,19 @@
                 @click="settingsBoardColor = c"
                 :disabled="!canManageBoard"
                 class="w-8 h-8 rounded-full hover:scale-110 transition-transform border-2 border-black/10"
-                :style="'background:' + c"
-                :class="settingsBoardColor === c ? 'ring-2 ring-offset-2 ring-gray-600 scale-110' : ''"
+                :style="colorSwatchStyle(c)"
+                :class="selectedColorSettingsClass(settingsBoardColor, c)"
               ></button>
             </template>
             <button
               @click="settingsBoardColor = null"
               :disabled="!canManageBoard"
               class="w-8 h-8 rounded-full bg-gray-100 border-2 border-dashed border-gray-300 flex items-center justify-center text-gray-400 hover:bg-gray-200 transition-colors"
-              :class="!settingsBoardColor ? 'ring-2 ring-offset-2 ring-gray-400' : ''"
+              :class="emptyColorSettingsClass(settingsBoardColor)"
               title="No color"
             >✕</button>
           </div>
-          <div class="h-6 rounded-lg transition-colors" :style="'background:' + (settingsBoardColor || '#2563eb')"></div>
+          <div class="h-6 rounded-lg transition-colors" :style="settingsBoardColorStyle"></div>
         </div>
 
         <div x-show="canManageBoard" class="mb-6 border-t pt-5">
@@ -915,12 +911,12 @@
                     @change="updateTaskType(); closeTaskActionMenu()"
                     class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                   >
-                    <option value="" :selected="!selectedTask.task_type_id">Objective (default)</option>
+                    <option value="" :selected="isDefaultTaskTypeSelected">Objective (default)</option>
                     <template x-for="tt in taskTypes" :key="tt.id">
                       <option
                         :value="asString(tt.id)"
-                        :selected="sameString(selectedTask.task_type_id || '', tt.id)"
-                        x-text="tt.name + (tt.is_epic ? ' ⚡ Quest' : '')"
+                        :selected="isTaskTypeSelected(tt)"
+                        x-text="taskTypeOptionLabel(tt)"
                       ></option>
                     </template>
                   </select>
@@ -965,17 +961,17 @@
             <div>
               <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Assignee</label>
               <select
-                :key="`assignee-${selectedTask.id}-${selectedTask.assignee_user_id || 'none'}-${assignableMembers.length}`"
+                :key="assigneeSelectKey()"
                 x-model="selectedTask.assignee_user_id"
                 @change="updateAssignee()"
                 :disabled="!canEditBoard"
                 class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               >
-                <option value="" :selected="!selectedTask.assignee_user_id">Unassigned</option>
+                <option value="" :selected="isUnassignedSelected">Unassigned</option>
                 <template x-for="member in assignableMembers" :key="member.user_id">
                   <option
                     :value="asString(member.user_id)"
-                    :selected="sameString(selectedTask.assignee_user_id || '', member.user_id)"
+                    :selected="isAssigneeSelected(member)"
                     x-text="member.display_name"
                   ></option>
                 </template>
@@ -1028,7 +1024,7 @@
                 @click="openParentTask()"
                 class="w-full text-left border rounded-lg px-3 py-2 text-sm hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400"
               >
-                <span class="text-blue-600 font-medium" x-text="selectedTask.parent_task ? selectedTask.parent_task.title : ''"></span>
+                <span class="text-blue-600 font-medium" x-text="selectedTaskParentTitle"></span>
               </button>
             </div>
           </template>
@@ -1036,9 +1032,9 @@
           <template x-if="selectedTask.recurrence">
             <div
               class="mb-5 border rounded-xl bg-gray-50"
-              :class="recurrenceExpanded ? 'p-4' : 'px-4 py-2.5'"
+              :class="recurrenceContainerClass"
             >
-              <div class="flex items-center justify-between gap-3" :class="recurrenceExpanded ? 'mb-3' : ''">
+              <div class="flex items-center justify-between gap-3" :class="recurrenceHeaderClass">
                 <div>
                   <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide">Recurrence</label>
                 </div>
@@ -1046,7 +1042,7 @@
                   <button
                     @click="recurrenceExpanded = !recurrenceExpanded"
                     class="text-sm text-gray-500 hover:text-gray-700 px-3 py-1.5"
-                    x-text="recurrenceExpanded ? 'Hide details' : 'Show details'"
+                    x-text="recurrenceToggleLabel"
                   ></button>
                   <button
                     @click="disableRecurrence()"
@@ -1136,27 +1132,27 @@
             <div class="flex items-center justify-between gap-3 mb-1">
               <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide">Description</label>
               <div class="inline-flex rounded-lg border border-gray-200 overflow-hidden flex-shrink-0">
-                <button
-                  type="button"
-                  @click="updateDescriptionVisibility('default')"
-                  :disabled="!canEditBoard"
-                  class="px-2.5 py-1 text-xs font-medium transition-colors border-r border-gray-200"
-                  :class="descriptionVisibilityValue(selectedTask) === 'default' ? 'bg-blue-50 text-blue-700' : 'bg-white text-gray-500 hover:bg-gray-50'"
-                >Default</button>
-                <button
-                  type="button"
-                  @click="updateDescriptionVisibility('show')"
-                  :disabled="!canEditBoard"
-                  class="px-2.5 py-1 text-xs font-medium transition-colors border-r border-gray-200"
-                  :class="descriptionVisibilityValue(selectedTask) === 'show' ? 'bg-blue-50 text-blue-700' : 'bg-white text-gray-500 hover:bg-gray-50'"
-                >Show</button>
-                <button
-                  type="button"
-                  @click="updateDescriptionVisibility('hide')"
-                  :disabled="!canEditBoard"
-                  class="px-2.5 py-1 text-xs font-medium transition-colors"
-                  :class="descriptionVisibilityValue(selectedTask) === 'hide' ? 'bg-blue-50 text-blue-700' : 'bg-white text-gray-500 hover:bg-gray-50'"
-                >Hide</button>
+                  <button
+                    type="button"
+                    @click="updateDescriptionVisibility('default')"
+                    :disabled="!canEditBoard"
+                    class="px-2.5 py-1 text-xs font-medium transition-colors border-r border-gray-200"
+                    :class="descriptionVisibilityButtonClass('default')"
+                  >Default</button>
+                  <button
+                    type="button"
+                    @click="updateDescriptionVisibility('show')"
+                    :disabled="!canEditBoard"
+                    class="px-2.5 py-1 text-xs font-medium transition-colors border-r border-gray-200"
+                    :class="descriptionVisibilityButtonClass('show')"
+                  >Show</button>
+                  <button
+                    type="button"
+                    @click="updateDescriptionVisibility('hide')"
+                    :disabled="!canEditBoard"
+                    class="px-2.5 py-1 text-xs font-medium transition-colors"
+                    :class="descriptionVisibilityButtonClass('hide')"
+                  >Hide</button>
               </div>
             </div>
             <!-- Rendered preview (click to edit) -->
@@ -1166,7 +1162,7 @@
               class="min-h-[60px] cursor-text rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 border border-transparent hover:border-gray-200 transition-colors prose prose-sm max-w-none"
             >
               <template x-if="selectedTask.description">
-                <div x-html="renderMarkdown(selectedTask.description)"></div>
+                <div x-html="selectedTaskDescriptionHtml()"></div>
               </template>
               <template x-if="!selectedTask.description">
                 <span class="text-gray-400 italic">Add a description...</span>
@@ -1202,18 +1198,18 @@
                         class="flex-1 border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                       >
                         <option value="">— select —</option>
-                        <template x-for="opt in (field.options || [])" :key="opt">
+                        <template x-for="opt in customFieldOptions(field)" :key="opt">
                           <option
                             :value="customFieldOptionLabel(opt)"
                             x-text="customFieldOptionLabel(opt)"
-                            :selected="selectedTaskCustomFieldValue(field) === customFieldOptionLabel(opt)"
+                            :selected="isCustomFieldOptionSelected(field, opt)"
                           ></option>
                         </template>
                       </select>
                     </template>
                     <template x-if="field.field_type !== 'dropdown'">
                       <input
-                        :type="field.field_type === 'number' ? 'number' : (field.field_type === 'date' ? 'date' : 'text')"
+                        :type="selectedTaskInputType(field)"
                         :value="selectedTaskCustomFieldValue(field)"
                         @change="updateCustomField(field.id, $event.target.value)"
                         :disabled="!canEditBoard"
@@ -1235,7 +1231,7 @@
                 <span
                   x-show="selectedTask.checklist && selectedTask.checklist.length > 0"
                   class="ml-1 normal-case font-normal text-gray-400"
-                  x-text="'(' + checklistProgress(selectedTask) + ')'"
+                  x-text="selectedTaskChecklistSummary"
                 ></span>
               </label>
               <div class="flex items-center gap-2 flex-wrap justify-end">
@@ -1249,21 +1245,21 @@
                     @click="updateChecklistVisibility('default')"
                     :disabled="!canEditBoard"
                     class="px-2.5 py-1 text-xs font-medium transition-colors border-r border-gray-200"
-                    :class="checklistVisibilityValue(selectedTask) === 'default' ? 'bg-blue-50 text-blue-700' : 'bg-white text-gray-500 hover:bg-gray-50'"
+                    :class="checklistVisibilityButtonClass('default')"
                   >Default</button>
                   <button
                     type="button"
                     @click="updateChecklistVisibility('show')"
                     :disabled="!canEditBoard"
                     class="px-2.5 py-1 text-xs font-medium transition-colors border-r border-gray-200"
-                    :class="checklistVisibilityValue(selectedTask) === 'show' ? 'bg-blue-50 text-blue-700' : 'bg-white text-gray-500 hover:bg-gray-50'"
+                    :class="checklistVisibilityButtonClass('show')"
                   >Show</button>
                   <button
                     type="button"
                     @click="updateChecklistVisibility('hide')"
                     :disabled="!canEditBoard"
                     class="px-2.5 py-1 text-xs font-medium transition-colors"
-                    :class="checklistVisibilityValue(selectedTask) === 'hide' ? 'bg-blue-50 text-blue-700' : 'bg-white text-gray-500 hover:bg-gray-50'"
+                    :class="checklistVisibilityButtonClass('hide')"
                   >Hide</button>
                 </div>
               </div>
@@ -1274,7 +1270,7 @@
               <div class="mb-2 bg-gray-200 rounded-full h-1.5">
                 <div
                   class="bg-green-500 h-1.5 rounded-full transition-all"
-                  :style="`width: ${checklistPercent(selectedTask)}%`"
+                  :style="checklistProgressStyle(selectedTask)"
                 ></div>
               </div>
             </template>
@@ -1291,7 +1287,7 @@
                   >
                   <div
                     class="flex flex-1 items-center gap-1.5 min-w-0"
-                    :class="item.spawned_task_id ? 'checklist-linked-item' : ''"
+                    :class="linkedChecklistItemContainerClass(item)"
                   >
                     <template x-if="item._editing === true">
                       <input
@@ -1307,15 +1303,10 @@
                     <template x-if="item._editing !== true">
                       <span
                         class="text-sm min-w-0"
-                        :class="[
-                          item.done
-                            ? (item.spawned_task_id ? 'line-through text-blue-600' : 'line-through text-gray-400')
-                            : (item.spawned_task_id ? 'text-blue-600' : 'text-gray-700'),
-                          item.spawned_task_id ? 'cursor-pointer hover:text-blue-700 hover:underline' : ''
-                        ]"
+                        :class="linkedChecklistItemTextClass(item)"
                         @click="item.spawned_task_id && openSpawnedTask(item.spawned_task_id)"
                         x-text="item.title"
-                        :title="item.spawned_task_id ? 'Open linked objective' : ''"
+                        :title="linkedChecklistItemTitle(item)"
                       ></span>
                     </template>
                     <span
@@ -1390,14 +1381,14 @@
           <div x-show="logConfigStage.is_log" class="space-y-3">
             <div>
               <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Saved Filter</label>
-              <select :key="`log-filter-${logConfigStage.id}-${logConfigStage.filter_id || 'all'}`" x-model="logConfigStage.filter_id" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400">
-                <option value="" :selected="!logConfigStage.filter_id">All objectives</option>
+              <select :key="logConfigSelectKey()" x-model="logConfigStage.filter_id" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400">
+                <option value="" :selected="isLogConfigAllSelected">All objectives</option>
                 <template x-for="savedFilter in savedFilters" :key="savedFilter.id">
-                  <option :value="asString(savedFilter.id)" :selected="sameString(logConfigStage.filter_id || '', savedFilter.id)" x-text="savedFilter.name"></option>
+                  <option :value="asString(savedFilter.id)" :selected="isLogConfigFilterSelected(savedFilter)" x-text="savedFilter.name"></option>
                 </template>
               </select>
-              <a :href="`/board/${boardId}/filters`" class="inline-block mt-2 text-xs text-sky-600 hover:text-sky-700">Manage filters</a>
-              <p x-show="savedFilters.length === 0" class="mt-2 text-xs text-gray-400">No saved filters yet.</p>
+              <a :href="logConfigFiltersHref" class="inline-block mt-2 text-xs text-sky-600 hover:text-sky-700">Manage filters</a>
+              <p x-show="showLogConfigFiltersEmptyState" class="mt-2 text-xs text-gray-400">No saved filters yet.</p>
             </div>
           </div>
 

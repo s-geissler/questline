@@ -67,8 +67,40 @@ function board() {
       return this.currentBoardRole === 'owner' || this.currentBoardRole === 'admin';
     },
 
+    get isStagesView() {
+      return this.boardView === 'stages';
+    },
+
+    get isCalendarView() {
+      return this.boardView === 'calendar';
+    },
+
     get canViewSettings() {
       return !!this.currentBoardRole;
+    },
+
+    get nextBoardView() {
+      return this.boardView === 'stages' ? 'calendar' : 'stages';
+    },
+
+    get boardViewToggleTitle() {
+      return this.boardView === 'stages' ? 'Switch to calendar view' : 'Switch to stage view';
+    },
+
+    get stagesLabelClass() {
+      return this.boardView === 'stages' ? 'view-toggle-label-active' : 'view-toggle-label-inactive';
+    },
+
+    get calendarLabelClass() {
+      return this.boardView === 'calendar' ? 'view-toggle-label-active' : 'view-toggle-label-inactive';
+    },
+
+    get boardViewTrackClass() {
+      return this.boardView === 'calendar' ? 'view-toggle-track-on' : 'view-toggle-track-off';
+    },
+
+    get boardViewKnobClass() {
+      return this.boardView === 'calendar' ? 'translate-x-8' : 'translate-x-1';
     },
 
     get selectedTaskDoneLabel() {
@@ -79,6 +111,55 @@ function board() {
       return this.selectedTask?.done
         ? 'bg-green-100 text-green-700 hover:bg-green-200'
         : 'bg-gray-100 text-gray-600 hover:bg-gray-200';
+    },
+
+    get settingsBoardColorStyle() {
+      return `background:${this.settingsBoardColor || '#2563eb'}`;
+    },
+
+    get recurrenceContainerClass() {
+      return this.recurrenceExpanded ? 'p-4' : 'px-4 py-2.5';
+    },
+
+    get recurrenceHeaderClass() {
+      return this.recurrenceExpanded ? 'mb-3' : '';
+    },
+
+    get recurrenceToggleLabel() {
+      return this.recurrenceExpanded ? 'Hide details' : 'Show details';
+    },
+
+    get selectedTaskParentTitle() {
+      return this.selectedTask?.parent_task?.title || '';
+    },
+
+    get selectedTaskChecklistSummary() {
+      if (!this.selectedTask?.checklist?.length) return '';
+      return `(${this.checklistProgress(this.selectedTask)})`;
+    },
+
+    get showStageDropTargetsClass() {
+      return this.showStageDropTargets ? 'opacity-100' : '';
+    },
+
+    get showLogConfigFiltersEmptyState() {
+      return this.savedFilters.length === 0;
+    },
+
+    get logConfigFiltersHref() {
+      return `/board/${this.boardId}/filters`;
+    },
+
+    get isDefaultTaskTypeSelected() {
+      return !this.selectedTask?.task_type_id;
+    },
+
+    get isUnassignedSelected() {
+      return !this.selectedTask?.assignee_user_id;
+    },
+
+    get isLogConfigAllSelected() {
+      return !this.logConfigStage?.filter_id;
     },
 
     get selectedTaskType() {
@@ -109,6 +190,86 @@ function board() {
         position,
         stage: byPosition.get(position) || null,
       }));
+    },
+
+    stageContainerClass(stage) {
+      return stage?.is_log ? 'log-stage' : 'bg-gray-100';
+    },
+
+    stageHeaderClass(stage) {
+      return stage?.is_log ? 'log-stage-header' : 'border-transparent';
+    },
+
+    stageTitleInputClass(stage) {
+      return stage?.is_log ? 'log-stage-title' : 'text-gray-700 hover:bg-black/5 focus:bg-black/5';
+    },
+
+    stageBodyClass(stage) {
+      return stage?.is_log ? 'log-stage-body' : '';
+    },
+
+    stageColumnId(stage) {
+      return stage?.id || '';
+    },
+
+    stageDomId(stage) {
+      return stage?.id ? `stage-${stage.id}` : '';
+    },
+
+    stageTasks(stage) {
+      return stage?.tasks || [];
+    },
+
+    canSortStage(stage) {
+      return !!stage && !stage.is_log;
+    },
+
+    canClearCompletedStage(stage) {
+      return !!stage && !stage.is_log;
+    },
+
+    showLogSourceBadge(stage) {
+      return !!stage?.is_log;
+    },
+
+    isNewTaskFormVisible(stage) {
+      return !!stage && this.isNewTaskFormOpen(stage.id);
+    },
+
+    canShowNewTaskButton(stage) {
+      return !!stage && !stage.is_log && this.canEditBoard;
+    },
+
+    taskCardOpacityClass(task) {
+      return task?.done ? 'opacity-60' : '';
+    },
+
+    calendarDayClass(day) {
+      return day?.inCurrentMonth ? 'calendar-current-month' : 'calendar-other-month';
+    },
+
+    calendarTaskId(entry) {
+      return entry?.is_calendar_preview ? '' : entry?.id || '';
+    },
+
+    assigneeSelectKey() {
+      const taskId = this.selectedTask?.id || 'none';
+      const assignee = this.selectedTask?.assignee_user_id || 'none';
+      return `assignee-${taskId}-${assignee}-${this.assignableMembers.length}`;
+    },
+
+    logConfigSelectKey() {
+      const stageId = this.logConfigStage?.id || 'none';
+      const filterId = this.logConfigStage?.filter_id || 'all';
+      return `log-filter-${stageId}-${filterId}`;
+    },
+
+    newTaskInputId(stage) {
+      return stage?.id ? `new-task-input-${stage.id}` : '';
+    },
+
+    showChecklistSummary(task) {
+      return !!(task?.checklist && task.checklist.length > 0);
     },
 
     get calendarWeekdayLabels() {
@@ -727,6 +888,14 @@ function board() {
       return currentColor === color ? 'ring-2 ring-offset-1 ring-gray-500' : '';
     },
 
+    selectedColorSettingsClass(currentColor, color) {
+      return currentColor === color ? 'ring-2 ring-offset-2 ring-gray-600 scale-110' : '';
+    },
+
+    emptyColorSettingsClass(value) {
+      return !value ? 'ring-2 ring-offset-2 ring-gray-400' : '';
+    },
+
     async openParentTask() {
       if (!this.selectedTask?.parent_task?.id) return;
       const parentTask = this.selectedTask.parent_task;
@@ -1056,8 +1225,51 @@ function board() {
       return task?.custom_field_values?.[String(field.id)];
     },
 
+    taskCardCustomFieldLabel(task, field) {
+      return `${field.name}: ${this.taskCardCustomFieldValue(task, field)}`;
+    },
+
+    markdownHtml(value) {
+      if (typeof renderMarkdown === 'function') {
+        return renderMarkdown(value || '');
+      }
+      return String(value || '');
+    },
+
+    taskDescriptionHtml(task) {
+      return this.markdownHtml(task?.description || '');
+    },
+
+    selectedTaskDescriptionHtml() {
+      return this.markdownHtml(this.selectedTask?.description || '');
+    },
+
     selectedTaskCustomFieldValue(field) {
       return this.selectedTask?.custom_field_values?.[String(field.id)] || '';
+    },
+
+    taskTypeOptionLabel(taskType) {
+      return `${taskType.name}${taskType.is_epic ? ' ⚡ Quest' : ''}`;
+    },
+
+    isTaskTypeSelected(taskType) {
+      return this.sameString(this.selectedTask?.task_type_id || '', taskType.id);
+    },
+
+    isAssigneeSelected(member) {
+      return this.sameString(this.selectedTask?.assignee_user_id || '', member.user_id);
+    },
+
+    customFieldOptions(field) {
+      return field?.options || [];
+    },
+
+    isCustomFieldOptionSelected(field, option) {
+      return this.selectedTaskCustomFieldValue(field) === this.customFieldOptionLabel(option);
+    },
+
+    isLogConfigFilterSelected(savedFilter) {
+      return this.sameString(this.logConfigStage?.filter_id || '', savedFilter.id);
     },
 
     shouldShowDescriptionOnCard(task) {
@@ -1079,11 +1291,23 @@ function board() {
       return 'default';
     },
 
+    visibilityButtonClass(currentValue, expectedValue, inactiveClass = 'bg-white text-gray-500 hover:bg-gray-50') {
+      return currentValue === expectedValue ? 'bg-blue-50 text-blue-700' : inactiveClass;
+    },
+
+    descriptionVisibilityButtonClass(expectedValue) {
+      return this.visibilityButtonClass(this.descriptionVisibilityValue(this.selectedTask), expectedValue);
+    },
+
     checklistVisibilityValue(task) {
       if (!task) return 'default';
       if (task.show_checklist_on_card === true) return 'show';
       if (task.show_checklist_on_card === false) return 'hide';
       return 'default';
+    },
+
+    checklistVisibilityButtonClass(expectedValue) {
+      return this.visibilityButtonClass(this.checklistVisibilityValue(this.selectedTask), expectedValue);
     },
 
     taskTypeBadgeStyle(taskType) {
@@ -1107,6 +1331,83 @@ function board() {
     dueDateLabel(value) {
       if (!this.hasDueDate(value)) return '';
       return 'Due ' + this.formatDueDate(value);
+    },
+
+    taskCardStyle(task) {
+      return `border-left: 4px solid ${this.taskBorderColor(task)}`;
+    },
+
+    taskDoneToggleClass(task) {
+      return task.done
+        ? 'w-4 mr-2 bg-green-500 border-green-500 text-white opacity-100'
+        : 'w-0 mr-0 border-gray-300 text-transparent hover:border-green-500 hover:text-green-500 bg-white opacity-0';
+    },
+
+    taskDoneToggleTitle(task) {
+      return task.done ? 'Mark objective not done' : 'Mark objective done';
+    },
+
+    taskTitleClass(task) {
+      return task.done ? 'line-through text-gray-400' : '';
+    },
+
+    assigneeChipLabel(task) {
+      return `@ ${task.assignee.display_name}`;
+    },
+
+    logSourceLabel(task) {
+      return `In ${this.sourceStageName(task)}`;
+    },
+
+    checklistItemIconClass(item) {
+      return item.done ? 'text-green-500' : 'text-gray-300';
+    },
+
+    checklistItemIcon(item) {
+      return item.done ? '☑' : '☐';
+    },
+
+    checklistItemTitleClass(item) {
+      return item.done ? 'line-through text-gray-400' : '';
+    },
+
+    checklistProgressStyle(task) {
+      return `width: ${this.checklistPercent(task)}%`;
+    },
+
+    selectedTaskInputType(field) {
+      if (field.field_type === 'number') return 'number';
+      if (field.field_type === 'date') return 'date';
+      return 'text';
+    },
+
+    linkedChecklistItemContainerClass(item) {
+      return item.spawned_task_id ? 'checklist-linked-item' : '';
+    },
+
+    linkedChecklistItemTextClass(item) {
+      const tone = item.done
+        ? (item.spawned_task_id ? 'line-through text-blue-600' : 'line-through text-gray-400')
+        : (item.spawned_task_id ? 'text-blue-600' : 'text-gray-700');
+      const affordance = item.spawned_task_id ? 'cursor-pointer hover:text-blue-700 hover:underline' : '';
+      return `${tone} ${affordance}`.trim();
+    },
+
+    linkedChecklistItemTitle(item) {
+      return item.spawned_task_id ? 'Open linked objective' : '';
+    },
+
+    calendarDayNumberClass(day) {
+      if (day.isToday) return 'bg-slate-900 text-white';
+      return day.inCurrentMonth ? 'calendar-day-number' : 'calendar-day-number-muted';
+    },
+
+    calendarEntryDraggableValue(entry) {
+      return entry.is_calendar_preview ? 'false' : 'true';
+    },
+
+    calendarEntryTitleClass(entry) {
+      return entry.done ? 'line-through opacity-70' : '';
     },
 
     taskBorderColor(task) {
