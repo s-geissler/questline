@@ -67,21 +67,21 @@
 .swatch-374151 { background: #374151; }
 .swatch-78716c { background: #78716c; }
 
-.theme-bg-1d4ed8 { background-color: #1d4ed8; }
-.theme-bg-ef4444 { background-color: #ef4444; }
-.theme-bg-f97316 { background-color: #f97316; }
-.theme-bg-f59e0b { background-color: #f59e0b; }
-.theme-bg-eab308 { background-color: #eab308; }
-.theme-bg-22c55e { background-color: #22c55e; }
-.theme-bg-14b8a6 { background-color: #14b8a6; }
-.theme-bg-06b6d4 { background-color: #06b6d4; }
-.theme-bg-3b82f6 { background-color: #3b82f6; }
-.theme-bg-6366f1 { background-color: #6366f1; }
-.theme-bg-a855f7 { background-color: #a855f7; }
-.theme-bg-ec4899 { background-color: #ec4899; }
-.theme-bg-64748b { background-color: #64748b; }
-.theme-bg-374151 { background-color: #374151; }
-.theme-bg-78716c { background-color: #78716c; }
+.theme-bg-1d4ed8 { background-color: #1d4ed8; --page-theme-rgb: 29, 78, 216; }
+.theme-bg-ef4444 { background-color: #ef4444; --page-theme-rgb: 239, 68, 68; }
+.theme-bg-f97316 { background-color: #f97316; --page-theme-rgb: 249, 115, 22; }
+.theme-bg-f59e0b { background-color: #f59e0b; --page-theme-rgb: 245, 158, 11; }
+.theme-bg-eab308 { background-color: #eab308; --page-theme-rgb: 234, 179, 8; }
+.theme-bg-22c55e { background-color: #22c55e; --page-theme-rgb: 34, 197, 94; }
+.theme-bg-14b8a6 { background-color: #14b8a6; --page-theme-rgb: 20, 184, 166; }
+.theme-bg-06b6d4 { background-color: #06b6d4; --page-theme-rgb: 6, 182, 212; }
+.theme-bg-3b82f6 { background-color: #3b82f6; --page-theme-rgb: 59, 130, 246; }
+.theme-bg-6366f1 { background-color: #6366f1; --page-theme-rgb: 99, 102, 241; }
+.theme-bg-a855f7 { background-color: #a855f7; --page-theme-rgb: 168, 85, 247; }
+.theme-bg-ec4899 { background-color: #ec4899; --page-theme-rgb: 236, 72, 153; }
+.theme-bg-64748b { background-color: #64748b; --page-theme-rgb: 100, 116, 139; }
+.theme-bg-374151 { background-color: #374151; --page-theme-rgb: 55, 65, 81; }
+.theme-bg-78716c { background-color: #78716c; --page-theme-rgb: 120, 113, 108; }
 
 .theme-nav-1d4ed8 { background-color: #153aa2; }
 .theme-nav-ef4444 { background-color: #b33333; }
@@ -238,6 +238,20 @@ body {
   border-top: 0;
   border-bottom-left-radius: 0.75rem;
   border-bottom-right-radius: 0.75rem;
+}
+
+.admin-users-grid {
+  display: grid;
+  grid-template-columns: 13fr 13fr 7fr 8fr 8fr 10fr 9fr;
+}
+
+.admin-boards-grid {
+  display: grid;
+  grid-template-columns: 15fr 14fr 7fr 8fr 8fr;
+}
+
+.admin-danger-action:hover {
+  background: rgba(var(--page-theme-rgb, 29, 78, 216), 0.14);
 }
 .log-stage-title {
   color: #0c4a6e;

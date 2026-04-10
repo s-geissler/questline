@@ -769,6 +769,7 @@ class AdminUserUpdate(BaseModel):
     role: Optional[str] = None
     is_active: Optional[bool] = None
     password_reset_requested: Optional[bool] = None
+    password: Optional[str] = Field(default=None, max_length=MAX_PASSWORD_LENGTH)
 
 
 class AdminSettingsUpdate(BaseModel):
@@ -1847,6 +1848,76 @@ def get_admin_users(request: Request, db: Session = Depends(get_db)):
     ]
 
 
+@app.get("/api/admin/boards")
+def get_admin_boards(request: Request, db: Session = Depends(get_db)):
+    require_admin(request, db)
+    boards = (
+        db.query(models.Board)
+        .order_by(models.Board.owner_user_id.is_(None).desc(), models.Board.position, models.Board.id)
+        .all()
+    )
+    board_ids = [board.id for board in boards]
+    member_count_rows = (
+        db.query(models.BoardMembership.board_id, func.count(models.BoardMembership.id))
+        .filter(models.BoardMembership.board_id.in_(board_ids))
+        .group_by(models.BoardMembership.board_id)
+        .all()
+        if board_ids
+        else []
+    )
+    member_count_map = {board_id: count for board_id, count in member_count_rows}
+    owner_ids = [board.owner_user_id for board in boards if board.owner_user_id is not None]
+    owners = (
+        db.query(models.User.id, models.User.display_name, models.User.email)
+        .filter(models.User.id.in_(owner_ids))
+        .all()
+        if owner_ids
+        else []
+    )
+    owner_map = {
+        owner_id: {"display_name": display_name, "email": email}
+        for owner_id, display_name, email in owners
+    }
+    return [
+        {
+            "id": board.id,
+            "name": board.name,
+            "color": board.color,
+            "owner_user_id": board.owner_user_id,
+            "owner_display_name": owner_map.get(board.owner_user_id, {}).get("display_name"),
+            "owner_email": owner_map.get(board.owner_user_id, {}).get("email"),
+            "member_count": member_count_map.get(board.id, 0),
+            "is_orphan": board.owner_user_id is None,
+        }
+        for board in boards
+    ]
+
+
+@app.post("/api/admin/actions/delete-orphaned-boards")
+def delete_admin_orphaned_boards(request: Request, db: Session = Depends(get_db)):
+    current_user = require_admin(request, db)
+    orphaned_boards = (
+        db.query(models.Board)
+        .filter(models.Board.owner_user_id.is_(None))
+        .all()
+    )
+    deleted_board_ids = [board.id for board in orphaned_boards]
+    deleted_count = len(deleted_board_ids)
+    for board in orphaned_boards:
+        db.delete(board)
+    db.commit()
+    _audit_log(
+        "admin_orphaned_boards_deleted",
+        request=request,
+        actor_user_id=current_user.id,
+        details={
+            "deleted_board_ids": deleted_board_ids,
+            "deleted_count": deleted_count,
+        },
+    )
+    return {"ok": True, "deleted_count": deleted_count}
+
+
 @app.get("/api/admin/settings")
 def get_admin_settings(request: Request, db: Session = Depends(get_db)):
     require_admin(request, db)
@@ -1910,6 +1981,7 @@ def update_admin_user(user_id: int, data: AdminUserUpdate, request: Request, db:
     previous_role = user.role
     previous_is_active = user.is_active
     previous_password_reset_requested = user.password_reset_requested
+    password_changed = False
     user.role = target_role
     if data.is_active is not None:
         if user.id == current_user.id and data.is_active is False:
@@ -1917,6 +1989,13 @@ def update_admin_user(user_id: int, data: AdminUserUpdate, request: Request, db:
         user.is_active = data.is_active
         if data.is_active is False:
             db.query(models.UserSession).filter(models.UserSession.user_id == user.id).delete()
+    if data.password is not None:
+        if len(data.password) < 8:
+            raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+        user.password_hash = hash_password(data.password)
+        user.password_reset_requested = False
+        password_changed = True
+        db.query(models.UserSession).filter(models.UserSession.user_id == user.id).delete()
     if data.password_reset_requested is not None:
         user.password_reset_requested = data.password_reset_requested
     db.commit()
@@ -1924,6 +2003,7 @@ def update_admin_user(user_id: int, data: AdminUserUpdate, request: Request, db:
         previous_role != user.role
         or previous_is_active != user.is_active
         or previous_password_reset_requested != user.password_reset_requested
+        or password_changed
     ):
         _audit_log(
             "admin_user_updated",
@@ -1937,9 +2017,70 @@ def update_admin_user(user_id: int, data: AdminUserUpdate, request: Request, db:
                 "new_is_active": user.is_active,
                 "previous_password_reset_requested": previous_password_reset_requested,
                 "new_password_reset_requested": user.password_reset_requested,
+                "password_changed": password_changed,
             },
-        )
+    )
     return user_to_dict(user)
+
+
+@app.delete("/api/admin/users/{user_id}")
+def delete_admin_user(user_id: int, request: Request, db: Session = Depends(get_db)):
+    current_user = require_admin(request, db)
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.id == current_user.id:
+        raise HTTPException(status_code=400, detail="You cannot delete your own account")
+    if user.role == "admin":
+        admin_count = db.query(models.User).filter(models.User.role == "admin").count()
+        if admin_count <= 1:
+            raise HTTPException(status_code=400, detail="Questline must have at least one admin")
+    deleted_email = user.email
+    deleted_display_name = user.display_name
+    deleted_role = user.role
+
+    owned_board_ids = [
+        board_id
+        for (board_id,) in (
+            db.query(models.Board.id)
+            .filter(models.Board.owner_user_id == user.id)
+            .all()
+        )
+    ]
+    if owned_board_ids:
+        replacements = (
+            db.query(models.BoardMembership.board_id, models.BoardMembership.user_id)
+            .filter(
+                models.BoardMembership.board_id.in_(owned_board_ids),
+                models.BoardMembership.role == "owner",
+                models.BoardMembership.user_id != user.id,
+            )
+            .order_by(models.BoardMembership.board_id, models.BoardMembership.id)
+            .all()
+        )
+        replacement_map = {}
+        for board_id, replacement_user_id in replacements:
+            replacement_map.setdefault(board_id, replacement_user_id)
+
+        boards = db.query(models.Board).filter(models.Board.id.in_(owned_board_ids)).all()
+        for board in boards:
+            board.owner_user_id = replacement_map.get(board.id)
+
+    db.delete(user)
+    db.commit()
+    _audit_log(
+        "admin_user_deleted",
+        request=request,
+        actor_user_id=current_user.id,
+        target_user_id=user_id,
+        details={
+            "deleted_email": deleted_email,
+            "deleted_display_name": deleted_display_name,
+            "deleted_role": deleted_role,
+            "owned_board_count": len(owned_board_ids),
+        },
+    )
+    return {"ok": True}
 
 @app.put("/api/boards/{board_id}")
 def update_board(board_id: int, data: BoardUpdate, db: Session = Depends(get_db), request: Request = None):
