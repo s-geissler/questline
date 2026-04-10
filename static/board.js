@@ -453,6 +453,8 @@ function board() {
       this.calendarViewEl = this.$el.querySelector('#board-calendar-view');
       this.calendarCreateModalEl = this.$el.querySelector('#board-calendar-create-modal');
       this.settingsModalEl = this.$el.querySelector('#board-settings-modal');
+      this.taskModalEl = this.$el.querySelector('#board-task-modal');
+      this.logConfigModalEl = this.$el.querySelector('#board-log-config-modal');
     },
 
     bindSurfaceEvents() {
@@ -469,16 +471,37 @@ function board() {
       this.$el.addEventListener('keydown', event => this.handleSurfaceKeydown(event));
       this.$el.addEventListener('blur', event => this.handleSurfaceBlur(event), true);
       document.addEventListener('click', event => {
-        if (!this.activeStageMenuId) return;
-        if (event.target.closest('[data-role="stage-menu"]') || event.target.closest('[data-action="toggle-stage-menu"]')) return;
-        this.closeStageMenu();
-        this.renderBoardSurface();
+        // Stage menu outside click
+        if (this.activeStageMenuId) {
+          if (!event.target.closest('[data-role="stage-menu"]') && !event.target.closest('[data-action="toggle-stage-menu"]')) {
+            this.closeStageMenu();
+            this.renderBoardSurface();
+          }
+        }
+        // Task action menu outside click
+        if (this.taskActionMenuOpen) {
+          if (!event.target.closest('[data-role="modal-action-menu-anchor"]')) {
+            this.taskActionMenuOpen = false;
+            this.renderTaskModal();
+          }
+        }
+        // Task color picker outside click
+        if (this.taskColorPickerOpen) {
+          if (!event.target.closest('[data-role="modal-color-picker-anchor"]')) {
+            this.taskColorPickerOpen = false;
+            this.renderTaskModal();
+          }
+        }
       });
     },
 
     handleSurfaceClick(event) {
       const actionTarget = event.target.closest('[data-action]');
       if (!actionTarget) return;
+      // If the click landed inside a data-stop-propagation container that is
+      // a descendant of the action target, the backdrop click should be ignored.
+      const stopEl = event.target.closest('[data-stop-propagation="true"]');
+      if (stopEl && actionTarget.contains(stopEl)) return;
       const action = actionTarget.dataset.action;
       const stageId = parseInt(actionTarget.dataset.stageId || '0', 10);
       const taskId = parseInt(actionTarget.dataset.openTaskId || actionTarget.dataset.taskId || '0', 10);
@@ -585,6 +608,116 @@ function board() {
         this.renderBoardSurface();
         return;
       }
+      if (action === 'close-task-modal') {
+        this.closeModal();
+        return;
+      }
+      if (action === 'modal-toggle-done') {
+        this.toggleDone();
+        return;
+      }
+      if (action === 'modal-toggle-action-menu') {
+        this.toggleTaskActionMenu();
+        return;
+      }
+      if (action === 'modal-enable-recurrence-menu') {
+        this.enableRecurrence();
+        this.closeTaskActionMenu();
+        return;
+      }
+      if (action === 'modal-disable-recurrence-menu') {
+        this.disableRecurrence();
+        this.closeTaskActionMenu();
+        return;
+      }
+      if (action === 'modal-delete-task') {
+        this.deleteTask();
+        this.closeTaskActionMenu();
+        return;
+      }
+      if (action === 'modal-toggle-color-picker') {
+        this.toggleTaskColorPicker();
+        return;
+      }
+      if (action === 'modal-pick-color') {
+        const color = actionTarget.dataset.color || null;
+        if (this.selectedTask) this.selectedTask.color = color;
+        this.updateTaskField('color', color);
+        this.closeTaskColorPicker();
+        return;
+      }
+      if (action === 'modal-clear-color') {
+        if (this.selectedTask) this.selectedTask.color = null;
+        this.updateTaskField('color', null);
+        this.closeTaskColorPicker();
+        return;
+      }
+      if (action === 'modal-open-parent-task') {
+        this.openParentTask();
+        return;
+      }
+      if (action === 'modal-toggle-recurrence-expanded') {
+        this.recurrenceExpanded = !this.recurrenceExpanded;
+        this.renderTaskModal();
+        return;
+      }
+      if (action === 'modal-disable-recurrence') {
+        this.disableRecurrence();
+        return;
+      }
+      if (action === 'modal-save-recurrence') {
+        this.saveRecurrence();
+        return;
+      }
+      if (action === 'modal-update-description-visibility') {
+        this.updateDescriptionVisibility(actionTarget.dataset.value);
+        return;
+      }
+      if (action === 'modal-edit-description') {
+        if (!this.canEditBoard) return;
+        this.descriptionEditing = true;
+        this.renderTaskModal();
+        return;
+      }
+      if (action === 'modal-update-checklist-visibility') {
+        this.updateChecklistVisibility(actionTarget.dataset.value);
+        return;
+      }
+      if (action === 'modal-toggle-checklist-item') {
+        const itemId = parseInt(actionTarget.dataset.itemId || '0', 10);
+        const item = this.selectedTask?.checklist?.find(i => i.id === itemId);
+        if (item) this.toggleChecklistItem(item);
+        return;
+      }
+      if (action === 'modal-open-spawned-task') {
+        const spawnedId = parseInt(actionTarget.dataset.taskId || '0', 10);
+        if (spawnedId) this.openSpawnedTask(spawnedId);
+        return;
+      }
+      if (action === 'modal-edit-checklist-item') {
+        const itemId = parseInt(actionTarget.dataset.itemId || '0', 10);
+        const item = this.selectedTask?.checklist?.find(i => i.id === itemId);
+        if (item) { this.startChecklistItemEdit(item); this.renderTaskModal(); }
+        return;
+      }
+      if (action === 'modal-delete-checklist-item') {
+        const itemId = parseInt(actionTarget.dataset.itemId || '0', 10);
+        const item = this.selectedTask?.checklist?.find(i => i.id === itemId);
+        if (item) this.deleteChecklistItem(item);
+        return;
+      }
+      if (action === 'modal-add-checklist-item') {
+        this.addChecklistItem();
+        return;
+      }
+      if (action === 'close-log-config') {
+        this.closeLogConfig();
+        return;
+      }
+      if (action === 'save-log-config') {
+        this.saveLogConfig();
+        return;
+      }
       if (action === 'open-task') {
         const task = this.allBoardTasks.find(entry => entry.id === taskId);
         if (task) this.openTask(task);
@@ -647,6 +780,21 @@ function board() {
       }
       if (field === 'share-role') {
         this.shareRole = event.target.value;
+        return;
+      }
+      if (field === 'modal-new-checklist-item') {
+        this.newChecklistItem = event.target.value;
+        return;
+      }
+      if (field === 'modal-checklist-item-edit') {
+        const itemId = parseInt(event.target.dataset.itemId || '0', 10);
+        const item = this.selectedTask?.checklist?.find(i => i.id === itemId);
+        if (item) item._draft_title = event.target.value;
+        return;
+      }
+      if (field === 'modal-description') {
+        if (this.selectedTask) this.selectedTask.description = event.target.value;
+        return;
       }
     },
 
@@ -655,6 +803,68 @@ function board() {
       if (field === 'board-member-role') {
         const member = this.boardMembers.find(entry => String(entry.user_id) === String(event.target.dataset.userId || ''));
         if (member) this.updateBoardMemberRole(member, event.target.value);
+        return;
+      }
+      if (field === 'modal-assignee') {
+        if (this.selectedTask) this.selectedTask.assignee_user_id = event.target.value;
+        this.updateAssignee();
+        return;
+      }
+      if (field === 'modal-due-date') {
+        if (this.selectedTask) this.selectedTask.due_date = event.target.value;
+        this.updateTaskField('due_date', event.target.value || null);
+        return;
+      }
+      if (field === 'modal-task-type') {
+        if (this.selectedTask) this.selectedTask.task_type_id = event.target.value;
+        this.updateTaskType();
+        this.closeTaskActionMenu();
+        return;
+      }
+      if (field === 'modal-stage') {
+        if (this.selectedTask) this.selectedTask.stage_id = event.target.value;
+        this.moveTask();
+        this.closeTaskActionMenu();
+        return;
+      }
+      if (field === 'modal-recurrence-mode') {
+        if (this.selectedTask?.recurrence) this.selectedTask.recurrence.mode = event.target.value;
+        this.renderTaskModal();
+        return;
+      }
+      if (field === 'modal-recurrence-frequency') {
+        if (this.selectedTask?.recurrence) this.selectedTask.recurrence.frequency = event.target.value;
+        this.renderTaskModal();
+        return;
+      }
+      if (field === 'modal-recurrence-interval') {
+        if (this.selectedTask?.recurrence) this.selectedTask.recurrence.interval = parseInt(event.target.value, 10) || 1;
+        this.renderTaskModal();
+        return;
+      }
+      if (field === 'modal-recurrence-next-run-on') {
+        if (this.selectedTask?.recurrence) this.selectedTask.recurrence.next_run_on = event.target.value;
+        this.renderTaskModal();
+        return;
+      }
+      if (field === 'modal-recurrence-spawn-stage') {
+        if (this.selectedTask?.recurrence) this.selectedTask.recurrence.spawn_stage_id = event.target.value;
+        this.renderTaskModal();
+        return;
+      }
+      if (field === 'modal-custom-field') {
+        const fieldId = parseInt(event.target.dataset.fieldId || '0', 10);
+        if (fieldId) this.updateCustomField(fieldId, event.target.value);
+        return;
+      }
+      if (field === 'log-config-is-log') {
+        if (this.logConfigStage) this.logConfigStage.is_log = event.target.checked;
+        this.renderLogConfigModal();
+        return;
+      }
+      if (field === 'log-config-filter-id') {
+        if (this.logConfigStage) this.logConfigStage.filter_id = event.target.value;
+        return;
       }
     },
 
@@ -693,6 +903,51 @@ function board() {
         this.addBoardMember();
         return;
       }
+      if (field === 'modal-title' && event.key === 'Enter') {
+        event.target.blur();
+        return;
+      }
+      if (field === 'modal-new-checklist-item') {
+        if (event.key === 'Enter') {
+          this.addChecklistItem();
+        } else if (event.key === 'Escape') {
+          this.newChecklistItem = '';
+          this.renderTaskModal();
+        }
+        return;
+      }
+      if (field === 'modal-checklist-item-edit') {
+        const itemId = parseInt(event.target.dataset.itemId || '0', 10);
+        const item = this.selectedTask?.checklist?.find(i => i.id === itemId);
+        if (!item) return;
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          this.saveChecklistItemTitle(item).then(() => this.renderTaskModal());
+        } else if (event.key === 'Escape') {
+          event.preventDefault();
+          this.cancelChecklistItemEdit(item);
+          this.renderTaskModal();
+        }
+        return;
+      }
+      if (field === 'modal-description') {
+        if (event.key === 'Escape') {
+          const value = event.target.value;
+          if (this.selectedTask) this.selectedTask.description = value;
+          this.descriptionEditing = false;
+          this.renderTaskModal();
+          this.updateTaskField('description', value);
+        }
+        return;
+      }
+      if (this.showModal && event.key === 'Escape') {
+        this.closeModal();
+        return;
+      }
+      if (this.showLogConfig && event.key === 'Escape') {
+        this.closeLogConfig();
+        return;
+      }
       if (this.showCalendarCreate && event.key === 'Escape') {
         this.closeCalendarCreate();
         this.renderBoardSurface();
@@ -707,9 +962,30 @@ function board() {
     handleSurfaceBlur(event) {
       const field = event.target.dataset.field;
       const stageId = parseInt(event.target.dataset.stageId || '0', 10);
-      if (field !== 'stage-name') return;
-      const stage = this.stages.find(entry => entry.id === stageId);
-      if (stage) this.saveStageName(stage);
+      if (field === 'stage-name') {
+        const stage = this.stages.find(entry => entry.id === stageId);
+        if (stage) this.saveStageName(stage);
+        return;
+      }
+      if (field === 'modal-title') {
+        if (this.selectedTask) this.selectedTask.title = event.target.value;
+        this.updateTaskField('title', event.target.value);
+        return;
+      }
+      if (field === 'modal-description') {
+        const value = event.target.value;
+        if (this.selectedTask) this.selectedTask.description = value;
+        this.descriptionEditing = false;
+        this.renderTaskModal();
+        this.updateTaskField('description', value);
+        return;
+      }
+      if (field === 'modal-checklist-item-edit') {
+        const itemId = parseInt(event.target.dataset.itemId || '0', 10);
+        const item = this.selectedTask?.checklist?.find(i => i.id === itemId);
+        if (item) this.saveChecklistItemTitle(item).then(() => this.renderTaskModal());
+        return;
+      }
     },
 
     renderBoardSurface() {
@@ -721,6 +997,8 @@ function board() {
       this.renderCalendarView();
       this.renderCalendarCreateModal();
       this.renderSettingsModal();
+      this.renderTaskModal();
+      this.renderLogConfigModal();
       this.updateStageDropTargetVisibility();
     },
 
@@ -1132,6 +1410,463 @@ function board() {
               <div class="flex justify-end gap-2 border-t pt-4">
                 <button data-action="close-settings" class="text-gray-500 hover:text-gray-700 px-4 py-2 text-sm">Cancel</button>
                 ${this.canManageBoard ? `<button data-action="save-settings" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">Save</button>` : ''}
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    },
+
+    renderTaskModal() {
+      if (!this.taskModalEl) return;
+      if (!this.showModal || !this.selectedTask) {
+        this.taskModalEl.innerHTML = '';
+        return;
+      }
+      const task = this.selectedTask;
+      const canEdit = this.canEditBoard;
+      const dis = canEdit ? '' : 'disabled';
+
+      // --- title row ---
+      const doneLabel = task.done ? '✓ Done' : 'Mark Done';
+      const doneCls = task.done
+        ? 'bg-green-100 text-green-700 hover:bg-green-200'
+        : 'bg-gray-100 text-gray-600 hover:bg-gray-200';
+      const doneBtn = canEdit
+        ? `<button data-action="modal-toggle-done" class="flex-shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${doneCls}">${doneLabel}</button>`
+        : '';
+      const actionMenuBtn = canEdit ? `
+        <div class="relative flex-shrink-0" data-role="modal-action-menu-anchor">
+          <button
+            data-action="modal-toggle-action-menu"
+            class="px-3 py-1.5 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 text-sm font-medium transition-colors"
+            title="Objective actions"
+          >☰</button>
+          ${this._renderTaskActionMenuDropdown(task)}
+        </div>
+      ` : '';
+
+      // --- assignee ---
+      const memberOptions = this.assignableMembers.map(m => {
+        const sel = this.sameString(task.assignee_user_id, m.user_id) ? ' selected' : '';
+        return `<option value="${_escapeBoardHtml(String(m.user_id))}"${sel}>${_escapeBoardHtml(m.display_name)}</option>`;
+      }).join('');
+      const assigneeUnselected = !task.assignee_user_id ? ' selected' : '';
+
+      // --- color picker ---
+      const colorBtnClass = this.colorSwatchClass(task.color);
+      const colorSwatches = PRESET_COLORS.map(c => {
+        const cls = `${this.colorSwatchClass(c)} ${this.selectedColorClass(task.color, c)}`.trim();
+        return `<button data-action="modal-pick-color" data-color="${c}" class="w-6 h-6 rounded-full hover:scale-110 transition-transform border border-black/10 ${cls}"></button>`;
+      }).join('');
+      const colorPickerDropdown = this.taskColorPickerOpen ? `
+        <div class="absolute top-full right-0 mt-1 bg-white shadow-xl rounded-xl p-3 z-30 w-48">
+          <div class="flex flex-wrap gap-2">
+            ${colorSwatches}
+            <button data-action="modal-clear-color" class="w-6 h-6 rounded-full bg-gray-100 border border-dashed border-gray-300 flex items-center justify-center text-gray-400 text-xs hover:bg-gray-200" title="No color">✕</button>
+          </div>
+        </div>
+      ` : '';
+
+      // --- parent task ---
+      const parentSection = task.parent_task ? `
+        <div class="mb-5">
+          <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Quest</label>
+          <button data-action="modal-open-parent-task" class="w-full text-left border rounded-lg px-3 py-2 text-sm hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400">
+            <span class="text-blue-600 font-medium">${_escapeBoardHtml(task.parent_task.title || '')}</span>
+          </button>
+        </div>
+      ` : '';
+
+      // --- recurrence ---
+      const recurrenceSection = task.recurrence ? this._renderRecurrenceSection(task, canEdit) : '';
+
+      // --- description ---
+      const descVis = this.descriptionVisibilityValue(task);
+      const descVisBtns = ['default', 'show', 'hide'].map((v, i) => {
+        const border = i < 2 ? 'border-r border-gray-200' : '';
+        const cls = this.visibilityButtonClass(descVis, v);
+        return `<button type="button" data-action="modal-update-description-visibility" data-value="${v}" ${dis} class="px-2.5 py-1 text-xs font-medium transition-colors ${border} ${cls}">${v.charAt(0).toUpperCase() + v.slice(1)}</button>`;
+      }).join('');
+
+      let descContent;
+      if (this.descriptionEditing) {
+        descContent = `
+          <textarea
+            data-field="modal-description"
+            ${dis}
+            rows="5"
+            placeholder="Add a description... (supports Markdown)"
+            class="w-full border rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400"
+          >${_escapeBoardHtml(task.description || '')}</textarea>
+        `;
+      } else {
+        const descClickAttr = canEdit ? 'data-action="modal-edit-description"' : '';
+        let descInner;
+        if (task.description && task.description.trim()) {
+          descInner = renderMarkdown(task.description);
+        } else {
+          descInner = `<span class="text-gray-400 italic">Add a description...</span>`;
+        }
+        descContent = `<div ${descClickAttr} class="min-h-[60px] cursor-text rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 border border-transparent hover:border-gray-200 transition-colors prose prose-sm max-w-none">${descInner}</div>`;
+      }
+
+      // --- custom fields ---
+      const customFieldsSection = this._renderCustomFieldsSection(task, canEdit);
+
+      // --- checklist ---
+      const checklistSection = this._renderChecklistSection(task, canEdit);
+
+      this.taskModalEl.innerHTML = `
+        <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" data-action="close-task-modal">
+          <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" data-stop-propagation="true">
+            <div class="p-6">
+              <div class="flex items-start gap-3 mb-5">
+                <div class="flex-1">
+                  <input
+                    data-field="modal-title"
+                    value="${_escapeBoardHtml(task.title || '')}"
+                    ${dis}
+                    class="text-xl font-bold w-full border-b-2 border-transparent hover:border-gray-200 focus:border-blue-400 focus:outline-none py-0.5 transition-colors"
+                  >
+                </div>
+                ${doneBtn}
+                ${actionMenuBtn}
+                <button data-action="close-task-modal" class="text-gray-400 hover:text-gray-600 text-xl leading-none flex-shrink-0">×</button>
+              </div>
+
+              <div class="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-4 mb-5 items-end">
+                <div>
+                  <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Assignee</label>
+                  <select data-field="modal-assignee" ${dis} class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+                    <option value=""${assigneeUnselected}>Unassigned</option>
+                    ${memberOptions}
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Due Date</label>
+                  <input
+                    type="date"
+                    data-field="modal-due-date"
+                    value="${_escapeBoardHtml(task.due_date || '')}"
+                    ${dis}
+                    class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  >
+                </div>
+                <div class="relative pb-0.5" data-role="modal-color-picker-anchor">
+                  <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Color</label>
+                  <button
+                    data-action="modal-toggle-color-picker"
+                    ${dis}
+                    class="w-8 h-8 rounded-full border-2 border-gray-200 hover:scale-110 transition-transform shadow-sm ${colorBtnClass}"
+                    title="Pick color"
+                  ></button>
+                  ${colorPickerDropdown}
+                </div>
+              </div>
+
+              ${parentSection}
+              ${recurrenceSection}
+
+              <div class="mb-5">
+                <div class="flex items-center justify-between gap-3 mb-1">
+                  <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide">Description</label>
+                  <div class="inline-flex rounded-lg border border-gray-200 overflow-hidden flex-shrink-0">${descVisBtns}</div>
+                </div>
+                ${descContent}
+              </div>
+
+              ${customFieldsSection}
+              ${checklistSection}
+            </div>
+          </div>
+        </div>
+      `;
+
+      // Focus description textarea after render if editing
+      if (this.descriptionEditing) {
+        requestAnimationFrame(() => {
+          this.taskModalEl.querySelector('[data-field="modal-description"]')?.focus();
+        });
+      }
+    },
+
+    _renderTaskActionMenuDropdown(task) {
+      if (!this.taskActionMenuOpen) return '';
+      const typeOptions = [
+        `<option value=""${!task.task_type_id ? ' selected' : ''}>Objective (default)</option>`,
+        ...this.taskTypes.map(tt => {
+          const sel = this.sameString(task.task_type_id, tt.id) ? ' selected' : '';
+          return `<option value="${_escapeBoardHtml(String(tt.id))}"${sel}>${_escapeBoardHtml(this.taskTypeOptionLabel(tt))}</option>`;
+        }),
+      ].join('');
+      const stageOptions = this.realStages.map(stage => {
+        const sel = this.sameString(task.stage_id, stage.id) ? ' selected' : '';
+        return `<option value="${stage.id}"${sel}>${_escapeBoardHtml(stage.name)}</option>`;
+      }).join('');
+      const recurrenceToggle = task.recurrence
+        ? `<button data-action="modal-disable-recurrence-menu" class="w-full text-left text-sm text-amber-600 hover:text-amber-800 transition-colors">Stop this objective from recurring</button>`
+        : `<button data-action="modal-enable-recurrence-menu" class="w-full text-left text-sm text-blue-600 hover:text-blue-800 transition-colors">Make this a recurring objective</button>`;
+      return `
+        <div class="absolute top-full right-0 mt-1 bg-white text-gray-800 shadow-xl rounded-xl p-3 min-w-[260px] z-30 space-y-3">
+          <div>
+            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Objective Type</label>
+            <select data-field="modal-task-type" class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">${typeOptions}</select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Stage</label>
+            <select data-field="modal-stage" class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">${stageOptions}</select>
+          </div>
+          <div class="border-t pt-3">${recurrenceToggle}</div>
+          <div class="border-t pt-3">
+            <button data-action="modal-delete-task" class="w-full text-left text-sm text-red-500 hover:text-red-700 transition-colors">Delete objective</button>
+          </div>
+        </div>
+      `;
+    },
+
+    _renderRecurrenceSection(task, canEdit) {
+      const dis = canEdit ? '' : 'disabled';
+      const rec = task.recurrence;
+      const containerCls = this.recurrenceExpanded ? 'p-4' : 'px-4 py-2.5';
+      const headerCls = this.recurrenceExpanded ? 'mb-3' : '';
+      const toggleLabel = this.recurrenceExpanded ? 'Hide details' : 'Show details';
+      const stopBtn = canEdit
+        ? `<button data-action="modal-disable-recurrence" class="text-sm text-amber-600 hover:text-amber-800 px-3 py-1.5">Stop repeating</button>`
+        : '';
+
+      let expandedContent = '';
+      if (this.recurrenceExpanded) {
+        const modeOptions = [
+          `<option value="create_new"${rec.mode === 'create_new' ? ' selected' : ''}>Create a new objective</option>`,
+          `<option value="reuse_existing"${rec.mode === 'reuse_existing' ? ' selected' : ''}>Reuse this objective</option>`,
+        ].join('');
+        const freqOptions = ['daily', 'weekly', 'monthly'].map(f =>
+          `<option value="${f}"${rec.frequency === f ? ' selected' : ''}>${f.charAt(0).toUpperCase() + f.slice(1)}</option>`
+        ).join('');
+        const unitLabel = this.recurrenceUnitLabel(rec.frequency, rec.interval);
+        const spawnStageOptions = this.realStages.map(stage => {
+          const sel = this.sameString(rec.spawn_stage_id, stage.id) ? ' selected' : '';
+          return `<option value="${_escapeBoardHtml(String(stage.id))}"${sel}>${_escapeBoardHtml(stage.name)}</option>`;
+        }).join('');
+        const saveBtn = canEdit
+          ? `<button data-action="modal-save-recurrence" class="bg-blue-500 hover:bg-blue-600 text-white text-sm px-3 py-1.5 rounded-lg transition-colors">Save recurrence</button>`
+          : '';
+        expandedContent = `
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Behavior</label>
+              <select data-field="modal-recurrence-mode" ${dis} class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">${modeOptions}</select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Frequency</label>
+              <select data-field="modal-recurrence-frequency" ${dis} class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">${freqOptions}</select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Every</label>
+              <div class="flex items-center gap-2">
+                <input type="number" min="1" step="1" data-field="modal-recurrence-interval" value="${_escapeBoardHtml(String(rec.interval || 1))}" ${dis} class="w-24 border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+                <span class="text-sm text-gray-500">${_escapeBoardHtml(unitLabel)}</span>
+              </div>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Next Occurrence</label>
+              <input type="date" data-field="modal-recurrence-next-run-on" value="${_escapeBoardHtml(rec.next_run_on || '')}" ${dis} class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Start Stage</label>
+              <select data-field="modal-recurrence-spawn-stage" ${dis} class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">${spawnStageOptions}</select>
+            </div>
+          </div>
+          <div class="flex justify-end gap-2 mt-4">${saveBtn}</div>
+        `;
+      }
+
+      return `
+        <div class="mb-5 border rounded-xl bg-gray-50 ${containerCls}">
+          <div class="flex items-center justify-between gap-3 ${headerCls}">
+            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide">Recurrence</label>
+            <div class="flex items-center gap-2">
+              <button data-action="modal-toggle-recurrence-expanded" class="text-sm text-gray-500 hover:text-gray-700 px-3 py-1.5">${_escapeBoardHtml(toggleLabel)}</button>
+              ${stopBtn}
+            </div>
+          </div>
+          ${expandedContent}
+        </div>
+      `;
+    },
+
+    _renderCustomFieldsSection(task, canEdit) {
+      const taskType = this.selectedTaskType;
+      if (!taskType || !taskType.custom_fields || !taskType.custom_fields.length) return '';
+      const dis = canEdit ? '' : 'disabled';
+      const fields = taskType.custom_fields.map(field => {
+        const currentValue = this.selectedTaskCustomFieldValue(field);
+        let input;
+        if (field.field_type === 'dropdown') {
+          const blankOpt = `<option value="">— select —</option>`;
+          const opts = (field.options || []).map(opt => {
+            const label = this.customFieldOptionLabel(opt);
+            const sel = currentValue === label ? ' selected' : '';
+            return `<option value="${_escapeBoardHtml(label)}"${sel}>${_escapeBoardHtml(label)}</option>`;
+          }).join('');
+          input = `<select data-field="modal-custom-field" data-field-id="${field.id}" ${dis} class="flex-1 border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">${blankOpt}${opts}</select>`;
+        } else {
+          const type = this.selectedTaskInputType(field);
+          input = `<input type="${type}" data-field="modal-custom-field" data-field-id="${field.id}" value="${_escapeBoardHtml(String(currentValue))}" ${dis} placeholder="${_escapeBoardHtml(field.name)}" class="flex-1 border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">`;
+        }
+        return `
+          <div class="flex items-center gap-3">
+            <label class="text-sm text-gray-600 w-1/3 flex-shrink-0">${_escapeBoardHtml(field.name)}</label>
+            ${input}
+          </div>
+        `;
+      }).join('');
+      return `
+        <div class="mb-5">
+          <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Custom Fields</label>
+          <div class="space-y-2">${fields}</div>
+        </div>
+      `;
+    },
+
+    _renderChecklistSection(task, canEdit) {
+      const dis = canEdit ? '' : 'disabled';
+      const checklist = task.checklist || [];
+      const summary = checklist.length ? ` <span class="ml-1 normal-case font-normal text-gray-400">(${this.checklistProgress(task)})</span>` : '';
+      const epicBadge = this.selectedTaskType?.is_epic
+        ? `<span class="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-medium">⚡ Items spawn objectives</span>`
+        : '';
+
+      const checklistVis = this.checklistVisibilityValue(task);
+      const clVisBtns = ['default', 'show', 'hide'].map((v, i) => {
+        const border = i < 2 ? 'border-r border-gray-200' : '';
+        const cls = this.visibilityButtonClass(checklistVis, v);
+        return `<button type="button" data-action="modal-update-checklist-visibility" data-value="${v}" ${dis} class="px-2.5 py-1 text-xs font-medium transition-colors ${border} ${cls}">${v.charAt(0).toUpperCase() + v.slice(1)}</button>`;
+      }).join('');
+
+      const progressBar = checklist.length
+        ? `<progress class="checklist-progress mb-2" max="100" value="${this.checklistPercent(task)}"></progress>`
+        : '';
+
+      const items = checklist.map(item => {
+        const checked = item.done ? ' checked' : '';
+        const containerCls = this.linkedChecklistItemContainerClass(item);
+
+        let textOrEdit;
+        if (item._editing === true) {
+          textOrEdit = `
+            <input
+              data-field="modal-checklist-item-edit"
+              data-item-id="${item.id}"
+              value="${_escapeBoardHtml(item._draft_title || item.title || '')}"
+              class="flex-1 min-w-0 border rounded-md px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+            >
+          `;
+        } else {
+          const textCls = this.linkedChecklistItemTextClass(item);
+          const titleAttr = item.spawned_task_id ? ' title="Open linked objective"' : '';
+          const clickAttr = item.spawned_task_id ? `data-action="modal-open-spawned-task" data-task-id="${item.spawned_task_id}"` : '';
+          const linkIcon = item.spawned_task_id
+            ? `<span data-action="modal-open-spawned-task" data-task-id="${item.spawned_task_id}" class="checklist-linked-icon flex-shrink-0 text-xs" title="Open linked objective">↗</span>`
+            : '';
+          textOrEdit = `
+            <span ${clickAttr} class="text-sm min-w-0 ${textCls}"${titleAttr}>${_escapeBoardHtml(item.title || '')}</span>
+            ${linkIcon}
+          `;
+        }
+
+        const editBtn = canEdit && item._editing !== true
+          ? `<button data-action="modal-edit-checklist-item" data-item-id="${item.id}" class="text-gray-200 hover:text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 text-xs" title="Edit item">✎</button>`
+          : '';
+        const deleteBtn = canEdit
+          ? `<button data-action="modal-delete-checklist-item" data-item-id="${item.id}" class="text-gray-200 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" title="Delete item">×</button>`
+          : '';
+
+        return `
+          <div class="flex items-center gap-2 group">
+            <input type="checkbox" data-action="modal-toggle-checklist-item" data-item-id="${item.id}"${checked} ${dis} class="h-4 w-4 rounded accent-blue-500 flex-shrink-0">
+            <div class="flex flex-1 items-center gap-1.5 min-w-0 ${containerCls}">
+              ${textOrEdit}
+            </div>
+            ${editBtn}
+            ${deleteBtn}
+          </div>
+        `;
+      }).join('');
+
+      const addItemInput = `
+        <div class="flex gap-2">
+          <input
+            data-field="modal-new-checklist-item"
+            value="${_escapeBoardHtml(this.newChecklistItem)}"
+            ${dis}
+            placeholder="Add an item..."
+            class="flex-1 border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+          >
+          ${canEdit ? `<button data-action="modal-add-checklist-item" class="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm px-3 py-1.5 rounded-lg transition-colors">Add</button>` : ''}
+        </div>
+      `;
+
+      return `
+        <div class="mb-5">
+          <div class="flex items-center justify-between gap-3 mb-2">
+            <label class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Checklist${summary}</label>
+            <div class="flex items-center gap-2 flex-wrap justify-end">
+              ${epicBadge}
+              <div class="inline-flex rounded-lg border border-gray-200 overflow-hidden flex-shrink-0">${clVisBtns}</div>
+            </div>
+          </div>
+          ${progressBar}
+          <div class="space-y-1.5 mb-2">${items}</div>
+          ${addItemInput}
+        </div>
+      `;
+    },
+
+    renderLogConfigModal() {
+      if (!this.logConfigModalEl) return;
+      if (!this.showLogConfig || !this.logConfigStage) {
+        this.logConfigModalEl.innerHTML = '';
+        return;
+      }
+      const stage = this.logConfigStage;
+      const isLogChecked = stage.is_log ? ' checked' : '';
+      const filterOptions = this.savedFilters.map(f => {
+        const sel = this.sameString(stage.filter_id, f.id) ? ' selected' : '';
+        return `<option value="${_escapeBoardHtml(String(f.id))}"${sel}>${_escapeBoardHtml(f.name)}</option>`;
+      }).join('');
+      const allSelected = !stage.filter_id ? ' selected' : '';
+      const filterSection = stage.is_log ? `
+        <div class="space-y-3">
+          <div>
+            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Saved Filter</label>
+            <select data-field="log-config-filter-id" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400">
+              <option value=""${allSelected}>All objectives</option>
+              ${filterOptions}
+            </select>
+            <a href="${_escapeBoardHtml(this.logConfigFiltersHref)}" class="inline-block mt-2 text-xs text-sky-600 hover:text-sky-700">Manage filters</a>
+            ${this.showLogConfigFiltersEmptyState ? '<p class="mt-2 text-xs text-gray-400">No saved filters yet.</p>' : ''}
+          </div>
+        </div>
+      ` : '';
+
+      this.logConfigModalEl.innerHTML = `
+        <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" data-action="close-log-config">
+          <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md" data-stop-propagation="true">
+            <div class="p-6">
+              <div class="flex items-center justify-between mb-5">
+                <h2 class="text-lg font-bold text-gray-800">Stage Settings</h2>
+                <button data-action="close-log-config" class="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+              </div>
+              <label class="flex items-center gap-2 text-sm text-gray-700 mb-4">
+                <input type="checkbox" data-field="log-config-is-log"${isLogChecked} class="h-4 w-4 rounded accent-sky-500">
+                Log stage
+              </label>
+              ${filterSection}
+              <div class="flex justify-end gap-2 border-t pt-4 mt-5">
+                <button data-action="close-log-config" class="text-gray-500 hover:text-gray-700 px-4 py-2 text-sm">Cancel</button>
+                <button data-action="save-log-config" class="bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">Save</button>
               </div>
             </div>
           </div>
@@ -1624,6 +2359,7 @@ function board() {
       this.taskActionMenuOpen = false;
       this.taskColorPickerOpen = false;
       this.showModal = true;
+      this.renderTaskModal();
     },
 
     closeModal() {
@@ -1633,6 +2369,8 @@ function board() {
       this.newChecklistItem = '';
       this.taskActionMenuOpen = false;
       this.taskColorPickerOpen = false;
+      this.selectedTask = null;
+      this.renderTaskModal();
     },
 
     async openSpawnedTask(taskId) {
@@ -1654,6 +2392,7 @@ function board() {
       this.descriptionEditing = false;
       this.taskActionMenuOpen = false;
       this.taskColorPickerOpen = false;
+      this.renderTaskModal();
     },
 
     toggleStageMenu(stageId) {
@@ -1670,18 +2409,22 @@ function board() {
 
     toggleTaskActionMenu() {
       this.taskActionMenuOpen = !this.taskActionMenuOpen;
+      this.renderTaskModal();
     },
 
     closeTaskActionMenu() {
       this.taskActionMenuOpen = false;
+      this.renderTaskModal();
     },
 
     toggleTaskColorPicker() {
       this.taskColorPickerOpen = !this.taskColorPickerOpen;
+      this.renderTaskModal();
     },
 
     closeTaskColorPicker() {
       this.taskColorPickerOpen = false;
+      this.renderTaskModal();
     },
 
     selectedTaskColorStyle() {
@@ -1734,6 +2477,7 @@ function board() {
       const updated = await res.json();
       this.selectedTask = this._normalizeSelectedTask(updated);
       this._syncTaskInStages(updated);
+      this.renderTaskModal();
       if (field === 'title' && this.selectedTask.parent_task) {
         await this.loadStages();
       }
@@ -1750,6 +2494,7 @@ function board() {
       const updated = await res.json();
       this.selectedTask = this._normalizeSelectedTask(updated);
       this._syncTaskInStages(updated);
+      this.renderTaskModal();
     },
 
     async updateAssignee() {
@@ -1763,6 +2508,7 @@ function board() {
       const updated = await res.json();
       this.selectedTask = this._normalizeSelectedTask(updated);
       this._syncTaskInStages(updated);
+      this.renderTaskModal();
     },
 
     async updateCustomField(fieldDefId, value) {
@@ -1775,6 +2521,7 @@ function board() {
       const updated = await res.json();
       this.selectedTask.custom_field_values = updated.custom_field_values;
       this._syncTaskInStages(updated);
+      this.renderTaskModal();
     },
 
     async updateDescriptionVisibility(value) {
@@ -1827,6 +2574,7 @@ function board() {
       } else {
         this.selectedTask = this._normalizeSelectedTask(updated);
       }
+      this.renderTaskModal();
     },
 
     async moveTask() {
@@ -1864,6 +2612,7 @@ function board() {
       this.selectedTask.checklist.push(item);
       this._syncTaskInStages(this.selectedTask);
       this.newChecklistItem = '';
+      this.renderTaskModal();
       if (item.spawned_task_id) {
         // Reload to show the spawned task on the board
         await this.loadStages();
@@ -1881,6 +2630,7 @@ function board() {
       const idx = this.selectedTask.checklist.findIndex(i => i.id === item.id);
       if (idx !== -1) this.selectedTask.checklist[idx] = updated;
       this._syncTaskInStages(this.selectedTask);
+      this.renderTaskModal();
       // Reload board if this item has a spawned task (automation may have moved it)
       if (item.spawned_task_id) await this.loadStages();
     },
@@ -1982,6 +2732,13 @@ function board() {
       this.logConfigStage = JSON.parse(JSON.stringify(stage));
       this.logConfigStage.filter_id = this.logConfigStage.filter_id ? String(this.logConfigStage.filter_id) : '';
       this.showLogConfig = true;
+      this.renderLogConfigModal();
+    },
+
+    closeLogConfig() {
+      this.showLogConfig = false;
+      this.logConfigStage = null;
+      this.renderLogConfigModal();
     },
 
     async saveLogConfig() {
@@ -1998,6 +2755,7 @@ function board() {
       });
       this.showLogConfig = false;
       this.logConfigStage = null;
+      this.renderLogConfigModal();
       await this.loadStages();
     },
 
@@ -2354,6 +3112,7 @@ function board() {
         return {...stage, tasks};
       });
       if (!changed) return;
+      this.renderBoardSurface();
     },
 
     _findTaskInStages(taskId) {
@@ -2597,6 +3356,7 @@ function board() {
       if (!this.canEditBoard) return;
       this.selectedTask.recurrence = this.selectedTask.recurrence || this.defaultRecurrenceForTask(this.selectedTask);
       this.recurrenceExpanded = true;
+      this.renderTaskModal();
     },
 
     async disableRecurrence() {
@@ -2628,6 +3388,7 @@ function board() {
       this.selectedTask.recurrence.spawn_stage_id = String(this.selectedTask.recurrence.spawn_stage_id);
       this.selectedTask.recurrence._persisted = true;
       this._syncTaskInStages(this.selectedTask);
+      this.renderTaskModal();
     },
 
     async deleteRecurrence() {
@@ -2637,6 +3398,7 @@ function board() {
         this.selectedTask.recurrence = null;
         this.recurrenceExpanded = false;
         this._syncTaskInStages(this.selectedTask);
+        this.renderTaskModal();
         return;
       }
       const res = await fetch(`/api/tasks/${this.selectedTask.id}/recurrence`, {
@@ -2650,6 +3412,7 @@ function board() {
       this.selectedTask.recurrence = null;
       this.recurrenceExpanded = false;
       this._syncTaskInStages(this.selectedTask);
+      this.renderTaskModal();
     },
 
     getRequestedTaskId() {
