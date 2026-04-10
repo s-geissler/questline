@@ -121,12 +121,13 @@
                       </div>
                       <div x-show="canEditBoard" @click.outside="closeStageMenu()" class="relative ml-2 flex-shrink-0">
                         <button
-                          @click="toggleStageMenu(column.topStage.id)"
+                          @click.stop="toggleStageMenu(column.topStage.id)"
                           class="text-gray-400 hover:text-gray-700 px-2 py-1 rounded hover:bg-white transition-colors text-lg leading-none"
                           title="Stage actions"
                         >☰</button>
                         <div
                           x-show="isStageMenuOpen(column.topStage.id)"
+                          @click.stop
                           x-cloak
                           x-transition:enter="transition ease-out duration-100"
                           x-transition:enter-start="opacity-0 scale-95"
@@ -362,12 +363,13 @@
                       </div>
                       <div x-show="canEditBoard" @click.outside="closeStageMenu()" class="relative ml-2 flex-shrink-0">
                         <button
-                          @click="toggleStageMenu(column.bottomStage.id)"
+                          @click.stop="toggleStageMenu(column.bottomStage.id)"
                           class="text-gray-400 hover:text-gray-700 px-2 py-1 rounded hover:bg-white transition-colors text-lg leading-none"
                           title="Stage actions"
                         >☰</button>
                         <div
                           x-show="isStageMenuOpen(column.bottomStage.id)"
+                          @click.stop
                           x-cloak
                           x-transition:enter="transition ease-out duration-100"
                           x-transition:enter-start="opacity-0 scale-95"
