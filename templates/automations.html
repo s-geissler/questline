@@ -2,24 +2,23 @@
 {% block content %}
 
 <div
-  x-data="automationsPage"
-  x-init="init"
-  x-cloak
+  id="automations-root"
   class="max-w-3xl mx-auto p-6"
   data-board-id="{{ board.id }}"
   data-board-role='{{ board_role | tojson }}'
 >
 
-  <div x-show="!canEdit" class="mb-6 bg-white/85 text-slate-700 text-sm rounded-xl px-4 py-3 shadow">
+  <div id="readonly-banner" class="mb-6 bg-white/85 text-slate-700 text-sm rounded-xl px-4 py-3 shadow" style="display:none;">
     Read-only access. Viewers can inspect automations but cannot change them.
   </div>
 
   <div class="flex items-center justify-between mb-6">
     <h1 class="text-2xl font-bold text-white">Automations</h1>
     <button
-      x-show="canEdit"
-      @click="showCreateForm = !showCreateForm"
+      id="new-auto-btn"
+      data-action="show-create-form"
       class="bg-white text-blue-700 font-semibold px-4 py-2 rounded-lg hover:bg-blue-50 transition-colors shadow"
+      style="display:none;"
     >+ New Automation</button>
   </div>
 
@@ -29,13 +28,14 @@
   </p>
 
   <!-- Create form -->
-  <div x-show="showCreateForm && canEdit" class="bg-white rounded-xl shadow p-5 mb-5">
+  <div id="create-form" class="bg-white rounded-xl shadow p-5 mb-5" style="display:none;">
     <h2 class="font-semibold text-gray-700 mb-4">New Automation</h2>
 
     <div class="mb-3">
       <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Automation Name</label>
       <input
-        x-model="newAuto.name"
+        id="auto-name-input"
+        type="text"
         placeholder="e.g. Move done objectives to Done stage"
         class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
       >
@@ -47,7 +47,7 @@
         <div class="mb-3">
           <label class="block text-xs text-gray-500 mb-1">When...</label>
           <select
-            x-model="newAuto.trigger_type"
+            id="auto-trigger-type"
             class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white"
           >
             <option value="task_created">An objective is created</option>
@@ -59,13 +59,10 @@
         <div>
           <label class="block text-xs text-gray-500 mb-1">Stage filter (optional — leave blank for any)</label>
           <select
-            x-model="newAuto.trigger_stage_id"
+            id="auto-trigger-stage-id"
             class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white"
           >
             <option value="">Any stage</option>
-            <template x-for="stage in stages" :key="stage.id">
-              <option :value="stage.id" x-text="stage.name"></option>
-            </template>
           </select>
         </div>
       </div>
@@ -75,7 +72,7 @@
         <div class="mb-3">
           <label class="block text-xs text-gray-500 mb-1">Then...</label>
           <select
-            x-model="newAuto.action_type"
+            id="auto-action-type"
             class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400 bg-white"
           >
             <option value="move_to_stage">Move objective to stage</option>
@@ -85,119 +82,62 @@
             <option value="set_due_in_days">Set due date in N days</option>
           </select>
         </div>
-        <div x-show="newAuto.action_type === 'move_to_stage'">
+        <div id="action-stage-div" style="display:none;">
           <label class="block text-xs text-gray-500 mb-1">Target stage</label>
           <select
-            x-model="newAuto.action_stage_id"
+            id="auto-action-stage-id"
             class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400 bg-white"
           >
             <option value="">Select a stage...</option>
-            <template x-for="stage in stages" :key="stage.id">
-              <option :value="stage.id" x-text="stage.name"></option>
-            </template>
           </select>
         </div>
-        <div x-show="newAuto.action_type === 'set_task_type'">
+        <div id="action-task-type-div" style="display:none;">
           <label class="block text-xs text-gray-500 mb-1">Target type</label>
           <select
-            x-model="newAuto.action_task_type_id"
+            id="auto-action-task-type-id"
             class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400 bg-white"
           >
             <option value="">Select a type...</option>
-            <template x-for="taskType in taskTypes" :key="taskType.id">
-              <option :value="taskType.id" x-text="taskType.name"></option>
-            </template>
           </select>
         </div>
-        <div x-show="newAuto.action_type === 'set_due_in_days'">
+        <div id="action-due-in-days-div" style="display:none;">
           <label class="block text-xs text-gray-500 mb-1">Days from trigger</label>
           <input
+            id="auto-action-days-offset"
             type="number"
-            x-model="newAuto.action_days_offset"
             class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
             placeholder="e.g. 7"
           >
         </div>
-        <div x-show="newAuto.action_type === 'set_color'">
+        <div id="action-color-div" style="display:none;">
           <label class="block text-xs text-gray-500 mb-1">Card color</label>
-          <div class="flex flex-wrap gap-2">
-            <template x-for="c in PRESET_COLORS" :key="c">
-              <button
-                @click="newAuto.action_color = c"
-                class="w-6 h-6 rounded-full border border-black/10"
-                :class="automationColorClass(c)"
-              ></button>
-            </template>
-            <button
-              @click="newAuto.action_color = null"
-              class="w-6 h-6 rounded-full bg-gray-100 border border-dashed border-gray-300 flex items-center justify-center text-gray-400 text-xs"
-              :class="clearAutomationColorClass()"
-            >✕</button>
-          </div>
+          <div id="color-swatches" class="flex flex-wrap gap-2"></div>
         </div>
       </div>
     </div>
 
     <div class="flex gap-2">
       <button
-        @click="createAuto()"
+        id="create-auto-submit"
+        data-action="create-auto"
         class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
       >Create Automation</button>
       <button
-        @click="showCreateForm = false"
+        id="create-auto-cancel"
+        data-action="cancel-create-form"
         class="text-gray-500 hover:text-gray-700 px-3 py-2 text-sm"
       >Cancel</button>
     </div>
   </div>
 
   <!-- Automations list -->
-  <div class="space-y-3">
-    <template x-for="auto in automations" :key="auto.id">
-      <div
-        class="bg-white rounded-xl shadow p-4 flex items-center gap-4"
-        :class="auto.enabled ? '' : 'opacity-60'"
-      >
-        <!-- Enable toggle -->
-        <button
-          x-show="canEdit"
-          @click="toggleEnabled(auto)"
-          class="flex-shrink-0 w-10 h-6 rounded-full transition-colors relative"
-          :class="auto.enabled ? 'bg-blue-500' : 'bg-gray-300'"
-          :title="auto.enabled ? 'Disable' : 'Enable'"
-        >
-          <span
-            class="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"
-            :class="auto.enabled ? 'translate-x-4' : 'translate-x-0'"
-          ></span>
-        </button>
+  <div id="automations-list" class="space-y-3"></div>
 
-        <!-- Description -->
-        <div class="flex-1 min-w-0">
-          <div class="font-medium text-gray-800 text-sm" x-text="auto.name"></div>
-          <div class="text-xs text-gray-400 mt-0.5">
-            <span class="text-orange-500 font-medium">When</span>
-            <span x-text="triggerLabel(auto)"></span>
-            <span class="mx-1 text-gray-300">→</span>
-            <span class="text-green-600 font-medium">Then</span>
-            <span x-text="actionLabel(auto)"></span>
-          </div>
-        </div>
-
-        <!-- Delete -->
-        <button
-          x-show="canEdit"
-          @click="deleteAuto(auto)"
-          class="text-gray-300 hover:text-red-500 transition-colors text-xl leading-none flex-shrink-0"
-          title="Delete automation"
-        >×</button>
-      </div>
-    </template>
-
-    <p
-      x-show="automations.length === 0"
-      class="text-white text-center opacity-70 py-8"
-    >No automations yet. Create one to automate your workflow.</p>
-  </div>
+  <p
+    id="automations-empty"
+    class="text-white text-center opacity-70 py-8"
+    style="display:none;"
+  >No automations yet. Create one to automate your workflow.</p>
 
 </div>
 
