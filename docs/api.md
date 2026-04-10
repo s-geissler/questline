@@ -97,32 +97,45 @@ Mark all notifications for the current user as read.
 
 ---
 
-## Boards
+## Hubs
 
 ### `GET /api/boards`
 
-Returns all boards accessible to the current user (all boards for admins, memberships only for regular users).
+Returns all hubs accessible to the current user.
+
+- Regular users only receive hubs they are a member of.
+- Admin users receive all hubs, but the frontend overview now uses the `is_owner` flag to show only hubs they own by default.
 
 ```json
-[{ "id": 1, "name": "My Board", "color": "#3498db", "position": 0, "role": "owner", "is_shared": false }]
+[
+  {
+    "id": 1,
+    "name": "My Hub",
+    "color": "#3498db",
+    "position": 0,
+    "role": "owner",
+    "is_shared": false,
+    "is_owner": true
+  }
+]
 ```
 
 ---
 
 ### `POST /api/boards`
 
-Create a board. Creator is automatically added as owner.
+Create a hub. Creator is automatically added as owner.
 
 **Body**
 ```json
-{ "name": "Sprint Board", "color": "#e74c3c" }
+{ "name": "Sprint Hub", "color": "#e74c3c" }
 ```
 
 ---
 
 ### `PUT /api/boards/{board_id}`
 
-Update board name and/or color. Requires `owner` role.
+Update hub name and/or color. Requires `owner` role.
 
 **Body** (all fields optional)
 ```json
@@ -133,11 +146,11 @@ Update board name and/or color. Requires `owner` role.
 
 ### `DELETE /api/boards/{board_id}`
 
-Delete a board and all its contents. Requires `owner` role.
+Delete a hub and all its contents. Requires `owner` role.
 
 ---
 
-## Board Members
+## Hub Members
 
 ### `GET /api/boards/{board_id}/members`
 
@@ -186,7 +199,7 @@ Remove a member. Requires `owner` role. Cannot remove the last owner.
 
 ### `GET /api/stages?board_id={id}`
 
-Returns all stages for a board, ordered by position. Requires `viewer`.
+Returns all stages for a hub, ordered by position. Requires `viewer`.
 
 **Stage object**
 ```json
@@ -654,20 +667,101 @@ All admin endpoints require the `admin` instance role.
 
 ### `GET /api/admin/users`
 
-Returns all users with board membership counts.
+Returns all users with hub membership counts.
+
+Each user record includes:
+
+```json
+{
+  "id": 1,
+  "email": "user@example.com",
+  "display_name": "Alice",
+  "role": "admin",
+  "is_active": true,
+  "password_reset_requested": false,
+  "board_count": 3
+}
+```
+
+---
+
+### `GET /api/admin/boards`
+
+Returns all hubs for admin review, with orphaned hubs sorted first.
+
+```json
+[
+  {
+    "id": 1,
+    "name": "Operations",
+    "color": "#3b82f6",
+    "owner_user_id": 4,
+    "owner_display_name": "Alice",
+    "owner_email": "alice@example.com",
+    "member_count": 3,
+    "is_orphan": false
+  }
+]
+```
 
 ---
 
 ### `PUT /api/admin/users/{user_id}`
 
-Update a user's role or active status.
+Update a user's role, active status, password-recovery flag, and/or password.
 
 **Body**
 ```json
-{ "role": "admin", "is_active": true }
+{
+  "role": "admin",
+  "is_active": true,
+  "password_reset_requested": false,
+  "password": "newpassword123"
+}
 ```
 
-Deactivating a user immediately invalidates all their sessions. The last admin cannot be demoted. A user cannot deactivate their own account.
+Notes:
+
+- Deactivating a user immediately invalidates all their sessions.
+- Setting a password as admin also invalidates all of that user's sessions and clears any pending password recovery request.
+- The last admin cannot be demoted.
+- A user cannot deactivate their own account.
+
+---
+
+### `DELETE /api/admin/users/{user_id}`
+
+Delete a user account.
+
+Notes:
+
+- A user cannot delete their own account.
+- The last admin cannot be deleted.
+- If the deleted user owned hubs, ownership is reassigned to another existing `owner` membership when available; otherwise the hub becomes orphaned.
+
+---
+
+### `PUT /api/admin/boards/{board_id}/owner`
+
+Assign hub ownership to an existing user.
+
+**Body**
+```json
+{ "user_id": 12 }
+```
+
+The selected user is ensured to have an `owner` membership on that hub.
+
+---
+
+### `POST /api/admin/actions/delete-orphaned-boards`
+
+Delete every orphaned hub (`owner_user_id = null`).
+
+**Returns**
+```json
+{ "ok": true, "deleted_count": 2 }
+```
 
 ---
 

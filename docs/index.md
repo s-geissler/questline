@@ -1,6 +1,6 @@
 # Questline
 
-Questline is a self-hosted project management tool built around a kanban-style board. Work is organized into **Hubs** (boards), **Stages** (columns), and **Objectives** (tasks). Objectives can be grouped under **Quests** (epics) whose checklist items automatically spawn child objectives.
+Questline is a self-hosted project management tool built around **Hubs**. Work is organized into **Hubs** (the top-level workspaces), **Stages** (columns), and **Objectives** (tasks). Objectives can be grouped under **Quests** (epics) whose checklist items automatically spawn child objectives.
 
 Objectives can also be configured to **repeat on a schedule**. Recurrence is attached to an individual objective, generates future copies into an explicit start stage, and is processed by a background worker.
 
@@ -38,12 +38,12 @@ The first registered account is automatically promoted to admin.
 
 | Path | Description |
 |---|---|
-| `/` | Hub overview / home page |
-| `/board/{id}` | Board view |
+| `/` | Owned hub overview / home page |
+| `/board/{id}` | Hub view |
 | `/board/{id}/task-types` | Task type configuration |
 | `/board/{id}/automations` | Automation rules |
 | `/board/{id}/filters` | Saved filters |
-| `/admin` | Admin panel (admin-only) |
+| `/admin` | Admin panel (admin-only, includes user management, hub review, and housekeeping actions) |
 | `/login` | Login page |
 | `/register` | Registration page |
 | `/docs` | Auto-generated OpenAPI docs (FastAPI) |

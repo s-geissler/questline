@@ -772,6 +772,10 @@ class AdminUserUpdate(BaseModel):
     password: Optional[str] = Field(default=None, max_length=MAX_PASSWORD_LENGTH)
 
 
+class AdminBoardOwnerUpdate(BaseModel):
+    user_id: int
+
+
 class AdminSettingsUpdate(BaseModel):
     registration_enabled: bool
     default_board_color: Optional[str] = None
@@ -1786,6 +1790,7 @@ def get_boards(request: Request, db: Session = Depends(get_db)):
             "position": b.position,
             "role": role_map.get(b.id),
             "is_shared": shared_map.get(b.id, False),
+            "is_owner": b.owner_user_id == user.id,
         }
         for b in boards
     ]
@@ -1916,6 +1921,33 @@ def delete_admin_orphaned_boards(request: Request, db: Session = Depends(get_db)
         },
     )
     return {"ok": True, "deleted_count": deleted_count}
+
+
+@app.put("/api/admin/boards/{board_id}/owner")
+def assign_admin_board_owner(board_id: int, data: AdminBoardOwnerUpdate, request: Request, db: Session = Depends(get_db)):
+    current_user = require_admin(request, db)
+    board = db.query(models.Board).filter(models.Board.id == board_id).first()
+    if not board:
+        raise HTTPException(status_code=404, detail="Board not found")
+    user = db.query(models.User).filter(models.User.id == data.user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    previous_owner_user_id = board.owner_user_id
+    board.owner_user_id = user.id
+    ensure_board_membership(board, user, "owner", db)
+    db.commit()
+    _audit_log(
+        "admin_board_owner_assigned",
+        request=request,
+        actor_user_id=current_user.id,
+        target_user_id=user.id,
+        details={
+            "board_id": board.id,
+            "previous_owner_user_id": previous_owner_user_id,
+            "new_owner_user_id": user.id,
+        },
+    )
+    return {"ok": True}
 
 
 @app.get("/api/admin/settings")

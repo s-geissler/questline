@@ -17,7 +17,10 @@ function _createAdmin() {
     userSearch: '',
     passwordDialogUserId: null,
     savingPasswordForUserId: null,
-    openActionsUserId: null,
+    ownershipDialogBoardId: null,
+    assigningOwnershipForBoardId: null,
+    openUserActionsUserId: null,
+    openBoardActionsBoardId: null,
     deletingUserId: null,
     deletingBoardId: null,
     deletingOrphanedBoards: false,
@@ -123,7 +126,15 @@ function _createAdmin() {
       document.getElementById('admin-root')?.addEventListener('click', event => {
         const target = event.target.closest('[data-action]');
         const action = target?.dataset.action;
-        if (!target) return;
+        if (!target) {
+          if (this.openUserActionsUserId !== null || this.openBoardActionsBoardId !== null) {
+            this.openUserActionsUserId = null;
+            this.openBoardActionsBoardId = null;
+            this.renderUsers();
+            this.renderBoards();
+          }
+          return;
+        }
         event.stopPropagation();
         if (action === 'save-settings') { this.saveSettings(); return; }
         if (action === 'select-board-color') {
@@ -150,7 +161,7 @@ function _createAdmin() {
           const userId = parseInt(target.dataset.userId, 10);
           const user = this.users.find(u => u.id === userId);
           if (user) this.updatePasswordResetRequested(user, false);
-          this.openActionsUserId = null;
+          this.openUserActionsUserId = null;
           this.renderUsers();
           return;
         }
@@ -158,39 +169,63 @@ function _createAdmin() {
           const userId = parseInt(target.dataset.userId, 10);
           const user = this.users.find(u => u.id === userId);
           if (user) this.openPasswordDialog(user);
-          this.openActionsUserId = null;
+          this.openUserActionsUserId = null;
           this.renderUsers();
           return;
         }
         if (action === 'toggle-user-actions') {
           const userId = parseInt(target.dataset.userId, 10);
-          this.openActionsUserId = this.openActionsUserId === userId ? null : userId;
+          this.openUserActionsUserId = this.openUserActionsUserId === userId ? null : userId;
+          this.openBoardActionsBoardId = null;
           this.renderUsers();
+          this.renderBoards();
           return;
         }
         if (action === 'delete-user') {
           const userId = parseInt(target.dataset.userId, 10);
           const user = this.users.find(u => u.id === userId);
           if (user) this.deleteUser(user);
-          this.openActionsUserId = null;
+          this.openUserActionsUserId = null;
           this.renderUsers();
+          return;
+        }
+        if (action === 'toggle-board-actions') {
+          const boardId = parseInt(target.dataset.boardId, 10);
+          this.openBoardActionsBoardId = this.openBoardActionsBoardId === boardId ? null : boardId;
+          this.openUserActionsUserId = null;
+          this.renderUsers();
+          this.renderBoards();
+          return;
+        }
+        if (action === 'open-assign-ownership-dialog') {
+          const boardId = parseInt(target.dataset.boardId, 10);
+          const board = this.boards.find(b => b.id === boardId);
+          if (board) this.openOwnershipDialog(board);
+          this.openBoardActionsBoardId = null;
+          this.renderBoards();
           return;
         }
         if (action === 'delete-board') {
           const boardId = parseInt(target.dataset.boardId, 10);
           const board = this.boards.find(b => b.id === boardId);
           if (board) this.deleteBoard(board);
+          this.openBoardActionsBoardId = null;
+          this.renderBoards();
           return;
         }
-        this.openActionsUserId = null;
+        this.openUserActionsUserId = null;
+        this.openBoardActionsBoardId = null;
         this.renderUsers();
+        this.renderBoards();
       });
 
       document.addEventListener('click', event => {
-        if (this.openActionsUserId === null) return;
+        if (this.openUserActionsUserId === null && this.openBoardActionsBoardId === null) return;
         if (event.target.closest('#admin-root')) return;
-        this.openActionsUserId = null;
+        this.openUserActionsUserId = null;
+        this.openBoardActionsBoardId = null;
         this.renderUsers();
+        this.renderBoards();
       });
 
       document.getElementById('admin-users-list')?.addEventListener('change', event => {
@@ -220,10 +255,25 @@ function _createAdmin() {
         this.resetPasswordDialog();
       });
 
+      document.getElementById('admin-ownership-form')?.addEventListener('submit', event => {
+        event.preventDefault();
+        this.submitOwnershipDialog();
+      });
+
+      document.getElementById('admin-ownership-cancel-btn')?.addEventListener('click', () => {
+        this.closeOwnershipDialog();
+      });
+
+      document.getElementById('admin-ownership-dialog')?.addEventListener('close', () => {
+        this.resetOwnershipDialog();
+      });
+
       document.addEventListener('keydown', event => {
-        if (event.key === 'Escape' && this.openActionsUserId !== null) {
-          this.openActionsUserId = null;
+        if (event.key === 'Escape' && (this.openUserActionsUserId !== null || this.openBoardActionsBoardId !== null)) {
+          this.openUserActionsUserId = null;
+          this.openBoardActionsBoardId = null;
           this.renderUsers();
+          this.renderBoards();
         }
       });
     },
@@ -271,7 +321,7 @@ function _createAdmin() {
           : '<span class="text-sm text-gray-400">None</span>';
         const savingPassword = this.savingPasswordForUserId === user.id;
         const deletingUser = this.deletingUserId === user.id;
-        const actionsOpen = this.openActionsUserId === user.id;
+        const actionsOpen = this.openUserActionsUserId === user.id;
         const rowLayerClass = actionsOpen ? 'relative z-20' : 'relative z-0';
         const clearRecoveryAction = user.password_reset_requested
           ? `<button type="button" data-action="clear-password-reset-request" data-user-id="${user.id}" class="block w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50">Clear recovery request</button>`
@@ -327,7 +377,7 @@ function _createAdmin() {
       const el = document.getElementById('admin-boards-list');
       if (!el) return;
       if (!this.boards.length) {
-        el.innerHTML = '<div class="px-5 py-4 text-sm text-gray-500">No boards found.</div>';
+        el.innerHTML = '<div class="px-5 py-4 text-sm text-gray-500">No hubs found.</div>';
         return;
       }
       el.innerHTML = this.boards.map(board => {
@@ -344,27 +394,55 @@ function _createAdmin() {
           ? '<span class="inline-flex items-center rounded-full bg-amber-100 text-amber-700 px-2 py-0.5 text-xs font-medium">Orphaned</span>'
           : '<span class="inline-flex items-center rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5 text-xs font-medium">Owned</span>';
         const deletingBoard = this.deletingBoardId === board.id;
+        const assigningOwnership = this.assigningOwnershipForBoardId === board.id;
+        const actionsOpen = this.openBoardActionsBoardId === board.id;
+        const rowLayerClass = actionsOpen ? 'relative z-20' : 'relative z-0';
+        const actionsMenu = `
+          <div class="relative">
+            <button
+              type="button"
+              data-action="toggle-board-actions"
+              data-board-id="${board.id}"
+              class="inline-flex items-center justify-center whitespace-nowrap rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              aria-expanded="${actionsOpen ? 'true' : 'false'}"
+            >Actions</button>
+            ${actionsOpen ? `
+              <div class="absolute right-0 z-10 mt-2 min-w-52 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
+                <a
+                  href="/board/${board.id}"
+                  class="block w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                >Open hub</a>
+                <button
+                  type="button"
+                  data-action="open-assign-ownership-dialog"
+                  data-board-id="${board.id}"
+                  class="block w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  ${assigningOwnership ? 'disabled' : ''}
+                >${assigningOwnership ? 'Assigning...' : 'Assign ownership'}</button>
+                <button
+                  type="button"
+                  data-action="delete-board"
+                  data-board-id="${board.id}"
+                  class="admin-danger-action block w-full px-3 py-2 text-left text-sm text-red-600 disabled:cursor-not-allowed disabled:opacity-60"
+                  ${deletingBoard ? 'disabled' : ''}
+                >${deletingBoard ? 'Deleting...' : 'Delete hub'}</button>
+              </div>
+            ` : ''}
+          </div>
+        `;
         return `
-          <div class="admin-boards-grid gap-4 px-5 py-3 border-b items-center">
+          <div class="admin-boards-grid ${rowLayerClass} gap-4 px-5 py-3 border-b items-center">
             <div class="min-w-0 flex items-center gap-3">
               <span class="w-3 h-3 rounded-full flex-shrink-0 border border-black/10 swatch-${_escapeAdminHtml(token)}"></span>
               <div class="min-w-0">
                 <div class="text-sm font-medium text-gray-800 truncate">${_escapeAdminHtml(board.name)}</div>
-                <div class="text-xs text-gray-500">Board #${_escapeAdminHtml(board.id)}</div>
+                <div class="text-xs text-gray-500">Hub #${_escapeAdminHtml(board.id)}</div>
               </div>
             </div>
             <div>${owner}</div>
             <div class="text-sm text-gray-500">${_escapeAdminHtml(board.member_count)}</div>
             <div>${status}</div>
-            <div>
-              <button
-                type="button"
-                data-action="delete-board"
-                data-board-id="${board.id}"
-                class="admin-danger-action inline-flex items-center justify-center whitespace-nowrap rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-red-600 disabled:cursor-not-allowed disabled:opacity-60"
-                ${deletingBoard ? 'disabled' : ''}
-              >${deletingBoard ? 'Deleting...' : 'Delete board'}</button>
-            </div>
+            <div>${actionsMenu}</div>
           </div>
         `;
       }).join('');
@@ -415,6 +493,58 @@ function _createAdmin() {
       if (cancelBtn) cancelBtn.disabled = value;
       if (passwordInput) passwordInput.disabled = value;
       if (confirmInput) confirmInput.disabled = value;
+    },
+
+    openOwnershipDialog(board) {
+      const dialog = document.getElementById('admin-ownership-dialog');
+      const description = document.getElementById('admin-ownership-dialog-description');
+      const select = document.getElementById('admin-ownership-user-select');
+      if (!dialog || typeof dialog.showModal !== 'function' || !select) return;
+      this.ownershipDialogBoardId = board.id;
+      select.innerHTML = this.users.map(user => `
+        <option value="${user.id}"${user.id === board.owner_user_id ? ' selected' : ''}>
+          ${_escapeAdminHtml(user.display_name)} (${_escapeAdminHtml(user.email)})
+        </option>
+      `).join('');
+      if (!select.value && this.users.length) select.value = String(this.users[0].id);
+      if (description) {
+        description.textContent = `Choose the new owner for ${board.name}. The selected user will be added to the hub as an owner if needed.`;
+      }
+      this.setOwnershipFormError('');
+      this.setOwnershipSubmitting(false);
+      dialog.showModal();
+      select.focus();
+    },
+
+    closeOwnershipDialog() {
+      document.getElementById('admin-ownership-dialog')?.close();
+    },
+
+    resetOwnershipDialog() {
+      this.ownershipDialogBoardId = null;
+      const form = document.getElementById('admin-ownership-form');
+      if (form) form.reset();
+      this.setOwnershipFormError('');
+      this.setOwnershipSubmitting(false);
+    },
+
+    setOwnershipFormError(message) {
+      const el = document.getElementById('admin-ownership-form-error');
+      if (!el) return;
+      el.textContent = message;
+      el.classList.toggle('hidden', !message);
+    },
+
+    setOwnershipSubmitting(value) {
+      const submitBtn = document.getElementById('admin-ownership-submit-btn');
+      const cancelBtn = document.getElementById('admin-ownership-cancel-btn');
+      const select = document.getElementById('admin-ownership-user-select');
+      if (submitBtn) {
+        submitBtn.disabled = value;
+        submitBtn.textContent = value ? 'Assigning...' : 'Assign owner';
+      }
+      if (cancelBtn) cancelBtn.disabled = value;
+      if (select) select.disabled = value;
     },
 
     showError(msg) {
@@ -576,7 +706,7 @@ function _createAdmin() {
 
     async deleteBoard(board) {
       this.showError('');
-      const confirmed = window.confirm(`Delete board "${board.name}"? This cannot be undone.`);
+      const confirmed = window.confirm(`Delete hub "${board.name}"? This cannot be undone.`);
       if (!confirmed) return;
 
       this.deletingBoardId = board.id;
@@ -589,11 +719,45 @@ function _createAdmin() {
       if (!res.ok) {
         this.renderBoards();
         const data = await res.json();
-        this.showError(data.detail || 'Unable to delete board');
+        this.showError(data.detail || 'Unable to delete hub');
         return;
       }
 
       await this.reloadAdminEntities();
+    },
+
+    async submitOwnershipDialog() {
+      const boardId = this.ownershipDialogBoardId;
+      const board = this.boards.find(candidate => candidate.id === boardId);
+      const select = document.getElementById('admin-ownership-user-select');
+      const userId = parseInt(select?.value || '0', 10);
+      if (!board || !userId) {
+        this.closeOwnershipDialog();
+        return;
+      }
+
+      this.showError('');
+      this.setOwnershipFormError('');
+      this.setOwnershipSubmitting(true);
+      this.assigningOwnershipForBoardId = board.id;
+      this.renderBoards();
+      const res = await fetch(`/api/admin/boards/${board.id}/owner`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({user_id: userId}),
+      });
+      this.assigningOwnershipForBoardId = null;
+      this.renderBoards();
+      this.setOwnershipSubmitting(false);
+
+      if (!res.ok) {
+        const data = await res.json();
+        this.setOwnershipFormError(data.detail || 'Unable to assign hub ownership');
+        return;
+      }
+
+      await this.reloadAdminEntities();
+      this.closeOwnershipDialog();
     },
 
     async deleteOrphanedBoards() {

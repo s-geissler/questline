@@ -50,13 +50,13 @@ The default behavior is suitable for `systemd` or container deployments where st
 | Role | Description |
 |---|---|
 | `user` | Normal user — access gated by board membership |
-| `admin` | Can access all boards, manage users, change instance settings |
+| `admin` | Can access all hubs, manage users, assign hub ownership, and change instance settings |
 
-The instance must always have at least one admin; demoting the last admin is blocked.
+The instance must always have at least one admin; demoting or deleting the last admin is blocked.
 
 ## Board Membership Roles
 
-Access to a board is controlled by a membership record. The roles form an ordered hierarchy:
+Access to a hub is controlled by a membership record. The roles form an ordered hierarchy:
 
 ```text
 viewer  <  editor  <  owner
@@ -65,17 +65,25 @@ viewer  <  editor  <  owner
 
 | Role | Permissions |
 |---|---|
-| `viewer` | Read board, stages, tasks, filters, automations, members |
+| `viewer` | Read hub, stages, tasks, filters, automations, members |
 | `editor` | All viewer permissions + create/update/delete tasks, stages, filters, automations, task types |
 | `owner` | All editor permissions + manage membership (add/remove/promote members) |
 
-A board must always retain at least one owner; removing or demoting the last owner is blocked.
+A hub must always retain at least one owner at the membership level; removing or demoting the last owner is blocked through the hub membership endpoints.
 
-Instance `admin` is not stored as a board membership role. Admin users bypass membership checks and are treated as having full access to every board.
+Instance `admin` is not stored as a hub membership role. Admin users bypass membership checks and are treated as having full access to every hub.
+
+Admin-only account actions also include:
+
+- setting a user's password, which invalidates all of that user's sessions
+- clearing password recovery requests
+- deleting users, which may leave hubs orphaned if no replacement owner exists
+- assigning ownership of any hub to an existing user
+- bulk deletion of orphaned hubs from the admin panel
 
 ## Authorization Flow
 
-Every API handler calls `_authorize_board_request(request, db, board_id, min_role)`:
+Every hub-scoped API handler calls `_authorize_board_request(request, db, board_id, min_role)`:
 
 1. Read `questline_session` cookie → look up `UserSession` by token hash.
 2. If the session is missing, expired, or the user is inactive → reject it (`401 Unauthorized` for protected endpoints).

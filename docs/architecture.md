@@ -17,11 +17,11 @@ Instance
     └── Automations
 ```
 
-A **Hub** is a board that multiple users can be members of with different roles. Each Hub has its own **Stages**, **Task Types**, **Saved Filters**, and **Automations** — all scoped to that board and not shared across boards.
+A **Hub** is the top-level workspace that multiple users can be members of with different roles. Each Hub has its own **Stages**, **Task Types**, **Saved Filters**, and **Automations** — all scoped to that hub and not shared across hubs.
 
 A **Stage** is either a normal stage (holds ordered tasks) or a **Log Stage** (read-only virtual view driven by a Saved Filter).
 
-A **Quest** is an Objective whose Task Type has `is_epic = true`. Adding a checklist item to a Quest automatically creates a linked child Objective in the board.
+A **Quest** is an Objective whose Task Type has `is_epic = true`. Adding a checklist item to a Quest automatically creates a linked child Objective in the hub.
 
 ## Module Overview
 
@@ -37,7 +37,8 @@ A **Quest** is an Objective whose Task Type has `is_epic = true`. Adding a check
 
 ```
 users
-  id, email, display_name, password_hash, role (user|admin), is_active, created_at
+  id, email, display_name, password_hash, role (user|admin), is_active,
+  password_reset_requested, created_at
 
 user_sessions
   id, user_id → users, token_hash, csrf_token_hash, created_at, expires_at
@@ -87,6 +88,10 @@ automations
 notifications
   id, user_id → users, type, title, body,
   link_url, board_id, task_id, read_at, created_at, dedupe_key (UNIQUE)
+
+Operational note:
+- `boards.owner_user_id` may be `NULL`, which represents an orphaned hub.
+- The admin UI exposes orphan discovery, manual deletion, bulk orphan cleanup, and explicit ownership assignment.
 
 instance_settings
   id, key, value
