@@ -7,6 +7,15 @@ function _parseBoardPageJson(value, fallback) {
   }
 }
 
+function _escapeBoardHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
 function board() {
   return {
     boardId: 0,
@@ -48,6 +57,7 @@ function board() {
     _stageDragBound: false,
     _armedStageDragId: null,
     _initialized: false,
+    _surfaceBound: false,
     activeStageMenuId: null,
     taskActionMenuOpen: false,
     taskColorPickerOpen: false,
@@ -375,6 +385,8 @@ function board() {
       this.currentBoardRole = _parseBoardPageJson(this.$el.dataset.boardRole, null);
       this.boardView = this.getRequestedBoardView();
       this.calendarCursor = this.getInitialCalendarCursor();
+      this.cacheSurfaceElements();
+      this.bindSurfaceEvents();
       await this.loadData();
       this.bindStageDragEvents();
       const taskId = this.getRequestedTaskId();
@@ -389,6 +401,7 @@ function board() {
         this.loadMetadata(),
         this.loadBoardMembers(),
       ]);
+      this.renderBoardSurface();
     },
 
     async loadStages() {
@@ -398,6 +411,7 @@ function board() {
         row: Number.isInteger(stage.row) ? stage.row : 0,
         tasks: (stage.tasks || []).map(task => this._decorateTask(task)),
       }));
+      this.renderBoardSurface();
       this.$nextTick(() => {
         this.initSortable();
       });
@@ -419,6 +433,7 @@ function board() {
       ]);
       this.taskTypes = await typesRes.json();
       this.savedFilters = await filtersRes.json();
+      this.renderBoardSurface();
     },
 
     async loadBoardMembers() {
@@ -427,6 +442,742 @@ function board() {
       const payload = await res.json();
       this.currentBoardRole = payload.current_role;
       this.boardMembers = payload.members || [];
+      this.renderBoardSurface();
+    },
+
+    cacheSurfaceElements() {
+      this.readonlyBannerEl = this.$el.querySelector('#board-readonly-banner');
+      this.viewToggleEl = this.$el.querySelector('#board-view-toggle');
+      this.calendarToolbarEl = this.$el.querySelector('#board-calendar-toolbar');
+      this.stagesViewEl = this.$el.querySelector('#board-stages-view');
+      this.calendarViewEl = this.$el.querySelector('#board-calendar-view');
+      this.calendarCreateModalEl = this.$el.querySelector('#board-calendar-create-modal');
+      this.settingsModalEl = this.$el.querySelector('#board-settings-modal');
+    },
+
+    bindSurfaceEvents() {
+      if (this._surfaceBound) return;
+      this._surfaceBound = true;
+      const settingsButton = document.getElementById('board-settings-button');
+      settingsButton?.addEventListener('click', () => {
+        this.showSettings = true;
+      });
+      this.$el.addEventListener('click', event => this.handleSurfaceClick(event));
+      this.$el.addEventListener('change', event => this.handleSurfaceChange(event));
+      this.$el.addEventListener('dblclick', event => this.handleSurfaceDoubleClick(event));
+      this.$el.addEventListener('input', event => this.handleSurfaceInput(event));
+      this.$el.addEventListener('keydown', event => this.handleSurfaceKeydown(event));
+      this.$el.addEventListener('blur', event => this.handleSurfaceBlur(event), true);
+      document.addEventListener('click', event => {
+        if (!this.activeStageMenuId) return;
+        if (event.target.closest('[data-role="stage-menu"]') || event.target.closest('[data-action="toggle-stage-menu"]')) return;
+        this.closeStageMenu();
+        this.renderBoardSurface();
+      });
+    },
+
+    handleSurfaceClick(event) {
+      const actionTarget = event.target.closest('[data-action]');
+      if (!actionTarget) return;
+      const action = actionTarget.dataset.action;
+      const stageId = parseInt(actionTarget.dataset.stageId || '0', 10);
+      const taskId = parseInt(actionTarget.dataset.openTaskId || actionTarget.dataset.taskId || '0', 10);
+      const row = parseInt(actionTarget.dataset.stageRow || '0', 10);
+      const position = parseInt(actionTarget.dataset.stagePosition || '0', 10);
+
+      if (action === 'toggle-board-view') {
+        this.setBoardView(this.nextBoardView);
+        return;
+      }
+      if (action === 'calendar-prev') {
+        this.changeCalendarMonth(-1);
+        return;
+      }
+      if (action === 'calendar-next') {
+        this.changeCalendarMonth(1);
+        return;
+      }
+      if (action === 'calendar-today') {
+        this.jumpCalendarToToday();
+        return;
+      }
+      if (action === 'close-calendar-create') {
+        this.closeCalendarCreate();
+        this.renderBoardSurface();
+        return;
+      }
+      if (action === 'submit-calendar-create') {
+        this.createTaskFromCalendar();
+        return;
+      }
+      if (action === 'close-settings') {
+        this.showSettings = false;
+        this.renderBoardSurface();
+        return;
+      }
+      if (action === 'select-board-color') {
+        if (!this.canManageBoard) return;
+        this.settingsBoardColor = actionTarget.dataset.color || null;
+        this.renderBoardSurface();
+        return;
+      }
+      if (action === 'clear-board-color') {
+        if (!this.canManageBoard) return;
+        this.settingsBoardColor = null;
+        this.renderBoardSurface();
+        return;
+      }
+      if (action === 'share-board') {
+        this.addBoardMember();
+        return;
+      }
+      if (action === 'remove-board-member') {
+        const member = this.boardMembers.find(entry => String(entry.user_id) === String(actionTarget.dataset.userId || ''));
+        if (member) this.removeBoardMember(member);
+        return;
+      }
+      if (action === 'save-settings') {
+        this.saveSettings();
+        return;
+      }
+      if (action === 'open-new-stage') {
+        this.openNewStageForm(row, position);
+        return;
+      }
+      if (action === 'cancel-new-stage') {
+        this.cancelNewStage();
+        this.renderBoardSurface();
+        return;
+      }
+      if (action === 'create-stage') {
+        this.createStage(row, position);
+        return;
+      }
+      if (action === 'toggle-stage-menu') {
+        this.toggleStageMenu(stageId);
+        this.renderBoardSurface();
+        return;
+      }
+      if (action === 'open-log-config') {
+        const stage = this.stages.find(entry => entry.id === stageId);
+        if (stage) this.openLogConfig(stage);
+        this.closeStageMenu();
+        this.renderBoardSurface();
+        return;
+      }
+      if (action === 'sort-stage') {
+        const stage = this.stages.find(entry => entry.id === stageId);
+        if (stage) this.sortStageByDueDate(stage);
+        this.closeStageMenu();
+        this.renderBoardSurface();
+        return;
+      }
+      if (action === 'clear-completed-stage') {
+        const stage = this.stages.find(entry => entry.id === stageId);
+        if (stage) this.clearCompletedStage(stage);
+        this.closeStageMenu();
+        this.renderBoardSurface();
+        return;
+      }
+      if (action === 'delete-stage') {
+        this.deleteStage(stageId);
+        this.closeStageMenu();
+        this.renderBoardSurface();
+        return;
+      }
+      if (action === 'open-task') {
+        const task = this.allBoardTasks.find(entry => entry.id === taskId);
+        if (task) this.openTask(task);
+        return;
+      }
+      if (action === 'toggle-task-done') {
+        event.stopPropagation();
+        const task = this.allBoardTasks.find(entry => entry.id === taskId);
+        if (task) this.toggleTaskDoneFromCard(task);
+        return;
+      }
+      if (action === 'open-new-task-form') {
+        this.openNewTaskForm(stageId);
+        return;
+      }
+      if (action === 'close-new-task-form') {
+        this.closeNewTaskForm(stageId);
+        this.renderBoardSurface();
+        return;
+      }
+      if (action === 'create-task') {
+        this.createTask(stageId);
+      }
+    },
+
+    handleSurfaceDoubleClick(event) {
+      const dayEl = event.target.closest('[data-calendar-day]');
+      if (!dayEl) return;
+      const day = this.calendarDays.find(entry => entry.date === dayEl.dataset.calendarDate);
+      if (day) this.openCalendarCreate(day, event);
+    },
+
+    handleSurfaceInput(event) {
+      const field = event.target.dataset.field;
+      const stageId = parseInt(event.target.dataset.stageId || '0', 10);
+      if (field === 'new-stage-name') {
+        this.newStageName = event.target.value;
+        return;
+      }
+      if (field === 'stage-name') {
+        const stage = this.stages.find(entry => entry.id === stageId);
+        if (stage) stage.name = event.target.value;
+        return;
+      }
+      if (field === 'new-task-title') {
+        this.updateNewTaskTitle(stageId, event.target.value);
+        return;
+      }
+      if (field === 'calendar-create-stage-id') {
+        this.calendarCreateStageId = event.target.value;
+        return;
+      }
+      if (field === 'settings-board-name') {
+        this.settingsBoardName = event.target.value;
+        return;
+      }
+      if (field === 'share-email') {
+        this.shareEmail = event.target.value;
+        return;
+      }
+      if (field === 'share-role') {
+        this.shareRole = event.target.value;
+      }
+    },
+
+    handleSurfaceChange(event) {
+      const field = event.target.dataset.field;
+      if (field === 'board-member-role') {
+        const member = this.boardMembers.find(entry => String(entry.user_id) === String(event.target.dataset.userId || ''));
+        if (member) this.updateBoardMemberRole(member, event.target.value);
+      }
+    },
+
+    handleSurfaceKeydown(event) {
+      const field = event.target.dataset.field;
+      const stageId = parseInt(event.target.dataset.stageId || '0', 10);
+      const row = parseInt(event.target.dataset.stageRow || '0', 10);
+      const position = parseInt(event.target.dataset.stagePosition || '0', 10);
+      if (field === 'new-stage-name') {
+        if (event.key === 'Enter') {
+          this.createStage(row, position);
+        } else if (event.key === 'Escape') {
+          this.cancelNewStage();
+          this.renderBoardSurface();
+        }
+        return;
+      }
+      if (field === 'stage-name' && event.key === 'Enter') {
+        event.target.blur();
+        return;
+      }
+      if (field === 'new-task-title') {
+        if (event.key === 'Enter') {
+          this.createTask(stageId);
+        } else if (event.key === 'Escape') {
+          this.closeNewTaskForm(stageId);
+          this.renderBoardSurface();
+        }
+        return;
+      }
+      if (field === 'settings-board-name' && event.key === 'Enter') {
+        this.saveSettings();
+        return;
+      }
+      if (field === 'share-email' && event.key === 'Enter') {
+        this.addBoardMember();
+        return;
+      }
+      if (this.showCalendarCreate && event.key === 'Escape') {
+        this.closeCalendarCreate();
+        this.renderBoardSurface();
+        return;
+      }
+      if (this.showSettings && event.key === 'Escape') {
+        this.showSettings = false;
+        this.renderBoardSurface();
+      }
+    },
+
+    handleSurfaceBlur(event) {
+      const field = event.target.dataset.field;
+      const stageId = parseInt(event.target.dataset.stageId || '0', 10);
+      if (field !== 'stage-name') return;
+      const stage = this.stages.find(entry => entry.id === stageId);
+      if (stage) this.saveStageName(stage);
+    },
+
+    renderBoardSurface() {
+      if (!this.readonlyBannerEl) return;
+      this.renderReadonlyBanner();
+      this.renderViewToggle();
+      this.renderCalendarToolbar();
+      this.renderStagesView();
+      this.renderCalendarView();
+      this.renderCalendarCreateModal();
+      this.renderSettingsModal();
+      this.updateStageDropTargetVisibility();
+    },
+
+    updateStageDropTargetVisibility() {
+      this.$el.querySelectorAll('[data-stage-drop-target]').forEach(element => {
+        element.classList.toggle('opacity-100', this.showStageDropTargets);
+      });
+    },
+
+    renderReadonlyBanner() {
+      this.readonlyBannerEl.classList.toggle('hidden', this.canEditBoard);
+      this.readonlyBannerEl.innerHTML = this.canEditBoard ? '' : `
+        <div class="bg-white/85 text-slate-700 text-sm rounded-xl px-4 py-3 shadow">
+          Read-only access. Viewers can browse this hub but cannot change objectives, stages, or settings.
+        </div>
+      `;
+    },
+
+    renderViewToggle() {
+      this.viewToggleEl.innerHTML = `
+        <button
+          type="button"
+          data-action="toggle-board-view"
+          class="view-toggle-shell flex items-center gap-3 rounded-2xl border px-3 py-2 shadow-lg backdrop-blur-sm transition-colors"
+          aria-pressed="${this.isCalendarView ? 'true' : 'false'}"
+          title="${_escapeBoardHtml(this.boardViewToggleTitle)}"
+        >
+          <span class="text-xs font-semibold uppercase tracking-[0.18em] transition-colors ${this.stagesLabelClass}">Stages</span>
+          <span class="relative inline-flex h-7 w-14 items-center rounded-full transition-colors ${this.boardViewTrackClass}">
+            <span class="view-toggle-knob inline-block h-5 w-5 transform rounded-full shadow-sm transition-transform duration-200 ${this.boardViewKnobClass}"></span>
+          </span>
+          <span class="text-xs font-semibold uppercase tracking-[0.18em] transition-colors ${this.calendarLabelClass}">Calendar</span>
+        </button>
+      `;
+    },
+
+    renderCalendarToolbar() {
+      this.calendarToolbarEl.classList.toggle('hidden', !this.isCalendarView);
+      this.calendarToolbarEl.innerHTML = this.isCalendarView ? `
+        <div class="flex items-center gap-2 rounded-2xl bg-white/80 px-2 py-2 shadow-lg backdrop-blur-sm">
+          <button type="button" data-action="calendar-prev" class="px-3 py-2 rounded-xl bg-white/85 text-slate-600 hover:bg-white shadow-sm transition-colors" aria-label="Previous month">←</button>
+          <div class="px-4 py-2 rounded-xl bg-white/90 text-sm font-semibold text-slate-700 shadow-sm min-w-[12rem] text-center">${_escapeBoardHtml(this.calendarMonthLabel)}</div>
+          <button type="button" data-action="calendar-next" class="px-3 py-2 rounded-xl bg-white/85 text-slate-600 hover:bg-white shadow-sm transition-colors" aria-label="Next month">→</button>
+          <button type="button" data-action="calendar-today" class="px-3 py-2 rounded-xl bg-white/85 text-sm text-slate-600 hover:bg-white shadow-sm transition-colors">Today</button>
+        </div>
+      ` : '';
+    },
+
+    renderStagesView() {
+      this.stagesViewEl.classList.toggle('hidden', !this.isStagesView);
+      if (!this.isStagesView) {
+        this.stagesViewEl.innerHTML = '';
+        return;
+      }
+      const columns = this.stageColumns.map(column => this.renderStageColumn(column)).join('');
+      const addColumn = this.canEditBoard ? this.renderTrailingStageColumn() : '';
+      this.stagesViewEl.innerHTML = `
+        <div id="stages-container" class="min-w-max space-y-4">
+          <div class="flex items-start gap-3">
+            ${columns}
+            ${addColumn}
+          </div>
+        </div>
+      `;
+    },
+
+    renderStageColumn(column) {
+      return `
+        <div class="w-72 flex-shrink-0 space-y-3">
+          ${this.renderStageSlot(column.position, 0, column.topStage, 'group/add-top')}
+          ${this.renderStageSlot(column.position, 1, column.bottomStage, 'group/add-bottom', !!column.topStage)}
+        </div>
+      `;
+    },
+
+    renderStageSlot(position, row, stage, groupClass, requireAnchor = false) {
+      const canInsert = this.canEditBoard && (!requireAnchor || row === 0 || this.stageColumns.some(column => column.position === position && column.topStage));
+      const showAddButton = !stage && canInsert && (!this.showNewStage || this.newStageRow !== row || this.newStagePosition !== position);
+      const showAddForm = !stage && this.showNewStage && this.newStageRow === row && this.newStagePosition === position;
+      return `
+        <div class="${groupClass}">
+          <div class="min-h-[48px] rounded-xl" data-stage-slot data-stage-row="${row}" data-stage-slot-position="${position}">
+            ${stage ? this.renderStage(stage) : ''}
+            ${showAddButton ? `
+              <button
+                data-stage-drop-target="true"
+                data-action="open-new-stage"
+                data-stage-row="${row}"
+                data-stage-position="${position}"
+                class="w-full rounded-xl border border-dashed border-white/30 bg-white/10 px-3 py-3 text-left text-sm font-medium text-white/80 opacity-0 transition-all duration-150 hover:bg-white/15 ${groupClass === 'group/add-top' ? 'group-hover/add-top:opacity-100 group-focus-within/add-top:opacity-100' : 'group-hover/add-bottom:opacity-100 group-focus-within/add-bottom:opacity-100'} ${this.showStageDropTargetsClass}"
+              >+ Add stage here</button>
+            ` : ''}
+            ${showAddForm ? this.renderNewStageForm(row, position) : ''}
+          </div>
+        </div>
+      `;
+    },
+
+    renderTrailingStageColumn() {
+      const position = this.topAddStagePosition;
+      const showAddButton = !this.showNewStage || this.newStageRow !== 0 || this.newStagePosition !== position;
+      const showAddForm = this.showNewStage && this.newStageRow === 0 && this.newStagePosition === position;
+      return `
+        <div class="w-72 flex-shrink-0 group/add-top">
+          <div class="min-h-[48px] rounded-xl" data-stage-slot data-stage-row="0" data-stage-slot-position="${position}">
+            ${showAddButton ? `
+              <button
+                data-stage-drop-target="true"
+                data-action="open-new-stage"
+                data-stage-row="0"
+                data-stage-position="${position}"
+                class="w-full rounded-xl border border-dashed border-white/30 bg-white/10 px-3 py-3 text-left text-sm font-medium text-white/80 opacity-0 transition-all duration-150 hover:bg-white/15 group-hover/add-top:opacity-100 group-focus-within/add-top:opacity-100 ${this.showStageDropTargetsClass}"
+              >+ Add stage here</button>
+            ` : ''}
+            ${showAddForm ? this.renderNewStageForm(0, position) : ''}
+          </div>
+        </div>
+      `;
+    },
+
+    renderNewStageForm(row, position) {
+      return `
+        <div class="bg-gray-100 rounded-xl p-3 shadow">
+          <input
+            data-field="new-stage-name"
+            data-stage-row="${row}"
+            data-stage-position="${position}"
+            value="${_escapeBoardHtml(this.newStageName)}"
+            placeholder="Stage title..."
+            class="w-full border rounded-lg px-2 py-1.5 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
+          >
+          <div class="flex gap-1.5">
+            <button data-action="create-stage" data-stage-row="${row}" data-stage-position="${position}" class="bg-blue-500 hover:bg-blue-600 text-white text-sm px-3 py-1 rounded-lg transition-colors">Add stage</button>
+            <button data-action="cancel-new-stage" class="text-gray-600 hover:text-gray-800 text-sm px-2 py-1">✕</button>
+          </div>
+        </div>
+      `;
+    },
+
+    renderStage(stage) {
+      const stageTasks = this.stageTasks(stage).map(task => this.renderTaskCard(task, stage)).join('');
+      return `
+        <div class="board-stage rounded-xl shadow w-72 flex-shrink-0 flex flex-col overflow-visible ${this.stageContainerClass(stage)}" data-stage-column-id="${stage.id}">
+          <div class="flex items-center justify-between px-3 pt-3 pb-2 border-b ${this.stageHeaderClass(stage)}" data-stage-drag-handle>
+            <div class="min-w-0 flex-1">
+              <input
+                data-field="stage-name"
+                data-stage-id="${stage.id}"
+                value="${_escapeBoardHtml(stage.name)}"
+                ${this.canEditBoard ? '' : 'disabled'}
+                class="stage-title-input font-medium bg-transparent w-full rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400 text-sm ${this.stageTitleInputClass(stage)}"
+              >
+              ${stage.is_log ? `
+                <div class="mt-1 px-1 space-y-1">
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    <span class="log-stage-badge text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded-full font-semibold">Filter Log</span>
+                    <span class="log-stage-summary text-[10px] font-medium">⌕ Read-only view</span>
+                  </div>
+                  <div class="log-stage-summary text-[11px] leading-snug">${_escapeBoardHtml(this.logStageSummary(stage))}</div>
+                </div>
+              ` : ''}
+            </div>
+            ${this.canEditBoard ? this.renderStageMenu(stage) : ''}
+          </div>
+          <div class="board-stage-body px-2 pt-2 pb-1 space-y-2 min-h-[8px] ${this.stageBodyClass(stage)}" id="${this.stageDomId(stage)}" data-stage-id="${stage.id}">
+            ${stageTasks}
+            <div class="hidden" aria-hidden="true" data-stage-sortable-sentinel><span></span></div>
+          </div>
+          ${this.canShowNewTaskButton(stage) ? this.renderNewTaskSection(stage) : ''}
+        </div>
+      `;
+    },
+
+    renderStageMenu(stage) {
+      return `
+        <div class="relative ml-2 flex-shrink-0" data-role="stage-menu">
+          <button
+            data-action="toggle-stage-menu"
+            data-stage-id="${stage.id}"
+            class="text-gray-400 hover:text-gray-700 px-2 py-1 rounded hover:bg-white transition-colors text-lg leading-none"
+            title="Stage actions"
+          >☰</button>
+          ${this.isStageMenuOpen(stage.id) ? `
+            <div class="absolute top-full right-0 mt-1 bg-white text-gray-800 shadow-xl rounded-xl py-1 min-w-[170px] z-20">
+              <button data-action="open-log-config" data-stage-id="${stage.id}" class="block w-full text-left text-xs text-gray-600 hover:text-sky-600 px-3 py-2 hover:bg-gray-100 transition-colors">Configure log</button>
+              ${this.canSortStage(stage) ? `<button data-action="sort-stage" data-stage-id="${stage.id}" class="block w-full text-left text-xs text-gray-600 hover:text-blue-600 px-3 py-2 hover:bg-gray-100 transition-colors" title="Sort dated objectives by due date">Sort by due date</button>` : ''}
+              ${this.canClearCompletedStage(stage) ? `<button data-action="clear-completed-stage" data-stage-id="${stage.id}" class="block w-full text-left text-xs text-gray-600 hover:text-amber-600 px-3 py-2 hover:bg-gray-100 transition-colors" title="Clear completed objectives">Clear completed</button>` : ''}
+              <button data-action="delete-stage" data-stage-id="${stage.id}" class="block w-full text-left text-xs text-gray-600 hover:text-red-600 px-3 py-2 hover:bg-gray-100 transition-colors" title="Delete stage">Delete stage</button>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    },
+
+    renderTaskCard(task, stage) {
+      const taskTypeBadge = task.task_type ? `<span class="text-xs px-2 py-0.5 rounded font-medium ${this.taskTypeBadgeClass(task.task_type)}">${_escapeBoardHtml(task.task_type.name)}</span>` : '';
+      const parentBadge = task.parent_task ? `<span class="text-xs px-2 py-0.5 rounded font-medium bg-violet-100 text-violet-700">${_escapeBoardHtml(task.parent_task.title)}</span>` : '';
+      const assigneeBadge = task.assignee ? `<span class="text-xs px-2 py-0.5 rounded font-medium bg-slate-100 text-slate-700">${_escapeBoardHtml(this.assigneeChipLabel(task))}</span>` : '';
+      const recurrenceBadge = task.recurrence ? '<span class="text-xs px-2 py-0.5 rounded font-medium bg-blue-100 text-blue-700">↻ Recurring</span>' : '';
+      const dueDateBadge = this.hasDueDate(task.due_date) ? `<span class="text-xs px-2 py-0.5 rounded font-medium ${this.dueDateClass(task.due_date)}">${_escapeBoardHtml(this.dueDateLabel(task.due_date))}</span>` : '';
+      const checklistBadge = this.showChecklistSummary(task) ? `<span class="text-xs text-gray-400 flex items-center gap-0.5"><span>☑</span><span>${_escapeBoardHtml(this.checklistProgress(task))}</span></span>` : '';
+      const logSourceBadge = this.showLogSourceBadge(stage) ? `<span class="text-xs px-2 py-0.5 rounded font-medium bg-slate-100 text-slate-600">${_escapeBoardHtml(this.logSourceLabel(task))}</span>` : '';
+      const description = this.shouldShowDescriptionOnCard(task) ? `<div class="mt-1.5 text-xs text-gray-500 leading-snug prose prose-sm max-w-none">${renderMarkdown(task.description)}</div>` : '';
+      const checklist = this.shouldShowChecklistOnCard(task) ? `
+        <div class="mt-2 space-y-1">
+          ${(task.checklist || []).map(item => `
+            <div class="flex items-start gap-1.5 text-xs text-gray-500">
+              <span class="mt-0.5 flex-shrink-0 ${this.checklistItemIconClass(item)}">${_escapeBoardHtml(this.checklistItemIcon(item))}</span>
+              <span class="leading-snug ${this.checklistItemTitleClass(item)}">${_escapeBoardHtml(item.title)}</span>
+            </div>
+          `).join('')}
+        </div>
+      ` : '';
+      const customFields = this.shouldShowTaskCardCustomFields(task) ? `
+        <div class="task-chip-row mt-1.5 pt-1.5 border-t border-gray-200/70">
+          ${this.taskCardCustomFields(task).map(field => `
+            <span class="text-xs px-2 py-0.5 rounded font-medium ${this.taskChipClass(field, this.taskCardCustomFieldValue(task, field))}">
+              ${_escapeBoardHtml(this.taskCardCustomFieldLabel(task, field))}
+            </span>
+          `).join('')}
+        </div>
+      ` : '';
+      return `
+        <div class="board-task-card bg-white rounded-lg p-2.5 shadow-sm cursor-pointer hover:shadow-md transition-shadow ${this.taskCardOpacityClass(task)} ${this.taskCardClass(task)}" data-action="open-task" data-task-id="${task.id}">
+          <div class="group/title flex items-start gap-0">
+            ${this.canEditBoard ? `
+              <button
+                data-action="toggle-task-done"
+                data-task-id="${task.id}"
+                class="mt-0.5 h-4 overflow-hidden rounded border flex items-center justify-center flex-shrink-0 transition-all duration-150 group-hover/title:w-4 group-hover/title:mr-2 group-hover/title:opacity-100 group-focus-within/title:w-4 group-focus-within/title:mr-2 group-focus-within/title:opacity-100 ${this.taskDoneToggleClass(task)}"
+                title="${_escapeBoardHtml(this.taskDoneToggleTitle(task))}"
+              ><span class="text-[11px] leading-none">✓</span></button>
+            ` : ''}
+            <div class="min-w-0 flex-1">
+              <div class="flex items-start gap-1.5">
+                <span class="text-sm text-gray-800 leading-snug block min-w-0 flex-1 ${this.taskTitleClass(task)}">${_escapeBoardHtml(task.title)}</span>
+                ${this.hasDescription(task) ? '<span class="mt-0.5 flex-shrink-0 text-[11px] text-gray-400" title="Has description" aria-label="Has description">≡</span>' : ''}
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-1.5 mt-1.5 flex-wrap">${taskTypeBadge}${parentBadge}${assigneeBadge}${recurrenceBadge}${dueDateBadge}${checklistBadge}${logSourceBadge}</div>
+          ${description}
+          ${checklist}
+          ${customFields}
+        </div>
+      `;
+    },
+
+    renderNewTaskSection(stage) {
+      const formOpen = this.isNewTaskFormOpen(stage.id);
+      return `
+        <div class="px-2 pb-2 pt-1">
+          ${!formOpen ? `
+            <button data-action="open-new-task-form" data-stage-id="${stage.id}" class="text-gray-500 hover:text-gray-800 text-sm w-full text-left px-1 py-1 rounded hover:bg-gray-200 transition-colors">+ Add an objective</button>
+          ` : `
+            <input
+              data-field="new-task-title"
+              data-stage-id="${stage.id}"
+              value="${_escapeBoardHtml(this.newTaskTitles[stage.id] || '')}"
+              placeholder="Objective title..."
+              class="w-full border rounded-lg px-2 py-1.5 text-sm mb-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400"
+            >
+            <div class="flex gap-1.5">
+              <button data-action="create-task" data-stage-id="${stage.id}" class="bg-blue-500 hover:bg-blue-600 text-white text-sm px-3 py-1 rounded-lg transition-colors">Add</button>
+              <button data-action="close-new-task-form" data-stage-id="${stage.id}" class="text-gray-500 hover:text-gray-700 text-sm px-2 py-1">✕</button>
+            </div>
+          `}
+        </div>
+      `;
+    },
+
+    renderCalendarView() {
+      this.calendarViewEl.classList.toggle('hidden', !this.isCalendarView);
+      if (!this.isCalendarView) {
+        this.calendarViewEl.innerHTML = '';
+        return;
+      }
+      this.calendarViewEl.innerHTML = `
+        <div class="mx-auto max-w-7xl rounded-2xl bg-white/85 shadow-lg overflow-hidden">
+          <div class="calendar-header-strip grid grid-cols-7 border-b">
+            ${this.calendarWeekdayLabels.map(weekday => `<div class="px-3 py-2 text-xs font-semibold uppercase tracking-wide calendar-weekday-label">${weekday}</div>`).join('')}
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-7">
+            ${this.calendarDays.map(day => this.renderCalendarDay(day)).join('')}
+          </div>
+        </div>
+      `;
+    },
+
+    renderCalendarCreateModal() {
+      if (!this.calendarCreateModalEl) return;
+      if (!this.showCalendarCreate) {
+        this.calendarCreateModalEl.innerHTML = '';
+        return;
+      }
+      this.calendarCreateModalEl.innerHTML = `
+        <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" data-action="close-calendar-create">
+          <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md" data-stop-propagation="true">
+            <div class="p-6">
+              <div class="flex items-center justify-between mb-5">
+                <div>
+                  <h2 class="text-lg font-bold text-gray-800">New Objective</h2>
+                  <p class="text-sm text-gray-400 mt-1">Create for ${_escapeBoardHtml(this.formatCalendarCreateDate(this.calendarCreateDate))}</p>
+                </div>
+                <button data-action="close-calendar-create" class="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+              </div>
+              <div class="mb-6">
+                <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Stage</label>
+                <select data-field="calendar-create-stage-id" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+                  ${this.realStages.map(stage => `<option value="${stage.id}"${String(stage.id) === String(this.calendarCreateStageId) ? ' selected' : ''}>${_escapeBoardHtml(stage.name)}</option>`).join('')}
+                </select>
+              </div>
+              <div class="flex justify-end gap-2 border-t pt-4">
+                <button data-action="close-calendar-create" class="text-gray-500 hover:text-gray-700 px-4 py-2 text-sm">Cancel</button>
+                <button data-action="submit-calendar-create" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">Continue</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    },
+
+    renderSettingsModal() {
+      if (!this.settingsModalEl) return;
+      if (!this.showSettings) {
+        this.settingsModalEl.innerHTML = '';
+        return;
+      }
+      const colorButtons = PRESET_COLORS.map(color => `
+        <button
+          data-action="select-board-color"
+          data-color="${color}"
+          ${this.canManageBoard ? '' : 'disabled'}
+          class="w-8 h-8 rounded-full hover:scale-110 transition-transform border-2 border-black/10 ${this.settingsColorSwatchClass(color)}"
+        ></button>
+      `).join('');
+      const shareSection = this.canManageBoard ? `
+        <div class="mb-6 border-t pt-5">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h3 class="text-sm font-semibold text-gray-800">Sharing</h3>
+              <p class="text-xs text-gray-400 mt-0.5">Share this hub with other registered users.</p>
+            </div>
+          </div>
+          <div class="flex gap-2 mb-4">
+            <input
+              data-field="share-email"
+              value="${_escapeBoardHtml(this.shareEmail)}"
+              placeholder="user@example.com"
+              class="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+            >
+            <select data-field="share-role" class="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+              <option value="viewer"${this.shareRole === 'viewer' ? ' selected' : ''}>Viewer</option>
+              <option value="editor"${this.shareRole === 'editor' ? ' selected' : ''}>Editor</option>
+              <option value="owner"${this.shareRole === 'owner' ? ' selected' : ''}>Owner</option>
+            </select>
+            <button data-action="share-board" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">Share</button>
+          </div>
+          ${this.shareError ? `<p class="text-sm text-red-500 mb-3">${_escapeBoardHtml(this.shareError)}</p>` : ''}
+          <div class="space-y-2">
+            ${this.boardMembers.map(member => `
+              <div class="flex items-center gap-3 border rounded-xl px-3 py-2">
+                <div class="min-w-0 flex-1">
+                  <div class="text-sm font-medium text-gray-800">${_escapeBoardHtml(member.display_name)}</div>
+                  <div class="text-xs text-gray-400">${_escapeBoardHtml(member.email)}</div>
+                </div>
+                <select data-field="board-member-role" data-user-id="${member.user_id}" class="border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+                  <option value="viewer"${member.role === 'viewer' ? ' selected' : ''}>Viewer</option>
+                  <option value="editor"${member.role === 'editor' ? ' selected' : ''}>Editor</option>
+                  <option value="owner"${member.role === 'owner' ? ' selected' : ''}>Owner</option>
+                </select>
+                <button data-action="remove-board-member" data-user-id="${member.user_id}" class="text-sm text-red-400 hover:text-red-600 transition-colors">Remove</button>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      ` : '';
+      this.settingsModalEl.innerHTML = `
+        <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" data-action="close-settings">
+          <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" data-stop-propagation="true">
+            <div class="p-6">
+              <div class="flex items-center justify-between mb-5">
+                <h2 class="text-lg font-bold text-gray-800">Hub Settings</h2>
+                <button data-action="close-settings" class="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+              </div>
+              <div class="mb-5">
+                <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Hub Name</label>
+                <input
+                  data-field="settings-board-name"
+                  value="${_escapeBoardHtml(this.settingsBoardName)}"
+                  ${this.canManageBoard ? '' : 'disabled'}
+                  class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                >
+              </div>
+              <div class="mb-6">
+                <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Hub Color</label>
+                <div class="flex flex-wrap gap-2 mb-3">
+                  ${colorButtons}
+                  <button
+                    data-action="clear-board-color"
+                    ${this.canManageBoard ? '' : 'disabled'}
+                    class="w-8 h-8 rounded-full bg-gray-100 border-2 border-dashed border-gray-300 flex items-center justify-center text-gray-400 hover:bg-gray-200 transition-colors ${this.emptyColorSettingsClass(this.settingsBoardColor)}"
+                    title="No color"
+                  >✕</button>
+                </div>
+                <div class="h-6 rounded-lg transition-colors ${this.settingsBoardColorStyle}"></div>
+              </div>
+              ${shareSection}
+              <div class="flex justify-end gap-2 border-t pt-4">
+                <button data-action="close-settings" class="text-gray-500 hover:text-gray-700 px-4 py-2 text-sm">Cancel</button>
+                ${this.canManageBoard ? `<button data-action="save-settings" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">Save</button>` : ''}
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    },
+
+    renderCalendarDay(day) {
+      const count = day.entries.length ? `<span class="text-[11px] font-medium calendar-day-count">${_escapeBoardHtml(this.calendarDayCountLabel(day.entries))}</span>` : '';
+      const entries = day.entries.map(entry => this.renderCalendarEntry(entry, day.date)).join('');
+      return `
+        <div class="min-h-[11rem] border-b border-r border-slate-200 p-2.5 flex flex-col gap-2 ${this.calendarDayClass(day)}" data-calendar-day="true" data-calendar-date="${day.date}">
+          <div class="flex items-center justify-between gap-2">
+            <span class="inline-flex items-center justify-center h-8 min-w-8 px-2 rounded-full text-sm font-semibold ${this.calendarDayNumberClass(day)}">${day.dayNumber}</span>
+            ${count}
+          </div>
+          <div class="space-y-2 flex-1 min-h-[6rem]" data-calendar-dropzone="true">
+            ${entries}
+          </div>
+        </div>
+      `;
+    },
+
+    renderCalendarEntry(entry, dayKey) {
+      return `
+        <div
+          data-action="open-task"
+          data-open-task-id="${entry.id}"
+          data-calendar-task="true"
+          data-task-id="${this.calendarTaskId(entry)}"
+          data-calendar-draggable="${this.calendarEntryDraggableValue(entry)}"
+          role="button"
+          tabindex="0"
+          class="w-full rounded-lg px-2.5 py-2 bg-white shadow-sm hover:shadow-md transition-all cursor-pointer ${this.calendarTaskCardClass(entry, dayKey)} ${this.taskCardClass(entry)}"
+        >
+          <div class="flex items-start justify-between gap-2">
+            <span class="text-sm font-medium leading-snug ${this.calendarEntryTitleClass(entry)}">${_escapeBoardHtml(entry.title)}</span>
+            ${entry.recurrence ? '<span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">↻</span>' : ''}
+          </div>
+          <div class="mt-1.5 flex items-center gap-1.5 flex-wrap">
+            ${entry.task_type ? `<span class="text-[11px] px-1.5 py-0.5 rounded font-medium ${this.taskTypeBadgeClass(entry.task_type)}">${_escapeBoardHtml(entry.task_type.name)}</span>` : ''}
+            <span class="text-[11px] px-1.5 py-0.5 rounded font-medium bg-slate-100 text-slate-600">${_escapeBoardHtml(this.calendarStageLabel(entry))}</span>
+            ${entry.is_calendar_preview ? '<span class="text-[11px] text-blue-600 font-medium">Next occurrence</span>' : ''}
+          </div>
+        </div>
+      `;
     },
 
     checklistProgress(task) {
@@ -573,6 +1324,7 @@ function board() {
           placements: this.clonePlacements(this.buildStagePlacements()),
         };
         this.showStageDropTargets = true;
+        this.updateStageDropTargetVisibility();
         if (evt.dataTransfer) {
           evt.dataTransfer.effectAllowed = 'move';
           evt.dataTransfer.setData('text/plain', String(draggedId));
@@ -606,6 +1358,7 @@ function board() {
         }
         this.resetArmedStageDrag();
         this.showStageDropTargets = false;
+        this.updateStageDropTargetVisibility();
         this._stageDragContext = null;
       });
     },
@@ -733,11 +1486,13 @@ function board() {
       this._stageDragContext = null;
       if (!draggedId || targetRow < 0 || targetPosition < 0) {
         this.showStageDropTargets = false;
+        this.updateStageDropTargetVisibility();
         await this.loadStages();
         return;
       }
       const placements = this.applyStageDrop(basePlacements, draggedId, targetRow, targetPosition);
       this.showStageDropTargets = false;
+      this.updateStageDropTargetVisibility();
       await this.persistStagePlacements(placements);
     },
 
@@ -756,6 +1511,7 @@ function board() {
 
     queuePersistStagePlacements(placements) {
       this.showStageDropTargets = false;
+      this.updateStageDropTargetVisibility();
       this._pendingStagePlacements = placements;
       if (this._stagePersistTimer) {
         clearTimeout(this._stagePersistTimer);
@@ -773,13 +1529,17 @@ function board() {
       this.newStageRow = row;
       this.newStagePosition = position;
       this.showNewStage = true;
-      this.$nextTick(() => this.$refs.newStageInput?.focus());
+      this.renderBoardSurface();
+      requestAnimationFrame(() => {
+        this.$el.querySelector('[data-field="new-stage-name"]')?.focus();
+      });
     },
 
     cancelNewStage() {
       this.showNewStage = false;
       this.newStageName = '';
       this.newStagePosition = null;
+      this.renderBoardSurface();
     },
 
     async createStage(row = this.newStageRow, position = this.newStagePosition) {
@@ -812,6 +1572,7 @@ function board() {
       if (!confirm('Delete this stage and all its objectives?')) return;
       await fetch(`/api/stages/${stageId}`, {method: 'DELETE'});
       this.stages = this.stages.filter(s => s.id !== stageId);
+      this.renderBoardSurface();
     },
 
     // Tasks
@@ -829,6 +1590,7 @@ function board() {
       if (stage) stage.tasks.push(task);
       this.newTaskTitles = {...this.newTaskTitles, [stageId]: ''};
       this.showNewTask = {...this.showNewTask, [stageId]: false};
+      this.renderBoardSurface();
       this.$nextTick(() => this.initSortable());
     },
 
@@ -839,11 +1601,15 @@ function board() {
     openNewTaskForm(stageId) {
       this.showNewTask = {...this.showNewTask, [stageId]: true};
       this.newTaskTitles = {...this.newTaskTitles, [stageId]: ''};
-      this.$nextTick(() => document.getElementById(`new-task-input-${stageId}`)?.focus());
+      this.renderBoardSurface();
+      requestAnimationFrame(() => {
+        this.$el.querySelector(`[data-field="new-task-title"][data-stage-id="${stageId}"]`)?.focus();
+      });
     },
 
     closeNewTaskForm(stageId) {
       this.showNewTask = {...this.showNewTask, [stageId]: false};
+      this.renderBoardSurface();
     },
 
     updateNewTaskTitle(stageId, value) {
@@ -1512,6 +2278,7 @@ function board() {
       this.showSettings = false;
       document.title = 'questline';
       applyBoardColor(this.settingsBoardColor);
+      this.renderBoardSurface();
     },
 
     async addBoardMember() {
@@ -1526,6 +2293,7 @@ function board() {
       if (!res.ok) {
         const data = await res.json();
         this.shareError = data.detail || 'Unable to share hub';
+        this.renderBoardSurface();
         return;
       }
       const member = await res.json();
@@ -1567,6 +2335,7 @@ function board() {
       if (!res.ok) {
         const data = await res.json();
         this.shareError = data.detail || 'Unable to remove member';
+        this.renderBoardSurface();
         return;
       }
       await this.loadBoardMembers();
@@ -1624,6 +2393,7 @@ function board() {
     setBoardView(view) {
       this.boardView = view === 'calendar' ? 'calendar' : 'stages';
       this.updateBoardUrlState();
+      this.renderBoardSurface();
       this.$nextTick(() => {
         this.initSortable();
       });
@@ -1634,12 +2404,14 @@ function board() {
       next.setMonth(next.getMonth() + offset, 1);
       this.calendarCursor = new Date(next.getFullYear(), next.getMonth(), 1);
       this.updateBoardUrlState();
+      this.renderBoardSurface();
     },
 
     jumpCalendarToToday() {
       const now = new Date();
       this.calendarCursor = new Date(now.getFullYear(), now.getMonth(), 1);
       this.updateBoardUrlState();
+      this.renderBoardSurface();
     },
 
     openCalendarCreate(day, event) {
@@ -1649,12 +2421,14 @@ function board() {
       this.calendarCreateStageId = String(this.realStages[0]?.id || '');
       if (!this.calendarCreateStageId) return;
       this.showCalendarCreate = true;
+      this.renderBoardSurface();
     },
 
     closeCalendarCreate() {
       this.showCalendarCreate = false;
       this.calendarCreateDate = '';
       this.calendarCreateStageId = '';
+      this.renderBoardSurface();
     },
 
     formatCalendarCreateDate(value) {
@@ -1695,6 +2469,7 @@ function board() {
       if (stage) stage.tasks.push(task);
       this.closeCalendarCreate();
       this.openTask(task);
+      this.renderBoardSurface();
     },
 
     async handleCalendarTaskDrop(taskId, targetDate) {

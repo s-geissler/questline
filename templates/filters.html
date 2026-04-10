@@ -2,9 +2,7 @@
 {% block content %}
 
 <div
-  x-data="filtersPage"
-  x-init="init"
-  x-cloak
+  id="filters-page"
   class="max-w-5xl mx-auto p-6"
   data-board-id="{{ board.id }}"
   data-board-role='{{ board_role | tojson }}'
@@ -12,247 +10,24 @@
   data-current-user='{{ filter_current_user | tojson }}'
   data-assignee-options='{{ filter_assignee_options | tojson }}'
 >
-
-  <div x-show="!canEdit" class="mb-6 bg-white/85 text-slate-700 text-sm rounded-xl px-4 py-3 shadow">
+  <div id="filters-readonly-banner" class="hidden mb-6 bg-white/85 text-slate-700 text-sm rounded-xl px-4 py-3 shadow">
     Read-only access. Viewers can inspect saved filters but cannot change them.
   </div>
 
   <div class="flex items-center justify-between mb-6">
     <h1 class="text-2xl font-bold text-white">Filters</h1>
     <button
-      x-show="canEdit"
-      @click="startCreate()"
-      class="bg-white text-blue-700 font-semibold px-4 py-2 rounded-lg hover:bg-blue-50 transition-colors shadow"
+      id="filters-new-button"
+      type="button"
+      class="hidden bg-white text-blue-700 font-semibold px-4 py-2 rounded-lg hover:bg-blue-50 transition-colors shadow"
     >+ New Filter</button>
   </div>
 
-  <template x-if="editingFilter && canEdit">
-    <div class="bg-white rounded-xl shadow p-5 mb-6">
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="font-semibold text-gray-700" x-text="editorTitle()"></h2>
-      <button @click="cancelEdit()" class="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
-    </div>
-
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-      <div class="md:col-span-2">
-        <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Name</label>
-        <input
-          x-model="editingFilter.name"
-          class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-          placeholder="e.g. Open Bugs, Overdue Work..."
-        >
-      </div>
-      <div>
-        <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Match</label>
-        <select
-          x-model="editingFilter.definition.op"
-          class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-        >
-          <option value="and">All rules (AND)</option>
-          <option value="or">Any rule (OR)</option>
-        </select>
-      </div>
-    </div>
-
-    <div class="mb-4">
-      <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Source Hubs</label>
-      <div class="bg-gray-50 border rounded-xl p-3 space-y-2">
-        <template x-for="board in boards" :key="board.id">
-          <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-            <input
-              type="checkbox"
-              :checked="includesSourceBoard(board.id)"
-              @change="toggleSourceBoard(board.id)"
-              class="h-4 w-4 rounded accent-blue-500"
-            >
-            <span x-text="board.name"></span>
-            <span x-show="sameString(board.id, boardId)" class="text-[11px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">Current</span>
-            <span
-              x-show="board.role"
-              class="text-[11px] px-1.5 py-0.5 rounded-full"
-              :class="boardRoleClasses(board)"
-              x-text="boardRoleLabel(board)"
-            ></span>
-          </label>
-        </template>
-      </div>
-      <p class="mt-1 text-xs text-gray-400">Logs using this filter will pull objectives from the selected hubs you can access.</p>
-    </div>
-
-    <div class="space-y-3">
-      <template x-for="(rule, idx) in editingFilter.definition.rules" :key="rule.uid">
-        <div class="bg-gray-50 rounded-xl p-3 border">
-          <div class="grid grid-cols-1 md:grid-cols-[1.4fr_1fr_1.4fr_auto] gap-3 items-end">
-            <div>
-              <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Field</label>
-              <select
-                x-model="rule.field"
-                @change="resetRuleForField(rule)"
-                class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-              >
-                <template x-for="field in availableFields" :key="field.key">
-                  <option :value="field.key" :selected="rule.field === field.key" x-text="field.label"></option>
-                </template>
-              </select>
-            </div>
-            <template x-if="rule.field === '__custom__'">
-              <div class="md:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Objective Type</label>
-                  <select
-                    x-model="rule.custom_task_type_id"
-                    @change="handleCustomTaskTypeChange(rule)"
-                    class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  >
-                    <option value="">Select type</option>
-                    <template x-for="taskType in customFieldTaskTypes" :key="taskType.id">
-                      <option
-                        :value="asString(taskType.id)"
-                        :selected="sameString(rule.custom_task_type_id || '', taskType.id)"
-                        x-text="taskType.name"
-                      ></option>
-                    </template>
-                  </select>
-                </div>
-                <div>
-                  <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Custom Field</label>
-                  <select
-                    x-model="rule.custom_field_id"
-                    @change="handleCustomFieldChange(rule)"
-                    class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                    :disabled="!rule.custom_task_type_id"
-                  >
-                    <option value="">Select field</option>
-                    <template x-for="field in customFieldsForRule(rule)" :key="field.id">
-                      <option
-                        :value="asString(field.id)"
-                        :selected="sameString(rule.custom_field_id || '', field.id)"
-                        x-text="field.name"
-                      ></option>
-                    </template>
-                  </select>
-                </div>
-              </div>
-            </template>
-            <div>
-              <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Operator</label>
-              <select
-                x-model="rule.operator"
-                :disabled="customRuleTypeDisabled(rule)"
-                class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-              >
-                <template x-for="operator in operatorsForRule(rule)" :key="operator.value">
-                  <option :value="operator.value" :selected="rule.operator === operator.value" x-text="operator.label"></option>
-                </template>
-              </select>
-            </div>
-            <div>
-              <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Value</label>
-              <template x-if="usesDropdownValue(rule)">
-                <select x-model="rule.value" :disabled="customRuleTypeDisabled(rule)" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
-                  <option value="">Select value</option>
-                  <template x-for="option in valueOptionsForRule(rule)" :key="option.value">
-                    <option :value="option.value" :selected="sameString(rule.value ?? '', option.value)" x-text="option.label"></option>
-                  </template>
-                </select>
-              </template>
-              <template x-if="usesDateValueMode(rule)">
-                <div class="space-y-2">
-                  <select
-                  :value="dateValueMode(rule)"
-                  @change="setDateValueMode(rule, $event.target.value)"
-                  class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  :disabled="operatorWithoutValue(rule.operator)"
-                >
-                    <option value="date" :selected="dateValueMode(rule) === 'date'">Specific date</option>
-                    <option value="today" :selected="dateValueMode(rule) === 'today'">Today</option>
-                  </select>
-                  <input
-                    x-show="showSpecificDateInput(rule)"
-                    type="date"
-                    x-model="rule.value"
-                    class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  >
-                </div>
-              </template>
-              <template x-if="!usesDropdownValue(rule) && !usesDateValueMode(rule)">
-                <template x-if="!usesColorValue(rule)">
-                  <input
-                    :type="inputTypeForRule(rule)"
-                    x-model="rule.value"
-                    :disabled="ruleValueDisabled(rule)"
-                    class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                    placeholder="Value"
-                  >
-                </template>
-              </template>
-              <template x-if="usesColorValue(rule)">
-                <div class="space-y-2">
-                  <div class="flex flex-wrap gap-2">
-                    <template x-for="color in PRESET_COLORS" :key="color">
-                      <button
-                        type="button"
-                        @click="rule.value = color"
-                        :disabled="ruleValueDisabled(rule)"
-                        class="h-7 w-7 rounded-full border border-black/10 transition-transform hover:scale-110 disabled:opacity-50 disabled:hover:scale-100"
-                        :class="filterColorButtonClass(rule, color)"
-                        :title="color"
-                      ></button>
-                    </template>
-                    <button
-                      type="button"
-                      @click="rule.value = ''"
-                      :disabled="ruleValueDisabled(rule)"
-                      class="h-7 w-7 rounded-full border border-dashed border-gray-300 bg-gray-100 text-xs text-gray-400 transition-colors hover:bg-gray-200 disabled:opacity-50"
-                      :class="clearColorButtonClasses(rule)"
-                      title="No color"
-                    >✕</button>
-                  </div>
-                  <div class="text-xs text-gray-500" x-show="showColorHelp(rule)">
-                    <span x-show="showColorSelection(rule)" x-text="colorSelectionLabel(rule)"></span>
-                    <span x-show="!rule.value">Choose a color</span>
-                  </div>
-                </div>
-              </template>
-            </div>
-            <button
-              @click="removeRule(idx)"
-              class="text-gray-400 hover:text-red-500 px-2 py-2 text-sm transition-colors"
-            >Remove</button>
-          </div>
-        </div>
-      </template>
-
-      <button
-        @click="addRule()"
-        class="text-sm text-blue-600 hover:text-blue-700 font-medium"
-      >+ Add rule</button>
-    </div>
-
-    <div class="flex justify-end gap-2 border-t pt-4 mt-5">
-      <button @click="cancelEdit()" class="text-gray-500 hover:text-gray-700 px-4 py-2 text-sm">Cancel</button>
-      <button @click="saveFilter()" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">Save Filter</button>
-    </div>
-  </div>
-  </template>
-
-  <div class="space-y-3">
-    <template x-for="savedFilter in filters" :key="savedFilter.id">
-      <div class="bg-white rounded-xl shadow p-4 flex items-center gap-4">
-        <div class="flex-1 min-w-0">
-          <div class="font-medium text-gray-800 text-sm" x-text="savedFilter.name"></div>
-          <div class="text-xs text-gray-400 mt-0.5" x-text="filterSummary(savedFilter)"></div>
-        </div>
-        <button x-show="canEdit" @click="startEdit(savedFilter)" class="text-sm text-blue-600 hover:text-blue-700 transition-colors">Edit</button>
-        <button x-show="canEdit" @click="deleteFilter(savedFilter)" class="text-sm text-red-400 hover:text-red-600 transition-colors">Delete</button>
-      </div>
-    </template>
-
-    <p x-show="!hasFilters" class="text-white text-center opacity-70 py-8">
-      No filters yet. Create one to drive log stages.
-    </p>
-  </div>
-
+  <div id="filters-editor-container"></div>
+  <div id="filters-list-container" class="space-y-3"></div>
+  <p id="filters-empty-state" class="hidden text-white text-center opacity-70 py-8">
+    No filters yet. Create one to drive log stages.
+  </p>
 </div>
 
 <script src="/static/filters.js"></script>
