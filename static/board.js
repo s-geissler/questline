@@ -666,7 +666,23 @@ function board() {
       }
 
       nextPlacements.push({id: draggedId, row: targetRow, position: targetPosition});
-      return nextPlacements;
+      return this.normalizeStagePlacements(nextPlacements);
+    },
+
+    normalizeStagePlacements(placements) {
+      const orderedPositions = [...new Set(
+        placements
+          .map(placement => placement.position)
+          .filter(position => Number.isInteger(position))
+          .sort((a, b) => a - b)
+      )];
+      const normalizedPosition = new Map(orderedPositions.map((position, index) => [position, index]));
+      return placements
+        .map(placement => ({
+          ...placement,
+          position: normalizedPosition.get(placement.position) ?? placement.position,
+        }))
+        .sort((a, b) => (a.position - b.position) || (a.row - b.row) || (a.id - b.id));
     },
 
     canPlaceStageDrop(evt) {
