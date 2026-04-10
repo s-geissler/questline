@@ -41,10 +41,12 @@ function board() {
     descriptionEditing: false,
     newChecklistItem: '',
     _sortables: [],
-    _stageLiftObserver: null,
     showStageDropTargets: false,
     _stagePersistTimer: null,
     _pendingStagePlacements: null,
+    _stageDragContext: null,
+    _stageDragBound: false,
+    _armedStageDragId: null,
     _initialized: false,
     activeStageMenuId: null,
     taskActionMenuOpen: false,
@@ -180,15 +182,26 @@ function board() {
         .sort((a, b) => a.position - b.position);
     },
 
-    get secondRowSlots() {
-      const secondRowStages = this.stages
+    get stageColumns() {
+      const topStages = this.stages
+        .filter(stage => (Number.isInteger(stage.row) ? stage.row : 0) === 0)
+        .sort((a, b) => a.position - b.position);
+      const bottomStages = this.stages
         .filter(stage => (Number.isInteger(stage.row) ? stage.row : 0) === 1)
         .sort((a, b) => a.position - b.position);
-      const byPosition = new Map(secondRowStages.map(stage => [stage.position, stage]));
-      return Array.from({length: this.topRowStages.length}, (_, position) => ({
+      const topByPosition = new Map(topStages.map(stage => [stage.position, stage]));
+      const bottomByPosition = new Map(bottomStages.map(stage => [stage.position, stage]));
+      const maxPosition = Math.max(-1, ...this.stages.map(stage => Number.isInteger(stage.position) ? stage.position : 0));
+      const columnCount = Math.max(topStages.length, maxPosition + 1);
+      return Array.from({length: columnCount}, (_, position) => ({
         position,
-        stage: byPosition.get(position) || null,
+        topStage: topByPosition.get(position) || null,
+        bottomStage: bottomByPosition.get(position) || null,
       }));
+    },
+
+    get topAddStagePosition() {
+      return this.stageColumns.length;
     },
 
     stageContainerClass(stage) {
@@ -362,8 +375,8 @@ function board() {
       this.currentBoardRole = _parseBoardPageJson(this.$el.dataset.boardRole, null);
       this.boardView = this.getRequestedBoardView();
       this.calendarCursor = this.getInitialCalendarCursor();
-      window.addEventListener('resize', () => this.updateStageLifts());
       await this.loadData();
+      this.bindStageDragEvents();
       const taskId = this.getRequestedTaskId();
       if (taskId) {
         await this.openTaskById(taskId);
@@ -430,61 +443,13 @@ function board() {
     initSortable() {
       this.showStageDropTargets = false;
       if (this.boardView === 'calendar') {
-        this.disconnectStageLiftObserver();
-        this.clearStageSlotLiftStyles();
         if (!this.canEditBoard) return;
         this.initCalendarSortable();
         return;
       }
       if (this.boardView !== 'stages') {
-        this.disconnectStageLiftObserver();
-        this.clearStageSlotLiftStyles();
         return;
       }
-      this.initStageLiftObserver();
-      this.$nextTick(() => this.updateStageLifts());
-      if (!this.canEditBoard) return;
-      const topRow = document.querySelector('[data-stage-top-row]');
-      if (topRow && !Sortable.get(topRow)) {
-        const topRowSortable = Sortable.create(topRow, {
-          group: 'stages',
-          animation: 150,
-          draggable: '[data-stage-column-id]',
-          handle: '[data-stage-drag-handle]',
-          ghostClass: 'task-ghost',
-          onStart: () => {
-            this.showStageDropTargets = true;
-          },
-          onMove: evt => this.canPlaceStageDrop(evt),
-          onEnd: async () => {
-            this.commitStageDrop();
-          },
-        });
-        this._sortables.push(topRowSortable);
-      }
-
-      const secondRowSlots = Array.from(document.querySelectorAll('[data-stage-slot-position]'));
-      secondRowSlots.forEach(slotEl => {
-        if (Sortable.get(slotEl)) return;
-        const slotSortable = Sortable.create(slotEl, {
-          group: 'stages',
-          animation: 150,
-          draggable: '[data-stage-column-id]',
-          handle: '[data-stage-drag-handle]',
-          ghostClass: 'task-ghost',
-          onStart: () => {
-            this.showStageDropTargets = true;
-          },
-          onMove: evt => this.canPlaceStageDrop(evt),
-          onAdd: evt => {
-            this.swapIntoOccupiedSecondRowSlot(evt);
-          },
-          onEnd: async () => {
-            this.commitStageDrop();
-          },
-        });
-        this._sortables.push(slotSortable);
-      });
 
       this.stages.forEach(stage => {
         const el = document.getElementById('stage-' + stage.id);
@@ -566,27 +531,142 @@ function board() {
 
     buildStagePlacements() {
       const placements = [];
-      const topRow = document.querySelector('[data-stage-top-row]');
-      if (topRow) {
-        Array.from(topRow.querySelectorAll('[data-stage-column-id]')).forEach((el, position) => {
-          placements.push({
-            id: parseInt(el.dataset.stageColumnId, 10),
-            row: 0,
-            position,
-          });
-        });
-      }
-      const secondRowSlots = Array.from(document.querySelectorAll('[data-stage-slot-position]'));
-      secondRowSlots.forEach(slotEl => {
+      const stageSlots = Array.from(document.querySelectorAll('[data-stage-slot]'));
+      stageSlots.forEach(slotEl => {
         const stageEl = Array.from(slotEl.children).find(child => child.dataset.stageColumnId);
         if (!stageEl) return;
         placements.push({
           id: parseInt(stageEl.dataset.stageColumnId, 10),
-          row: 1,
+          row: parseInt(slotEl.dataset.stageRow || '0', 10),
           position: parseInt(slotEl.dataset.stageSlotPosition || '0', 10),
         });
       });
       return placements;
+    },
+
+    bindStageDragEvents() {
+      if (this._stageDragBound) return;
+      this._stageDragBound = true;
+      document.addEventListener('mousedown', evt => {
+        const handle = evt.target.closest('[data-stage-drag-handle]');
+        const stageEl = handle?.closest('[data-stage-column-id]');
+        this._armedStageDragId = stageEl ? parseInt(stageEl.dataset.stageColumnId || '0', 10) : null;
+        if (stageEl) {
+          stageEl.draggable = true;
+        }
+      });
+      document.addEventListener('mouseup', () => {
+        this.resetArmedStageDrag();
+      });
+      document.addEventListener('dragstart', evt => {
+        const stageEl = evt.target instanceof HTMLElement && evt.target.matches('[data-stage-column-id]')
+          ? evt.target
+          : null;
+        if (!stageEl) return;
+        const draggedId = parseInt(stageEl.dataset.stageColumnId || '0', 10);
+        if (!this.canEditBoard || this.boardView !== 'stages' || !draggedId || this._armedStageDragId !== draggedId) {
+          evt.preventDefault();
+          return;
+        }
+        this._stageDragContext = {
+          draggedId,
+          placements: this.clonePlacements(this.buildStagePlacements()),
+        };
+        this.showStageDropTargets = true;
+        if (evt.dataTransfer) {
+          evt.dataTransfer.effectAllowed = 'move';
+          evt.dataTransfer.setData('text/plain', String(draggedId));
+        }
+      });
+      document.addEventListener('dragover', evt => {
+        const slot = evt.target.closest?.('[data-stage-slot]');
+        if (!slot || !this._stageDragContext) return;
+        const targetRow = parseInt(slot.dataset.stageRow || '-1', 10);
+        const targetPosition = parseInt(slot.dataset.stageSlotPosition || '-1', 10);
+        if (!this.canPlaceStageTarget(this._stageDragContext.draggedId, targetRow, targetPosition)) return;
+        evt.preventDefault();
+        if (evt.dataTransfer) {
+          evt.dataTransfer.dropEffect = 'move';
+        }
+      });
+      document.addEventListener('drop', evt => {
+        const slot = evt.target.closest?.('[data-stage-slot]');
+        if (!slot || !this._stageDragContext) return;
+        evt.preventDefault();
+        const targetRow = parseInt(slot.dataset.stageRow || '-1', 10);
+        const targetPosition = parseInt(slot.dataset.stageSlotPosition || '-1', 10);
+        this.finishStageDrop(targetRow, targetPosition);
+      });
+      document.addEventListener('dragend', evt => {
+        const stageEl = evt.target instanceof HTMLElement && evt.target.matches('[data-stage-column-id]')
+          ? evt.target
+          : null;
+        if (stageEl) {
+          stageEl.draggable = false;
+        }
+        this.resetArmedStageDrag();
+        this.showStageDropTargets = false;
+        this._stageDragContext = null;
+      });
+    },
+
+    resetArmedStageDrag() {
+      this._armedStageDragId = null;
+      document.querySelectorAll('[data-stage-column-id]').forEach(el => {
+        el.draggable = false;
+      });
+    },
+
+    clonePlacements(placements) {
+      return placements.map(placement => ({...placement}));
+    },
+
+    placementForStage(placements, stageId) {
+      return placements.find(placement => placement.id === stageId) || null;
+    },
+
+    beginStageDrag(evt) {
+      const draggedId = parseInt(evt.item?.dataset?.stageColumnId || '0', 10);
+      this._stageDragContext = {
+        draggedId,
+        placements: this.clonePlacements(this.buildStagePlacements()),
+      };
+    },
+
+    stageFallbackTarget(sourcePlacement, placements) {
+      if (!sourcePlacement) return null;
+      if (sourcePlacement.row === 0) {
+        const topOccupied = placements.some(placement => placement.row === 0 && placement.position === sourcePlacement.position);
+        if (topOccupied) {
+          return {row: 1, position: sourcePlacement.position};
+        }
+      }
+      return {row: sourcePlacement.row, position: sourcePlacement.position};
+    },
+
+    applyStageDrop(placements, draggedId, targetRow, targetPosition) {
+      const nextPlacements = this.clonePlacements(placements).filter(placement => placement.id !== draggedId);
+      const sourcePlacement = this.placementForStage(placements, draggedId);
+      if (!sourcePlacement) return nextPlacements;
+
+      if (sourcePlacement.row === 0) {
+        const promotedStage = nextPlacements.find(placement => placement.row === 1 && placement.position === sourcePlacement.position);
+        if (promotedStage) {
+          promotedStage.row = 0;
+        }
+      }
+
+      const displacedStage = nextPlacements.find(placement => placement.row === targetRow && placement.position === targetPosition);
+      if (displacedStage) {
+        const fallback = this.stageFallbackTarget(sourcePlacement, nextPlacements);
+        if (fallback) {
+          displacedStage.row = fallback.row;
+          displacedStage.position = fallback.position;
+        }
+      }
+
+      nextPlacements.push({id: draggedId, row: targetRow, position: targetPosition});
+      return nextPlacements;
     },
 
     canPlaceStageDrop(evt) {
@@ -596,44 +676,22 @@ function board() {
       return placements.every(placement => placement.row !== 1 || topRowPositions.has(placement.position));
     },
 
+    canPlaceStageTarget(draggedId, targetRow, targetPosition) {
+      if (!draggedId || targetRow < 0 || targetPosition < 0) return false;
+      const basePlacements = this._stageDragContext?.placements || this.buildStagePlacements();
+      const placements = this.applyStageDrop(basePlacements, draggedId, targetRow, targetPosition);
+      const topRowPositions = new Set(placements.filter(placement => placement.row === 0).map(placement => placement.position));
+      return placements.every(placement => placement.row !== 1 || topRowPositions.has(placement.position));
+    },
+
     previewStagePlacements(evt) {
       const draggedId = parseInt(evt.dragged?.dataset?.stageColumnId || evt.item?.dataset?.stageColumnId || '0', 10);
       if (!draggedId) return null;
-      const placements = this.buildStagePlacements().filter(placement => placement.id !== draggedId);
-      if (evt.to?.hasAttribute?.('data-stage-top-row')) {
-        const targetIndex = typeof evt.newDraggableIndex === 'number' ? evt.newDraggableIndex : placements.filter(placement => placement.row === 0).length;
-        const topPlacements = placements
-          .filter(placement => placement.row === 0)
-          .sort((a, b) => a.position - b.position);
-        topPlacements.splice(targetIndex, 0, {id: draggedId, row: 0, position: targetIndex});
-        topPlacements.forEach((placement, index) => {
-          placement.position = index;
-        });
-        return [
-          ...topPlacements,
-          ...placements.filter(placement => placement.row === 1),
-        ];
-      }
+      const targetRow = parseInt(evt.to?.dataset?.stageRow || '0', 10);
       const slotPosition = parseInt(evt.to?.dataset?.stageSlotPosition || '0', 10);
-      return [...placements, {id: draggedId, row: 1, position: slotPosition}];
-    },
-
-    swapIntoOccupiedSecondRowSlot(evt) {
-      const slotStages = Array.from(evt.to.children).filter(child => child.dataset.stageColumnId);
-      if (slotStages.length <= 1) return;
-      const draggedStage = evt.item;
-      const displacedStage = slotStages.find(child => child !== draggedStage);
-      if (!displacedStage) return;
-
-      if (evt.from?.hasAttribute?.('data-stage-top-row')) {
-        const referenceNode = Array.from(evt.from.children).filter(child => child !== displacedStage)[evt.oldDraggableIndex] || null;
-        evt.from.insertBefore(displacedStage, referenceNode);
-        return;
-      }
-
-      if (evt.from?.hasAttribute?.('data-stage-slot-position')) {
-        evt.from.appendChild(displacedStage);
-      }
+      if (!Number.isInteger(targetRow) || !Number.isInteger(slotPosition)) return this._stageDragContext?.placements || this.buildStagePlacements();
+      const basePlacements = this._stageDragContext?.placements || this.buildStagePlacements();
+      return this.applyStageDrop(basePlacements, draggedId, targetRow, slotPosition);
     },
 
     syncStagesFromPlacements(placements) {
@@ -648,10 +706,23 @@ function board() {
         .sort((a, b) => (a.row - b.row) || (a.position - b.position));
     },
 
-    commitStageDrop() {
-      const placements = this.buildStagePlacements();
+    commitStageDrop(placements = this.buildStagePlacements()) {
       this.syncStagesFromPlacements(placements);
       this.queuePersistStagePlacements(placements);
+    },
+
+    async finishStageDrop(targetRow, targetPosition) {
+      const draggedId = parseInt(this._stageDragContext?.draggedId || '0', 10);
+      const basePlacements = this._stageDragContext?.placements || this.buildStagePlacements();
+      this._stageDragContext = null;
+      if (!draggedId || targetRow < 0 || targetPosition < 0) {
+        this.showStageDropTargets = false;
+        await this.loadStages();
+        return;
+      }
+      const placements = this.applyStageDrop(basePlacements, draggedId, targetRow, targetPosition);
+      this.showStageDropTargets = false;
+      await this.persistStagePlacements(placements);
     },
 
     async persistStagePlacements(placements = this._pendingStagePlacements || this.buildStagePlacements()) {
@@ -679,50 +750,6 @@ function board() {
         this._pendingStagePlacements = null;
         await this.persistStagePlacements(nextPlacements);
       }, 0);
-    },
-
-    initStageLiftObserver() {
-      this.disconnectStageLiftObserver();
-      if (typeof ResizeObserver === 'undefined') return;
-      const topRow = document.querySelector('[data-stage-top-row]');
-      if (!topRow) return;
-      this._stageLiftObserver = new ResizeObserver(() => this.updateStageLifts());
-      topRow.querySelectorAll('[data-stage-column-id]').forEach(el => this._stageLiftObserver.observe(el));
-    },
-
-    disconnectStageLiftObserver() {
-      if (!this._stageLiftObserver) return;
-      this._stageLiftObserver.disconnect();
-      this._stageLiftObserver = null;
-    },
-
-    updateStageLifts() {
-      if (this.boardView !== 'stages') {
-        this._slotLiftByPosition = {};
-        return;
-      }
-      const topRow = document.querySelector('[data-stage-top-row]');
-      const secondRowSlots = Array.from(document.querySelectorAll('[data-stage-slot-position]'));
-      if (!topRow || !secondRowSlots.length) {
-        this.clearStageSlotLiftStyles();
-        return;
-      }
-
-      const topStages = Array.from(topRow.querySelectorAll('[data-stage-column-id]'));
-      const previousMaxHeight = Math.max(0, ...topStages.map(el => el.offsetHeight));
-
-      secondRowSlots.forEach(slotEl => {
-        const position = parseInt(slotEl.dataset.stageSlotPosition || '0', 10);
-        const aboveHeight = topStages[position]?.offsetHeight || 0;
-        const lift = Math.max(0, previousMaxHeight - aboveHeight);
-        slotEl.style.marginTop = lift ? `-${lift}px` : '';
-      });
-    },
-
-    clearStageSlotLiftStyles() {
-      document.querySelectorAll('[data-stage-slot-position]').forEach(slotEl => {
-        slotEl.style.marginTop = '';
-      });
     },
 
     // Stages
