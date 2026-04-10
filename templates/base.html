@@ -12,7 +12,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Exo+2:ital,wght@0,400;1,400&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="/static/base.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.5/dist/cdn.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/csp@3.13.5/dist/cdn.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.7/Sortable.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
 </head>
@@ -26,8 +26,8 @@
     <!-- Board switcher dropdown -->
     <div x-data="dropdownMenu" class="relative mr-1">
       <button
-        @click="toggle()"
-        @click.outside="close()"
+        @click="toggle"
+        @click.outside="close"
         class="px-3 py-1.5 rounded hover:bg-black/20 flex items-center gap-1.5 text-sm font-semibold transition-colors"
       >
         <span>{{ board.name }}</span>
@@ -43,7 +43,7 @@
         x-transition:leave-start="opacity-100 scale-100"
         x-transition:leave-end="opacity-0 scale-95"
         class="absolute top-full left-0 mt-1 bg-white text-gray-800 shadow-xl rounded-xl py-1 min-w-[200px] z-50"
-        @click="close()"
+        @click="close"
       >
         {% for b in boards %}
         <a
@@ -83,8 +83,8 @@
       <div class="relative">
         <button
           type="button"
-          @click="toggleNotifications()"
-          @click.outside="closeNotifications()"
+          @click="toggleNotifications"
+          @click.outside="closeNotifications"
           class="nav-utility relative"
           aria-label="Notifications"
           title="Notifications"
@@ -114,34 +114,11 @@
             <button
               x-show="hasUnreadNotifications"
               type="button"
-              @click="markAllNotificationsRead()"
+              @click="markAllNotificationsRead"
               class="text-xs text-blue-600 hover:text-blue-700"
             >Mark all read</button>
           </div>
-          <div class="max-h-[360px] overflow-y-auto">
-            <template x-if="showEmptyNotifications">
-              <div class="px-3 py-4 text-sm text-gray-500">No notifications</div>
-            </template>
-            <template x-for="notification in notifications" :key="notification.id">
-              <button
-                type="button"
-                @click="openNotification(notification)"
-                class="w-full text-left px-3 py-2 hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-b-0"
-              >
-                <div class="flex items-start gap-2">
-                  <span
-                    class="mt-1 w-2 h-2 rounded-full flex-shrink-0"
-                    :class="notification.read_at ? 'bg-gray-200' : 'bg-blue-500'"
-                  ></span>
-                  <div class="min-w-0 flex-1">
-                    <div class="text-sm font-medium text-gray-800" x-text="notification.title"></div>
-                    <div x-show="notification.body" class="text-xs text-gray-500 mt-0.5" x-text="notification.body"></div>
-                    <div class="text-[11px] text-gray-400 mt-1" x-text="formatNotificationTime(notification.created_at)"></div>
-                  </div>
-                </div>
-              </button>
-            </template>
-          </div>
+          <div id="nav-notifications-list" class="max-h-[360px] overflow-y-auto" x-ignore></div>
         </div>
       </div>
       {% else %}
@@ -152,7 +129,7 @@
         type="button"
         x-data="themeToggle"
         x-init="init"
-        @click="toggle()"
+        @click="toggle"
         class="nav-utility"
         title="Toggle theme"
         :aria-label="ariaLabel"
@@ -169,8 +146,8 @@
       <div class="relative">
         <button
           type="button"
-          @click="toggleMenu()"
-          @click.outside="closeMenu()"
+          @click="toggleMenu"
+          @click.outside="closeMenu"
           class="nav-utility"
         >
           <span x-text="currentUserDisplayName"></span>
@@ -191,7 +168,7 @@
         >
           <button
             type="button"
-            @click="openProfileFromMenu()"
+            @click="openProfileFromMenu"
             class="w-full text-left px-3 py-2 hover:bg-gray-100 text-sm transition-colors"
           >Profile</button>
           {% if current_user and current_user.role == 'admin' %}
@@ -202,7 +179,7 @@
           {% endif %}
           <button
             type="button"
-            @click="logout()"
+            @click="logout"
             class="w-full text-left px-3 py-2 hover:bg-gray-100 text-sm transition-colors"
           >Logout</button>
         </div>
@@ -215,14 +192,14 @@
         x-cloak
         class="fixed inset-0 z-[100] flex items-center justify-center p-4"
       >
-        <div class="absolute inset-0 bg-black/50" @click="closeProfile()"></div>
+        <div class="absolute inset-0 bg-black/50" @click="closeProfile"></div>
         <div class="relative w-full max-w-md bg-white rounded-2xl shadow-2xl p-6">
           <div class="flex items-start justify-between gap-4">
             <div>
               <h2 class="text-lg font-semibold text-gray-900">Profile</h2>
               <p class="text-sm text-gray-500 mt-1">Update your display name or change your password.</p>
             </div>
-            <button type="button" @click="closeProfile()" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+            <button type="button" @click="closeProfile" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
           </div>
 
           <div class="mt-5 space-y-4">
@@ -241,8 +218,8 @@
           <p x-show="profileError" x-text="profileError" class="mt-4 text-sm text-red-500"></p>
 
           <div class="mt-6 flex justify-end gap-2">
-            <button type="button" @click="closeProfile()" class="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
-            <button type="button" @click="saveProfile()" :disabled="savingProfile" class="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60">
+            <button type="button" @click="closeProfile" class="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+            <button type="button" @click="saveProfile" :disabled="savingProfile" class="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60">
               <span x-text="saveProfileLabel"></span>
             </button>
           </div>

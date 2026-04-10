@@ -9,9 +9,7 @@
 {% block content %}
 
 <div
-  x-data="board"
-  x-init="init"
-  x-cloak
+  id="board-root"
   data-board-id="{{ board.id }}"
   data-boards='{{ boards | tojson }}'
   data-board-name='{{ board.name | tojson }}'

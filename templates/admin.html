@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 
-<div x-data="adminPage" x-init="init" x-cloak class="max-w-5xl mx-auto p-6" data-current-user-id="{{ current_user.id }}">
+<div id="admin-root" class="max-w-5xl mx-auto p-6" data-current-user-id="{{ current_user.id }}">
   <div class="flex items-center justify-between mb-6">
     <div>
       <h1 class="text-2xl font-bold text-white">Admin</h1>
@@ -17,17 +17,15 @@
           <p class="text-sm text-gray-500 mt-1">Control registration, account activation, and shared instance defaults.</p>
         </div>
         <button
-          @click="saveSettings()"
-          :disabled="savingSettings"
+          id="admin-save-btn"
+          data-action="save-settings"
           class="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60"
-        >
-          <span x-text="savingSettings ? 'Saving...' : 'Save settings'"></span>
-        </button>
+        >Save settings</button>
       </div>
 
       <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <label class="flex items-start gap-3 p-4 rounded-xl border border-gray-200">
-          <input type="checkbox" x-model="settings.registration_enabled" class="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+          <input type="checkbox" id="settings-registration-enabled" class="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
           <div>
             <div class="text-sm font-medium text-gray-900">Open registration</div>
             <div class="text-sm text-gray-500 mt-1">Allow new users to create accounts without admin intervention.</div>
@@ -35,7 +33,7 @@
         </label>
 
         <label class="flex items-start gap-3 p-4 rounded-xl border border-gray-200">
-          <input type="checkbox" x-model="settings.new_accounts_active_by_default" class="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+          <input type="checkbox" id="settings-new-accounts-active" class="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
           <div>
             <div class="text-sm font-medium text-gray-900">Auto-activate new accounts</div>
             <div class="text-sm text-gray-500 mt-1">If disabled, new users can register but need an admin to activate them before login.</div>
@@ -43,42 +41,20 @@
         </label>
 
         <div class="space-y-4">
-          <label class="block">
+          <div class="block">
             <span class="text-sm font-medium text-gray-700">Default hub color</span>
-            <div class="mt-2 flex items-center gap-3">
-              <input type="color" x-model="settings.default_board_color" class="h-11 w-14 rounded border border-gray-200 bg-white p-1">
-              <input
-                type="text"
-                x-model="settings.default_board_color"
-                class="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                placeholder="#2563eb"
-              >
-            </div>
-          </label>
+            <div id="settings-default-board-color-swatches" class="mt-2 flex flex-wrap gap-2"></div>
+          </div>
 
-          <label class="block">
+          <div class="block">
             <span class="text-sm font-medium text-gray-700">Instance theme color</span>
-            <div class="mt-2 flex items-center gap-3">
-              <input type="color" x-model="settings.instance_theme_color" class="h-11 w-14 rounded border border-gray-200 bg-white p-1">
-              <input
-                type="text"
-                x-model="settings.instance_theme_color"
-                class="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                placeholder="#1d4ed8"
-              >
-            </div>
-          </label>
+            <div id="settings-instance-theme-color-swatches" class="mt-2 flex flex-wrap gap-2"></div>
+          </div>
 
           <label class="block">
             <span class="text-sm font-medium text-gray-700">Recurring worker interval</span>
             <div class="mt-2 flex items-center gap-3">
-              <input
-                type="number"
-                min="5"
-                step="1"
-                x-model.number="settings.recurrence_worker_interval_seconds"
-                class="w-28 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-              >
+              <input type="number" min="5" step="1" id="settings-recurrence-interval" class="w-28 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
               <span class="text-sm text-gray-500">seconds</span>
             </div>
             <p class="text-sm text-gray-500 mt-1">How often the background worker checks for due recurring objectives.</p>
@@ -99,41 +75,11 @@
         <div>Status</div>
         <div>Role</div>
       </div>
-
-      <template x-for="user in users" :key="user.id">
-        <div class="grid grid-cols-[1.4fr_1.4fr_0.8fr_0.8fr_0.8fr] gap-4 px-5 py-3 border-b items-center">
-          <div class="min-w-0">
-            <div class="text-sm font-medium text-gray-800" x-text="user.display_name"></div>
-            <div x-show="user.id === currentUserId" class="text-xs text-blue-500 mt-0.5">You</div>
-          </div>
-          <div class="text-sm text-gray-600 truncate" x-text="user.email"></div>
-          <div class="text-sm text-gray-500" x-text="user.board_count"></div>
-          <div>
-            <select
-              :value="user.is_active ? 'active' : 'inactive'"
-              @change="updateUserStatus(user, $event.target.value === 'active')"
-              class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-            >
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-            </select>
-          </div>
-          <div>
-            <select
-              :value="user.role"
-              @change="updateUserRole(user, $event.target.value)"
-              class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-            >
-              <option value="user">User</option>
-              <option value="admin">Admin</option>
-            </select>
-          </div>
-        </div>
-      </template>
+      <div id="admin-users-list"></div>
     </div>
   </div>
 
-  <p x-show="error" x-text="error" class="mt-4 text-sm text-red-500"></p>
+  <p id="admin-error" class="hidden mt-4 text-sm text-red-500"></p>
 </div>
 
 <script src="/static/admin.js"></script>

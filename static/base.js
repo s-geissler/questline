@@ -1,3 +1,12 @@
+function _escapeNavHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
 function getCookie(name) {
   const prefix = `${name}=`;
   return document.cookie
@@ -172,6 +181,47 @@ function userMenu() {
       const data = await res.json();
       this.notifications = data.items || [];
       this.unreadCount = data.unread_count || 0;
+      this.renderNotifications();
+    },
+
+    renderNotifications() {
+      const el = document.getElementById('nav-notifications-list');
+      if (!el) return;
+      if (!this.notifications.length) {
+        el.innerHTML = '<div class="px-3 py-4 text-sm text-gray-500">No notifications</div>';
+        return;
+      }
+      el.innerHTML = this.notifications.map((n, idx) => {
+        const dotClass = n.read_at ? 'bg-gray-200' : 'bg-blue-500';
+        const bodyHtml = n.body
+          ? `<div class="text-xs text-gray-500 mt-0.5">${_escapeNavHtml(n.body)}</div>`
+          : '';
+        const timeHtml = `<div class="text-[11px] text-gray-400 mt-1">${_escapeNavHtml(this.formatNotificationTime(n.created_at))}</div>`;
+        return `
+          <button
+            type="button"
+            data-action="open-notification"
+            data-notification-index="${idx}"
+            class="w-full text-left px-3 py-2 hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-b-0"
+          >
+            <div class="flex items-start gap-2">
+              <span class="mt-1 w-2 h-2 rounded-full flex-shrink-0 ${dotClass}"></span>
+              <div class="min-w-0 flex-1">
+                <div class="text-sm font-medium text-gray-800">${_escapeNavHtml(n.title || '')}</div>
+                ${bodyHtml}
+                ${timeHtml}
+              </div>
+            </div>
+          </button>
+        `;
+      }).join('');
+      el.addEventListener('click', event => {
+        const btn = event.target.closest('[data-action="open-notification"]');
+        if (!btn) return;
+        const idx = parseInt(btn.dataset.notificationIndex, 10);
+        const notification = this.notifications[idx];
+        if (notification) this.openNotification(notification);
+      }, {once: true});
     },
 
     async toggleNotifications() {
@@ -205,6 +255,7 @@ function userMenu() {
         read_at: notification.read_at || new Date().toISOString(),
       }));
       this.unreadCount = 0;
+      this.renderNotifications();
     },
 
     formatNotificationTime(value) {

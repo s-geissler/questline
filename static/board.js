@@ -16,7 +16,7 @@ function _escapeBoardHtml(value) {
     .replaceAll("'", '&#39;');
 }
 
-function board() {
+function _createBoard() {
   return {
     boardId: 0,
     boards: [],
@@ -378,11 +378,11 @@ function board() {
     async init() {
       if (this._initialized) return;
       this._initialized = true;
-      this.boardId = parseInt(this.$el.dataset.boardId || '0', 10);
-      this.boards = _parseBoardPageJson(this.$el.dataset.boards, []);
-      this.settingsBoardName = _parseBoardPageJson(this.$el.dataset.boardName, '');
-      this.settingsBoardColor = _parseBoardPageJson(this.$el.dataset.boardColor, '') || null;
-      this.currentBoardRole = _parseBoardPageJson(this.$el.dataset.boardRole, null);
+      this.boardId = parseInt(this._el.dataset.boardId || '0', 10);
+      this.boards = _parseBoardPageJson(this._el.dataset.boards, []);
+      this.settingsBoardName = _parseBoardPageJson(this._el.dataset.boardName, '');
+      this.settingsBoardColor = _parseBoardPageJson(this._el.dataset.boardColor, '') || null;
+      this.currentBoardRole = _parseBoardPageJson(this._el.dataset.boardRole, null);
       this.boardView = this.getRequestedBoardView();
       this.calendarCursor = this.getInitialCalendarCursor();
       this.cacheSurfaceElements();
@@ -412,7 +412,7 @@ function board() {
         tasks: (stage.tasks || []).map(task => this._decorateTask(task)),
       }));
       this.renderBoardSurface();
-      this.$nextTick(() => {
+      requestAnimationFrame(() => {
         this.initSortable();
       });
     },
@@ -446,15 +446,15 @@ function board() {
     },
 
     cacheSurfaceElements() {
-      this.readonlyBannerEl = this.$el.querySelector('#board-readonly-banner');
-      this.viewToggleEl = this.$el.querySelector('#board-view-toggle');
-      this.calendarToolbarEl = this.$el.querySelector('#board-calendar-toolbar');
-      this.stagesViewEl = this.$el.querySelector('#board-stages-view');
-      this.calendarViewEl = this.$el.querySelector('#board-calendar-view');
-      this.calendarCreateModalEl = this.$el.querySelector('#board-calendar-create-modal');
-      this.settingsModalEl = this.$el.querySelector('#board-settings-modal');
-      this.taskModalEl = this.$el.querySelector('#board-task-modal');
-      this.logConfigModalEl = this.$el.querySelector('#board-log-config-modal');
+      this.readonlyBannerEl = this._el.querySelector('#board-readonly-banner');
+      this.viewToggleEl = this._el.querySelector('#board-view-toggle');
+      this.calendarToolbarEl = this._el.querySelector('#board-calendar-toolbar');
+      this.stagesViewEl = this._el.querySelector('#board-stages-view');
+      this.calendarViewEl = this._el.querySelector('#board-calendar-view');
+      this.calendarCreateModalEl = this._el.querySelector('#board-calendar-create-modal');
+      this.settingsModalEl = this._el.querySelector('#board-settings-modal');
+      this.taskModalEl = this._el.querySelector('#board-task-modal');
+      this.logConfigModalEl = this._el.querySelector('#board-log-config-modal');
     },
 
     bindSurfaceEvents() {
@@ -463,13 +463,14 @@ function board() {
       const settingsButton = document.getElementById('board-settings-button');
       settingsButton?.addEventListener('click', () => {
         this.showSettings = true;
+        this.renderSettingsModal();
       });
-      this.$el.addEventListener('click', event => this.handleSurfaceClick(event));
-      this.$el.addEventListener('change', event => this.handleSurfaceChange(event));
-      this.$el.addEventListener('dblclick', event => this.handleSurfaceDoubleClick(event));
-      this.$el.addEventListener('input', event => this.handleSurfaceInput(event));
-      this.$el.addEventListener('keydown', event => this.handleSurfaceKeydown(event));
-      this.$el.addEventListener('blur', event => this.handleSurfaceBlur(event), true);
+      this._el.addEventListener('click', event => this.handleSurfaceClick(event));
+      this._el.addEventListener('change', event => this.handleSurfaceChange(event));
+      this._el.addEventListener('dblclick', event => this.handleSurfaceDoubleClick(event));
+      this._el.addEventListener('input', event => this.handleSurfaceInput(event));
+      this._el.addEventListener('keydown', event => this.handleSurfaceKeydown(event));
+      this._el.addEventListener('blur', event => this.handleSurfaceBlur(event), true);
       document.addEventListener('click', event => {
         // Stage menu outside click
         if (this.activeStageMenuId) {
@@ -1003,7 +1004,7 @@ function board() {
     },
 
     updateStageDropTargetVisibility() {
-      this.$el.querySelectorAll('[data-stage-drop-target]').forEach(element => {
+      this._el.querySelectorAll('[data-stage-drop-target]').forEach(element => {
         element.classList.toggle('opacity-100', this.showStageDropTargets);
       });
     },
@@ -2266,7 +2267,7 @@ function board() {
       this.showNewStage = true;
       this.renderBoardSurface();
       requestAnimationFrame(() => {
-        this.$el.querySelector('[data-field="new-stage-name"]')?.focus();
+        this._el.querySelector('[data-field="new-stage-name"]')?.focus();
       });
     },
 
@@ -2326,7 +2327,7 @@ function board() {
       this.newTaskTitles = {...this.newTaskTitles, [stageId]: ''};
       this.showNewTask = {...this.showNewTask, [stageId]: false};
       this.renderBoardSurface();
-      this.$nextTick(() => this.initSortable());
+      requestAnimationFrame(() => this.initSortable());
     },
 
     isNewTaskFormOpen(stageId) {
@@ -2338,7 +2339,7 @@ function board() {
       this.newTaskTitles = {...this.newTaskTitles, [stageId]: ''};
       this.renderBoardSurface();
       requestAnimationFrame(() => {
-        this.$el.querySelector(`[data-field="new-task-title"][data-stage-id="${stageId}"]`)?.focus();
+        this._el.querySelector(`[data-field="new-task-title"][data-stage-id="${stageId}"]`)?.focus();
       });
     },
 
@@ -3153,7 +3154,7 @@ function board() {
       this.boardView = view === 'calendar' ? 'calendar' : 'stages';
       this.updateBoardUrlState();
       this.renderBoardSurface();
-      this.$nextTick(() => {
+      requestAnimationFrame(() => {
         this.initSortable();
       });
     },
@@ -3423,6 +3424,10 @@ function board() {
   };
 }
 
-document.addEventListener('alpine:init', () => {
-  Alpine.data('board', board);
+document.addEventListener('DOMContentLoaded', () => {
+  const el = document.getElementById('board-root');
+  if (!el) return;
+  const instance = _createBoard();
+  instance._el = el;
+  instance.init();
 });
