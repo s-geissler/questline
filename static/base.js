@@ -100,19 +100,21 @@ const PRESET_COLORS = [
   '#374151','#78716c',
 ];
 
-function _darkenHex(hex, amount) {
-  const n = parseInt((hex || '#1d4ed8').replace('#', ''), 16);
-  const r = Math.max(0, ((n >> 16) & 255) * (1 - amount) | 0);
-  const g = Math.max(0, ((n >> 8) & 255) * (1 - amount) | 0);
-  const b = Math.max(0, (n & 255) * (1 - amount) | 0);
-  return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('');
+const PAGE_THEME_COLORS = ['#1d4ed8', ...PRESET_COLORS];
+
+function _colorToken(hex, fallback = '1d4ed8') {
+  return String(hex || '').replace('#', '').toLowerCase() || fallback;
 }
 
 function applyBoardColor(color) {
-  const bg = color || '#1d4ed8';
-  document.body.style.backgroundColor = bg;
+  const token = _colorToken(color, '1d4ed8');
   const nav = document.getElementById('main-nav');
-  if (nav) nav.style.backgroundColor = _darkenHex(bg, 0.25);
+  document.body.classList.remove(...PAGE_THEME_COLORS.map(value => `theme-bg-${_colorToken(value)}`));
+  document.body.classList.add(`theme-bg-${token}`);
+  if (nav) {
+    nav.classList.remove(...PAGE_THEME_COLORS.map(value => `theme-nav-${_colorToken(value)}`));
+    nav.classList.add(`theme-nav-${token}`);
+  }
 }
 
 function getInitialTheme() {
@@ -316,6 +318,14 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 document.addEventListener('alpine:init', () => {
+  Alpine.directive('markdown', (el, {expression}, {evaluateLater, effect}) => {
+    const evaluate = evaluateLater(expression);
+    effect(() => {
+      evaluate(value => {
+        el.innerHTML = renderMarkdown(value || '');
+      });
+    });
+  });
   Alpine.data('dropdownMenu', dropdownMenu);
   Alpine.data('userMenu', userMenu);
   Alpine.data('themeToggle', themeToggle);

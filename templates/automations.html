@@ -125,14 +125,13 @@
               <button
                 @click="newAuto.action_color = c"
                 class="w-6 h-6 rounded-full border border-black/10"
-                :style="'background:' + c"
-                :class="newAuto.action_color === c ? 'ring-2 ring-offset-2 ring-gray-500' : ''"
+                :class="automationColorClass(c)"
               ></button>
             </template>
             <button
               @click="newAuto.action_color = null"
               class="w-6 h-6 rounded-full bg-gray-100 border border-dashed border-gray-300 flex items-center justify-center text-gray-400 text-xs"
-              :class="!newAuto.action_color ? 'ring-2 ring-offset-2 ring-gray-500' : ''"
+              :class="clearAutomationColorClass()"
             >✕</button>
           </div>
         </div>

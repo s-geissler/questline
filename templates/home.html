@@ -40,7 +40,7 @@
         <!-- Board color header -->
         <a :href="boardHref(board)"
            class="block p-5 h-24 flex items-end hover:opacity-90 transition-opacity"
-           :style="boardHeaderStyle(board)">
+           :class="boardHeaderClass(board)">
           <div class="flex items-end justify-between gap-3 w-full">
             <span class="text-white font-bold text-base leading-tight drop-shadow" x-text="board.name"></span>
             <span

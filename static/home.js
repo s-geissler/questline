@@ -74,8 +74,9 @@ function homePage() {
       return `/board/${board.id}`;
     },
 
-    boardHeaderStyle(board) {
-      return `background:${board.color || '#2563eb'}`;
+    boardHeaderClass(board) {
+      const color = board?.color || '#2563eb';
+      return `swatch-${String(color).replace('#', '')}`;
     },
 
     boardRoleClasses(board) {

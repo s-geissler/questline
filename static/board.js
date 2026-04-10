@@ -41,7 +41,6 @@ function board() {
     descriptionEditing: false,
     newChecklistItem: '',
     _sortables: [],
-    _slotLiftByPosition: {},
     _stageLiftObserver: null,
     showStageDropTargets: false,
     _stagePersistTimer: null,
@@ -432,14 +431,14 @@ function board() {
       this.showStageDropTargets = false;
       if (this.boardView === 'calendar') {
         this.disconnectStageLiftObserver();
-        this._slotLiftByPosition = {};
+        this.clearStageSlotLiftStyles();
         if (!this.canEditBoard) return;
         this.initCalendarSortable();
         return;
       }
       if (this.boardView !== 'stages') {
         this.disconnectStageLiftObserver();
-        this._slotLiftByPosition = {};
+        this.clearStageSlotLiftStyles();
         return;
       }
       this.initStageLiftObserver();
@@ -705,26 +704,25 @@ function board() {
       const topRow = document.querySelector('[data-stage-top-row]');
       const secondRowSlots = Array.from(document.querySelectorAll('[data-stage-slot-position]'));
       if (!topRow || !secondRowSlots.length) {
-        this._slotLiftByPosition = {};
+        this.clearStageSlotLiftStyles();
         return;
       }
 
-      const lifts = {};
       const topStages = Array.from(topRow.querySelectorAll('[data-stage-column-id]'));
       const previousMaxHeight = Math.max(0, ...topStages.map(el => el.offsetHeight));
 
       secondRowSlots.forEach(slotEl => {
         const position = parseInt(slotEl.dataset.stageSlotPosition || '0', 10);
         const aboveHeight = topStages[position]?.offsetHeight || 0;
-        lifts[position] = Math.max(0, previousMaxHeight - aboveHeight);
+        const lift = Math.max(0, previousMaxHeight - aboveHeight);
+        slotEl.style.marginTop = lift ? `-${lift}px` : '';
       });
-
-      this._slotLiftByPosition = lifts;
     },
 
-    secondRowSlotStyle(position) {
-      const lift = this._slotLiftByPosition[position] || 0;
-      return lift ? `margin-top: -${lift}px;` : '';
+    clearStageSlotLiftStyles() {
+      document.querySelectorAll('[data-stage-slot-position]').forEach(slotEl => {
+        slotEl.style.marginTop = '';
+      });
     },
 
     // Stages
@@ -1194,13 +1192,6 @@ function board() {
       await this.loadStages();
     },
 
-    chipStyle(field, value = null) {
-      const bg = this.customFieldChipColor(field, value) || field.color || '#6b7280';
-      const n = parseInt(bg.replace('#', ''), 16);
-      const luminance = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
-      return `display:block; flex:1 1 6.5rem; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; background:${bg}; color:${luminance > 0.55 ? '#1f2937' : '#ffffff'}`;
-    },
-
     customFieldOptionLabel(option) {
       if (typeof option === 'string') return option;
       return option?.label || option?.value || '';
@@ -1236,21 +1227,6 @@ function board() {
 
     taskCardCustomFieldLabel(task, field) {
       return `${field.name}: ${this.taskCardCustomFieldValue(task, field)}`;
-    },
-
-    markdownHtml(value) {
-      if (typeof renderMarkdown === 'function') {
-        return renderMarkdown(value || '');
-      }
-      return String(value || '');
-    },
-
-    taskDescriptionHtml(task) {
-      return this.markdownHtml(task?.description || '');
-    },
-
-    selectedTaskDescriptionHtml() {
-      return this.markdownHtml(this.selectedTask?.description || '');
     },
 
     selectedTaskCustomFieldValue(field) {
@@ -1342,8 +1318,43 @@ function board() {
       return 'Due ' + this.formatDueDate(value);
     },
 
-    taskCardStyle(task) {
-      return `border-left: 4px solid ${this.taskBorderColor(task)}`;
+    contrastTextClass(color) {
+      const normalized = color || '#6b7280';
+      const n = parseInt(normalized.replace('#', ''), 16);
+      const luminance = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+      return luminance > 0.55 ? 'swatch-text-dark' : 'swatch-text-light';
+    },
+
+    taskCardClass(task) {
+      return `task-card-border task-border-${this.taskBorderColor(task).replace('#', '')}`;
+    },
+
+    taskTypeBadgeClass(taskType) {
+      const color = taskType?.color || '#6b7280';
+      return `${this.colorSwatchClass(color)} ${this.contrastTextClass(color)}`.trim();
+    },
+
+    dueDateClass(value) {
+      if (!this.hasDueDate(value)) return '';
+
+      const due = new Date(value + 'T00:00:00');
+      if (Number.isNaN(due.getTime())) {
+        return 'due-date-invalid';
+      }
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const diffDays = Math.floor((due.getTime() - today.getTime()) / 86400000);
+
+      if (diffDays < 0) return 'due-date-overdue';
+      if (diffDays === 0) return 'due-date-today';
+      if (diffDays <= 7) return 'due-date-soon';
+      return 'due-date-future';
+    },
+
+    taskChipClass(field, value = null) {
+      const color = this.customFieldChipColor(field, value) || field.color || '#6b7280';
+      return `task-chip ${this.colorSwatchClass(color)} ${this.contrastTextClass(color)}`.trim();
     },
 
     taskDoneToggleClass(task) {
@@ -1378,10 +1389,6 @@ function board() {
 
     checklistItemTitleClass(item) {
       return item.done ? 'line-through text-gray-400' : '';
-    },
-
-    checklistProgressStyle(task) {
-      return `width: ${this.checklistPercent(task)}%`;
     },
 
     selectedTaskInputType(field) {
@@ -1421,24 +1428,6 @@ function board() {
 
     taskBorderColor(task) {
       return task?.color || '#e2e8f0';
-    },
-
-    dueDateStyle(value) {
-      if (!this.hasDueDate(value)) return '';
-
-      const due = new Date(value + 'T00:00:00');
-      if (Number.isNaN(due.getTime())) {
-        return 'background:#f8fafc; color:#64748b';
-      }
-
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const diffDays = Math.floor((due.getTime() - today.getTime()) / 86400000);
-
-      if (diffDays < 0) return 'background:#fee2e2; color:#b91c1c';
-      if (diffDays === 0) return 'background:#fed7aa; color:#c2410c';
-      if (diffDays <= 7) return 'background:#fef3c7; color:#a16207';
-      return 'background:#dcfce7; color:#15803d';
     },
 
     sourceStageName(task) {

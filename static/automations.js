@@ -66,6 +66,19 @@ function automationsPage() {
       return ' perform an action';
     },
 
+    colorSwatchClass(color) {
+      return color ? `swatch-${String(color).replace('#', '')}` : 'swatch-empty';
+    },
+
+    automationColorClass(color) {
+      const selected = this.newAuto.action_color === color ? 'ring-2 ring-offset-2 ring-gray-500' : '';
+      return `${this.colorSwatchClass(color)} ${selected}`.trim();
+    },
+
+    clearAutomationColorClass() {
+      return !this.newAuto.action_color ? 'ring-2 ring-offset-2 ring-gray-500' : '';
+    },
+
     async createAuto() {
       if (!this.canEdit) return;
       if (!this.newAuto.name.trim()) {

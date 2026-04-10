@@ -161,8 +161,7 @@
               <template x-for="task in stageTasks(stage)" :key="`${task.id}-${task.position}`">
                 <div
                   class="board-task-card bg-white rounded-lg p-2.5 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
-                  :class="taskCardOpacityClass(task)"
-                  :style="taskCardStyle(task)"
+                  :class="`${taskCardOpacityClass(task)} ${taskCardClass(task)}`"
                   @click="openTask(task)"
                   :data-task-id="task.id"
                 >
@@ -196,7 +195,7 @@
                     <template x-if="task.task_type">
                       <span
                         class="text-xs px-2 py-0.5 rounded font-medium"
-                        :style="taskTypeBadgeStyle(task.task_type)"
+                        :class="taskTypeBadgeClass(task.task_type)"
                         x-text="task.task_type.name"
                       ></span>
                     </template>
@@ -220,7 +219,7 @@
                     <template x-if="hasDueDate(task.due_date)">
                       <span
                         class="text-xs px-2 py-0.5 rounded font-medium"
-                        :style="dueDateStyle(task.due_date)"
+                        :class="dueDateClass(task.due_date)"
                         x-text="dueDateLabel(task.due_date)"
                       ></span>
                     </template>
@@ -241,7 +240,7 @@
                   <template x-if="shouldShowDescriptionOnCard(task)">
                     <div
                       class="mt-1.5 text-xs text-gray-500 leading-snug prose prose-sm max-w-none"
-                      x-html="taskDescriptionHtml(task)"
+                      x-markdown="task.description"
                     ></div>
                   </template>
                   <template x-if="shouldShowChecklistOnCard(task)">
@@ -255,11 +254,11 @@
                     </div>
                   </template>
                   <template x-if="shouldShowTaskCardCustomFields(task)">
-                    <div class="mt-1.5 pt-1.5 border-t border-gray-200/70" style="display: flex; flex-wrap: wrap; gap: 0.375rem; align-items: stretch;">
+                    <div class="task-chip-row mt-1.5 pt-1.5 border-t border-gray-200/70">
                       <template x-for="field in taskCardCustomFields(task)" :key="field.id">
                         <span
                           class="text-xs px-2 py-0.5 rounded font-medium"
-                          :style="chipStyle(field, taskCardCustomFieldValue(task, field))"
+                          :class="taskChipClass(field, taskCardCustomFieldValue(task, field))"
                           x-text="taskCardCustomFieldLabel(task, field)"
                         ></span>
                       </template>
@@ -337,11 +336,10 @@
 
       <div class="flex items-start gap-3">
         <template x-for="slot in secondRowSlots" :key="`second-row-slot-${slot.position}`">
-          <div class="w-72 flex-shrink-0 group/add-bottom" :style="secondRowSlotStyle(slot.position)">
+          <div class="w-72 flex-shrink-0 group/add-bottom" :data-stage-slot-position="slot.position">
             <div
               class="min-h-[48px] rounded-xl"
               data-stage-row="1"
-              :data-stage-slot-position="slot.position"
             >
               <template x-if="slot.stage">
                 <div
@@ -422,8 +420,7 @@
                       <template x-for="task in stageTasks(slot.stage)" :key="`${task.id}-${task.position}`">
                         <div
                           class="board-task-card bg-white rounded-lg p-2.5 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
-                          :class="taskCardOpacityClass(task)"
-                          :style="taskCardStyle(task)"
+                          :class="`${taskCardOpacityClass(task)} ${taskCardClass(task)}`"
                           @click="openTask(task)"
                           :data-task-id="task.id"
                         >
@@ -457,7 +454,7 @@
                             <template x-if="task.task_type">
                               <span
                                 class="text-xs px-2 py-0.5 rounded font-medium"
-                                :style="taskTypeBadgeStyle(task.task_type)"
+                                :class="taskTypeBadgeClass(task.task_type)"
                                 x-text="task.task_type.name"
                               ></span>
                             </template>
@@ -481,7 +478,7 @@
                             <template x-if="hasDueDate(task.due_date)">
                               <span
                                 class="text-xs px-2 py-0.5 rounded font-medium"
-                                :style="dueDateStyle(task.due_date)"
+                                :class="dueDateClass(task.due_date)"
                                 x-text="dueDateLabel(task.due_date)"
                               ></span>
                             </template>
@@ -502,7 +499,7 @@
                           <template x-if="shouldShowDescriptionOnCard(task)">
                             <div
                               class="mt-1.5 text-xs text-gray-500 leading-snug prose prose-sm max-w-none"
-                              x-html="taskDescriptionHtml(task)"
+                              x-markdown="task.description"
                             ></div>
                           </template>
                           <template x-if="shouldShowChecklistOnCard(task)">
@@ -516,11 +513,11 @@
                             </div>
                           </template>
                           <template x-if="shouldShowTaskCardCustomFields(task)">
-                            <div class="mt-1.5 pt-1.5 border-t border-gray-200/70" style="display: flex; flex-wrap: wrap; gap: 0.375rem; align-items: stretch;">
+                            <div class="task-chip-row mt-1.5 pt-1.5 border-t border-gray-200/70">
                               <template x-for="field in taskCardCustomFields(task)" :key="field.id">
                                 <span
                                   class="text-xs px-2 py-0.5 rounded font-medium"
-                                  :style="chipStyle(field, taskCardCustomFieldValue(task, field))"
+                                  :class="taskChipClass(field, taskCardCustomFieldValue(task, field))"
                                   x-text="taskCardCustomFieldLabel(task, field)"
                                 ></span>
                               </template>
@@ -636,8 +633,7 @@
                   role="button"
                   tabindex="0"
                   class="w-full rounded-lg px-2.5 py-2 bg-white shadow-sm hover:shadow-md transition-all cursor-pointer"
-                  :class="calendarTaskCardClass(entry, day.date)"
-                  :style="taskCardStyle(entry)"
+                  :class="`${calendarTaskCardClass(entry, day.date)} ${taskCardClass(entry)}`"
                 >
                   <div class="flex items-start justify-between gap-2">
                     <span class="text-sm font-medium leading-snug" :class="calendarEntryTitleClass(entry)" x-text="entry.title"></span>
@@ -647,7 +643,7 @@
                     <template x-if="entry.task_type">
                       <span
                         class="text-[11px] px-1.5 py-0.5 rounded font-medium"
-                        :style="taskTypeBadgeStyle(entry.task_type)"
+                        :class="taskTypeBadgeClass(entry.task_type)"
                         x-text="entry.task_type.name"
                       ></span>
                     </template>
@@ -1160,7 +1156,7 @@
               class="min-h-[60px] cursor-text rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 border border-transparent hover:border-gray-200 transition-colors prose prose-sm max-w-none"
             >
               <template x-if="selectedTask.description">
-                <div x-html="selectedTaskDescriptionHtml()"></div>
+                <div x-markdown="selectedTask.description"></div>
               </template>
               <template x-if="!selectedTask.description">
                 <span class="text-gray-400 italic">Add a description...</span>
@@ -1265,12 +1261,12 @@
 
             <!-- Checklist progress bar -->
             <template x-if="selectedTask.checklist && selectedTask.checklist.length > 0">
-              <div class="mb-2 bg-gray-200 rounded-full h-1.5">
-                <div
-                  class="bg-green-500 h-1.5 rounded-full transition-all"
-                  :style="checklistProgressStyle(selectedTask)"
-                ></div>
-              </div>
+              <progress
+                class="checklist-progress mb-2"
+                max="100"
+                value="0"
+                :value="checklistPercent(selectedTask)"
+              ></progress>
             </template>
 
             <div class="space-y-1.5 mb-2">

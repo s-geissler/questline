@@ -230,12 +230,16 @@ function filtersPage() {
       return this.dateValueMode(rule) === 'date' && !this.operatorWithoutValue(rule.operator);
     },
 
-    colorSwatchStyle(color) {
-      return `background:${color}`;
+    colorSwatchClass(color) {
+      return color ? `swatch-${String(color).replace('#', '')}` : 'swatch-empty';
     },
 
     colorButtonClasses(rule, color) {
       return this.sameString(rule.value || '', color) ? 'ring-2 ring-offset-2 ring-gray-500' : '';
+    },
+
+    filterColorButtonClass(rule, color) {
+      return `${this.colorSwatchClass(color)} ${this.colorButtonClasses(rule, color)}`.trim();
     },
 
     clearColorButtonClasses(rule) {

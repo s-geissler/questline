@@ -195,8 +195,7 @@
                         @click="rule.value = color"
                         :disabled="ruleValueDisabled(rule)"
                         class="h-7 w-7 rounded-full border border-black/10 transition-transform hover:scale-110 disabled:opacity-50 disabled:hover:scale-100"
-                        :style="colorSwatchStyle(color)"
-                        :class="colorButtonClasses(rule, color)"
+                        :class="filterColorButtonClass(rule, color)"
                         :title="color"
                       ></button>
                     </template>
