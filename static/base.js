@@ -138,10 +138,6 @@ function userMenu() {
     profileOpen: false,
     savingProfile: false,
     profileError: '',
-    profile: {
-      display_name: '',
-      password: '',
-    },
 
     get hasUnreadNotifications() {
       return this.unreadCount > 0;
@@ -159,9 +155,12 @@ function userMenu() {
       return this.savingProfile ? 'Saving...' : 'Save';
     },
 
+    get currentUserDisplayName() {
+      return this.currentUser?.display_name || '';
+    },
+
     async init() {
       this.currentUser = JSON.parse(this.$el.dataset.currentUser || 'null');
-      this.profile.display_name = this.currentUser?.display_name || '';
       if (this.currentUser) {
         await this.fetchNotifications();
       }
@@ -216,10 +215,16 @@ function userMenu() {
     },
 
     openProfile() {
-      this.profile.display_name = this.currentUser?.display_name || this.profile.display_name;
-      this.profile.password = '';
       this.profileError = '';
       this.profileOpen = true;
+      this.$nextTick(() => {
+        if (this.$refs.profileDisplayNameInput) {
+          this.$refs.profileDisplayNameInput.value = this.currentUser?.display_name || '';
+        }
+        if (this.$refs.profilePasswordInput) {
+          this.$refs.profilePasswordInput.value = '';
+        }
+      });
     },
 
     openProfileFromMenu() {
@@ -229,8 +234,10 @@ function userMenu() {
 
     closeProfile() {
       this.profileOpen = false;
-      this.profile.password = '';
       this.profileError = '';
+      if (this.$refs.profilePasswordInput) {
+        this.$refs.profilePasswordInput.value = '';
+      }
     },
 
     toggleMenu() {
@@ -244,10 +251,15 @@ function userMenu() {
     async saveProfile() {
       this.profileError = '';
       this.savingProfile = true;
+      const displayName = this.$refs.profileDisplayNameInput?.value || '';
+      const password = this.$refs.profilePasswordInput?.value || '';
       const res = await fetch('/api/auth/profile', {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(this.profile),
+        body: JSON.stringify({
+          display_name: displayName,
+          password,
+        }),
       });
       this.savingProfile = false;
       if (!res.ok) {
@@ -257,9 +269,10 @@ function userMenu() {
       }
       const updated = await res.json();
       this.currentUser.display_name = updated.display_name;
-      this.profile.display_name = updated.display_name;
-      this.profile.password = '';
       this.profileOpen = false;
+      if (this.$refs.profilePasswordInput) {
+        this.$refs.profilePasswordInput.value = '';
+      }
     },
 
     async logout() {

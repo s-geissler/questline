@@ -1,15 +1,15 @@
 function loginPage() {
   return {
-    email: '',
-    password: '',
     error: '',
 
     async login() {
       this.error = '';
+      const email = this.$refs.emailInput?.value || '';
+      const password = this.$refs.passwordInput?.value || '';
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({email: this.email, password: this.password}),
+        body: JSON.stringify({email, password}),
       });
       if (!res.ok) {
         const data = await res.json();
@@ -23,22 +23,22 @@ function loginPage() {
 
 function registerPage() {
   return {
-    displayName: '',
-    email: '',
-    password: '',
     error: '',
     success: '',
 
     async register() {
       this.error = '';
       this.success = '';
+      const displayName = this.$refs.displayNameInput?.value || '';
+      const email = this.$refs.emailInput?.value || '';
+      const password = this.$refs.passwordInput?.value || '';
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-          display_name: this.displayName,
-          email: this.email,
-          password: this.password,
+          display_name: displayName,
+          email,
+          password,
         }),
       });
       if (!res.ok) {
@@ -49,7 +49,7 @@ function registerPage() {
       const data = await res.json();
       if (data.is_active === false) {
         this.success = 'Account created. An admin needs to activate it before you can log in.';
-        this.password = '';
+        if (this.$refs.passwordInput) this.$refs.passwordInput.value = '';
         return;
       }
       window.location.href = '/';

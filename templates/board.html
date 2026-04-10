@@ -10,8 +10,8 @@
 {% block content %}
 
 <div
-  x-data="board()"
-  x-init="init()"
+  x-data="board"
+  x-init="init"
   x-cloak
   @open-board-settings.window="showSettings = true"
   data-board-id="{{ board.id }}"

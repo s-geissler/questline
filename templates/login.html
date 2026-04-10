@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 
-<div x-data="loginPage()" class="max-w-md mx-auto p-6">
+<div x-data="loginPage" class="max-w-md mx-auto p-6">
   <div class="bg-white rounded-xl shadow p-6">
     <h1 class="text-xl font-bold text-gray-800 mb-5">Login</h1>
 
@@ -9,7 +9,7 @@
       <div>
         <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Email</label>
         <input
-          x-model="email"
+          x-ref="emailInput"
           type="email"
           @keydown.enter="login()"
           class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
@@ -18,7 +18,7 @@
       <div>
         <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Password</label>
         <input
-          x-model="password"
+          x-ref="passwordInput"
           type="password"
           @keydown.enter="login()"
           class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"

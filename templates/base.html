@@ -24,7 +24,7 @@
 
     {% if board %}
     <!-- Board switcher dropdown -->
-    <div x-data="dropdownMenu()" class="relative mr-1">
+    <div x-data="dropdownMenu" class="relative mr-1">
       <button
         @click="toggle()"
         @click.outside="close()"
@@ -74,8 +74,8 @@
     {% endif %}
 
     <div
-      x-data="userMenu()"
-      x-init="init()"
+      x-data="userMenu"
+      x-init="init"
       class="ml-auto flex items-center gap-2"
       data-current-user='{{ {"id": current_user.id, "display_name": current_user.display_name, "email": current_user.email, "role": current_user.role} | tojson if current_user else "null" }}'
     >
@@ -150,8 +150,8 @@
       {% endif %}
       <button
         type="button"
-        x-data="themeToggle()"
-        x-init="init()"
+        x-data="themeToggle"
+        x-init="init"
         @click="toggle()"
         class="nav-utility"
         title="Toggle theme"
@@ -173,7 +173,7 @@
           @click.outside="closeMenu()"
           class="nav-utility"
         >
-          <span x-text="profile.display_name"></span>
+          <span x-text="currentUserDisplayName"></span>
           <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-white/70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path stroke-linecap="round" d="M5 7h14M5 12h14M5 17h14"/>
           </svg>
@@ -228,12 +228,12 @@
           <div class="mt-5 space-y-4">
             <label class="block">
               <span class="text-sm font-medium text-gray-700">Display name</span>
-              <input type="text" x-model="profile.display_name" class="mt-2 w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+              <input type="text" x-ref="profileDisplayNameInput" class="mt-2 w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
             </label>
 
             <label class="block">
               <span class="text-sm font-medium text-gray-700">New password</span>
-              <input type="password" x-model="profile.password" class="mt-2 w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" placeholder="Leave blank to keep current password">
+              <input type="password" x-ref="profilePasswordInput" class="mt-2 w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" placeholder="Leave blank to keep current password">
               <p class="mt-1 text-xs text-gray-500">Minimum 8 characters.</p>
             </label>
           </div>
