@@ -5,14 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>questline</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="stylesheet" href="/static/tailwind.css">
   <link rel="stylesheet" href="/static/style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Exo+2:ital,wght@0,400;1,400&display=swap" rel="stylesheet">
-  <script src="https://cdn.tailwindcss.com"></script>
   <script src="/static/base.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/csp@3.13.5/dist/cdn.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.7/Sortable.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
 </head>
@@ -23,27 +22,18 @@
     <a href="/" class="brand-wordmark nav-wordmark text-lg mr-2 transition-colors">questline</a>
 
     {% if board %}
-    <!-- Board switcher dropdown -->
-    <div x-data="dropdownMenu" class="relative mr-1">
+    <div id="board-switcher" class="relative mr-1">
       <button
-        @click="toggle"
-        @click.outside="close"
+        id="board-switcher-toggle"
+        type="button"
         class="px-3 py-1.5 rounded hover:bg-black/20 flex items-center gap-1.5 text-sm font-semibold transition-colors"
       >
         <span>{{ board.name }}</span>
         <span class="text-xs opacity-60">▼</span>
       </button>
       <div
-        x-show="open"
-        x-cloak
-        x-transition:enter="transition ease-out duration-100"
-        x-transition:enter-start="opacity-0 scale-95"
-        x-transition:enter-end="opacity-100 scale-100"
-        x-transition:leave="transition ease-in duration-75"
-        x-transition:leave-start="opacity-100 scale-100"
-        x-transition:leave-end="opacity-0 scale-95"
-        class="absolute top-full left-0 mt-1 bg-white text-gray-800 shadow-xl rounded-xl py-1 min-w-[200px] z-50"
-        @click="close"
+        id="board-switcher-menu"
+        class="hidden absolute top-full left-0 mt-1 bg-white text-gray-800 shadow-xl rounded-xl py-1 min-w-[200px] z-50"
       >
         {% for b in boards %}
         <a
@@ -74,17 +64,15 @@
     {% endif %}
 
     <div
-      x-data="userMenu"
-      x-init="init"
+      id="nav-user-root"
       class="ml-auto flex items-center gap-2"
       data-current-user='{{ {"id": current_user.id, "display_name": current_user.display_name, "email": current_user.email, "role": current_user.role} | tojson if current_user else "null" }}'
     >
       {% if current_user %}
-      <div class="relative">
+      <div id="nav-notifications" class="relative">
         <button
+          id="nav-notifications-toggle"
           type="button"
-          @click="toggleNotifications"
-          @click.outside="closeNotifications"
           class="nav-utility relative"
           aria-label="Notifications"
           title="Notifications"
@@ -93,32 +81,23 @@
             <path d="M12 2a5 5 0 0 0-5 5v2.586c0 .53-.211 1.04-.586 1.414L5.293 12.12A1 1 0 0 0 6 13.828h12a1 1 0 0 0 .707-1.707l-1.121-1.121A2 2 0 0 1 17 9.586V7a5 5 0 0 0-5-5Zm0 20a3 3 0 0 0 2.995-2.824L15 19h-6a3 3 0 0 0 3 3Z"/>
           </svg>
           <span
-            x-show="hasUnreadNotifications"
-            x-text="unreadBadgeText"
-            class="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-semibold flex items-center justify-center"
+            id="nav-notifications-badge"
+            class="hidden absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-semibold items-center justify-center"
           ></span>
         </button>
         <div
-          x-show="notificationsOpen"
-          x-cloak
-          x-transition:enter="transition ease-out duration-100"
-          x-transition:enter-start="opacity-0 scale-95"
-          x-transition:enter-end="opacity-100 scale-100"
-          x-transition:leave="transition ease-in duration-75"
-          x-transition:leave-start="opacity-100 scale-100"
-          x-transition:leave-end="opacity-0 scale-95"
-          class="absolute right-0 top-full mt-1 bg-white text-gray-800 shadow-xl rounded-xl py-2 w-[320px] z-50"
+          id="nav-notifications-panel"
+          class="hidden absolute right-0 top-full mt-1 bg-white text-gray-800 shadow-xl rounded-xl py-2 w-[320px] z-50"
         >
           <div class="flex items-center justify-between px-3 pb-2 border-b border-gray-100">
             <div class="text-sm font-semibold text-gray-800">Notifications</div>
             <button
-              x-show="hasUnreadNotifications"
+              id="nav-mark-all-read"
               type="button"
-              @click="markAllNotificationsRead"
-              class="text-xs text-blue-600 hover:text-blue-700"
+              class="hidden text-xs text-blue-600 hover:text-blue-700"
             >Mark all read</button>
           </div>
-          <div id="nav-notifications-list" class="max-h-[360px] overflow-y-auto" x-ignore></div>
+          <div id="nav-notifications-list" class="max-h-[360px] overflow-y-auto"></div>
         </div>
       </div>
       {% else %}
@@ -126,49 +105,39 @@
       <a href="/register" class="nav-pill {% if current_path == '/register' %}nav-pill-active{% endif %}">Register</a>
       {% endif %}
       <button
+        id="theme-toggle"
         type="button"
-        x-data="themeToggle"
-        x-init="init"
-        @click="toggle"
         class="nav-utility"
         title="Toggle theme"
-        :aria-label="ariaLabel"
+        aria-label="Toggle theme"
       >
-        <svg x-show="showLightIcon" x-cloak xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <svg id="theme-toggle-light" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <path d="M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12Zm0-16a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0V3a1 1 0 0 1 1-1Zm0 17a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0v-2a1 1 0 0 1 1-1Zm10-7a1 1 0 0 1-1 1h-2a1 1 0 1 1 0-2h2a1 1 0 0 1 1 1ZM5 12a1 1 0 0 1-1 1H2a1 1 0 1 1 0-2h2a1 1 0 0 1 1 1Zm12.657 6.243a1 1 0 0 1 0 1.414l-1.414 1.414a1 1 0 1 1-1.414-1.414l1.414-1.414a1 1 0 0 1 1.414 0ZM9.172 9.172a1 1 0 0 1-1.414 0L6.343 7.757A1 1 0 0 1 7.757 6.343l1.415 1.414a1 1 0 0 1 0 1.415Zm11.485-2.829a1 1 0 0 1 0 1.414l-1.414 1.415a1 1 0 1 1-1.414-1.415l1.414-1.414a1 1 0 0 1 1.414 0ZM9.172 14.828a1 1 0 0 1 0 1.415l-1.415 1.414a1 1 0 1 1-1.414-1.414l1.415-1.415a1 1 0 0 1 1.414 0Z"/>
         </svg>
-        <svg x-show="showDarkIcon" x-cloak xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <svg id="theme-toggle-dark" class="hidden w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <path d="M21 14.129A9 9 0 1 1 9.871 3a1 1 0 0 1 1.065 1.57A7 7 0 1 0 19.43 13.064 1 1 0 0 1 21 14.13Z"/>
         </svg>
       </button>
       {% block nav_extra %}{% endblock %}
       {% if current_user %}
-      <div class="relative">
+      <div id="nav-user-menu-root" class="relative">
         <button
+          id="nav-user-menu-toggle"
           type="button"
-          @click="toggleMenu"
-          @click.outside="closeMenu"
           class="nav-utility"
         >
-          <span x-text="currentUserDisplayName"></span>
+          <span id="nav-current-user-name">{{ current_user.display_name }}</span>
           <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-white/70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path stroke-linecap="round" d="M5 7h14M5 12h14M5 17h14"/>
           </svg>
         </button>
         <div
-          x-show="menuOpen"
-          x-cloak
-          x-transition:enter="transition ease-out duration-100"
-          x-transition:enter-start="opacity-0 scale-95"
-          x-transition:enter-end="opacity-100 scale-100"
-          x-transition:leave="transition ease-in duration-75"
-          x-transition:leave-start="opacity-100 scale-100"
-          x-transition:leave-end="opacity-0 scale-95"
-          class="absolute right-0 top-full mt-1 bg-white text-gray-800 shadow-xl rounded-xl py-1 min-w-[180px] z-50"
+          id="nav-user-menu-panel"
+          class="hidden absolute right-0 top-full mt-1 bg-white text-gray-800 shadow-xl rounded-xl py-1 min-w-[180px] z-50"
         >
           <button
+            id="nav-open-profile"
             type="button"
-            @click="openProfileFromMenu"
             class="w-full text-left px-3 py-2 hover:bg-gray-100 text-sm transition-colors"
           >Profile</button>
           {% if current_user and current_user.role == 'admin' %}
@@ -178,8 +147,8 @@
           >Admin</a>
           {% endif %}
           <button
+            id="nav-logout"
             type="button"
-            @click="logout"
             class="w-full text-left px-3 py-2 hover:bg-gray-100 text-sm transition-colors"
           >Logout</button>
         </div>
@@ -188,39 +157,38 @@
 
       {% if current_user %}
       <div
-        x-show="profileOpen"
-        x-cloak
-        class="fixed inset-0 z-[100] flex items-center justify-center p-4"
+        id="profile-modal"
+        class="hidden fixed inset-0 z-[100] items-center justify-center p-4"
       >
-        <div class="absolute inset-0 bg-black/50" @click="closeProfile"></div>
+        <div id="profile-modal-backdrop" class="absolute inset-0 bg-black/50"></div>
         <div class="relative w-full max-w-md bg-white rounded-2xl shadow-2xl p-6">
           <div class="flex items-start justify-between gap-4">
             <div>
               <h2 class="text-lg font-semibold text-gray-900">Profile</h2>
               <p class="text-sm text-gray-500 mt-1">Update your display name or change your password.</p>
             </div>
-            <button type="button" @click="closeProfile" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+            <button id="profile-close-top" type="button" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
           </div>
 
           <div class="mt-5 space-y-4">
             <label class="block">
               <span class="text-sm font-medium text-gray-700">Display name</span>
-              <input type="text" x-ref="profileDisplayNameInput" class="mt-2 w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+              <input id="profile-display-name-input" type="text" class="mt-2 w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
             </label>
 
             <label class="block">
               <span class="text-sm font-medium text-gray-700">New password</span>
-              <input type="password" x-ref="profilePasswordInput" class="mt-2 w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" placeholder="Leave blank to keep current password">
+              <input id="profile-password-input" type="password" class="mt-2 w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" placeholder="Leave blank to keep current password">
               <p class="mt-1 text-xs text-gray-500">Minimum 8 characters.</p>
             </label>
           </div>
 
-          <p x-show="profileError" x-text="profileError" class="mt-4 text-sm text-red-500"></p>
+          <p id="profile-error" class="hidden mt-4 text-sm text-red-500"></p>
 
           <div class="mt-6 flex justify-end gap-2">
-            <button type="button" @click="closeProfile" class="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
-            <button type="button" @click="saveProfile" :disabled="savingProfile" class="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60">
-              <span x-text="saveProfileLabel"></span>
+            <button id="profile-cancel" type="button" class="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+            <button id="profile-save" type="button" class="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60">
+              <span id="profile-save-label">Save</span>
             </button>
           </div>
         </div>

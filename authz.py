@@ -377,6 +377,7 @@ def user_to_dict(user: models.User) -> dict:
         "display_name": user.display_name,
         "role": user.role,
         "is_active": user.is_active,
+        "password_reset_requested": user.password_reset_requested,
     }
 
 

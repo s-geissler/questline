@@ -53,6 +53,7 @@ def test_register_sets_session_and_returns_current_user(app_env):
         "display_name": "Quest User",
         "role": "admin",
         "is_active": True,
+        "password_reset_requested": False,
     }
 
     cookie_header = response.headers.get("set-cookie")
@@ -91,6 +92,45 @@ def test_register_rejects_duplicate_email(app_env):
     except main.HTTPException as exc:
         assert exc.status_code == 400
         assert exc.detail == "Registration failed"
+
+
+def test_register_failure_timing_is_smoothed(app_env, monkeypatch):
+    main = app_env["main"]
+    db = app_env["db"]
+
+    main.auth_register(
+        main.RegisterRequest(
+            email="smoothed@example.com",
+            password="supersecret",
+            display_name="Smooth",
+        ),
+        main.Response(),
+        db,
+    )
+
+    started_values = []
+
+    monkeypatch.setattr(
+        main,
+        "_smooth_registration_failure_timing",
+        lambda started_at: started_values.append(started_at),
+    )
+
+    try:
+        main.auth_register(
+            main.RegisterRequest(
+                email="smoothed@example.com",
+                password="supersecret",
+                display_name="Smooth Again",
+            ),
+            main.Response(),
+            db,
+        )
+        assert False, "Expected duplicate registration to fail"
+    except main.HTTPException as exc:
+        assert exc.status_code == 400
+
+    assert len(started_values) == 1
 
 
 def test_login_and_logout_flow(app_env):

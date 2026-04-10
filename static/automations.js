@@ -59,12 +59,12 @@ function _createAutomations() {
 
     _updateReadonlyBanner() {
       const el = document.getElementById('readonly-banner');
-      if (el) el.style.display = this.canEdit ? 'none' : 'block';
+      if (el) el.classList.toggle('hidden', this.canEdit);
     },
 
     _updateNewAutoButton() {
       const el = document.getElementById('new-auto-btn');
-      if (el) el.style.display = this.canEdit ? 'block' : 'none';
+      if (el) el.classList.toggle('hidden', !this.canEdit);
     },
 
     _populateStageSelects() {
@@ -109,7 +109,7 @@ function _createAutomations() {
     renderCreateForm() {
       const form = document.getElementById('create-form');
       if (!form) return;
-      form.style.display = this.showCreateForm ? 'block' : 'none';
+      form.classList.toggle('hidden', !this.showCreateForm);
 
       const nameInput = document.getElementById('auto-name-input');
       const triggerType = document.getElementById('auto-trigger-type');
@@ -132,11 +132,11 @@ function _createAutomations() {
       const daysDiv = document.getElementById('action-due-in-days-div');
       const colorDiv = document.getElementById('action-color-div');
 
-      if (stageDiv) stageDiv.style.display = this.newAuto.action_type === 'move_to_stage' ? 'block' : 'none';
-      if (taskTypeDiv) taskTypeDiv.style.display = this.newAuto.action_type === 'set_task_type' ? 'block' : 'none';
-      if (daysDiv) daysDiv.style.display = this.newAuto.action_type === 'set_due_in_days' ? 'block' : 'none';
+      if (stageDiv) stageDiv.classList.toggle('hidden', this.newAuto.action_type !== 'move_to_stage');
+      if (taskTypeDiv) taskTypeDiv.classList.toggle('hidden', this.newAuto.action_type !== 'set_task_type');
+      if (daysDiv) daysDiv.classList.toggle('hidden', this.newAuto.action_type !== 'set_due_in_days');
       if (colorDiv) {
-        colorDiv.style.display = this.newAuto.action_type === 'set_color' ? 'block' : 'none';
+        colorDiv.classList.toggle('hidden', this.newAuto.action_type !== 'set_color');
         this._renderColorSwatches();
       }
     },
@@ -148,11 +148,11 @@ function _createAutomations() {
 
       if (!this.automations.length) {
         list.innerHTML = '';
-        if (empty) empty.style.display = 'block';
+        if (empty) empty.classList.remove('hidden');
         return;
       }
 
-      if (empty) empty.style.display = 'none';
+      if (empty) empty.classList.add('hidden');
 
       list.innerHTML = this.automations.map(auto => {
         const disabledRing = auto.enabled ? '' : 'opacity-60';

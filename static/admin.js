@@ -104,6 +104,13 @@ function _createAdmin() {
           if (user) this.updateUserStatus(user, el.dataset.value === 'active');
           return;
         }
+        if (action === 'clear-password-reset-request') {
+          const el = event.target.closest('[data-action]');
+          const userId = parseInt(el.dataset.userId, 10);
+          const user = this.users.find(u => u.id === userId);
+          if (user) this.updatePasswordResetRequested(user, false);
+          return;
+        }
       });
 
       document.getElementById('admin-users-list')?.addEventListener('change', event => {
@@ -139,8 +146,14 @@ function _createAdmin() {
             <option value="admin"${user.role === 'admin' ? ' selected' : ''}>Admin</option>
           </select>
         `;
+        const recoveryStatus = user.password_reset_requested
+          ? `<div class="flex items-center gap-2">
+              <span class="inline-flex items-center rounded-full bg-amber-100 text-amber-700 px-2 py-0.5 text-xs font-medium">Requested</span>
+              <button type="button" data-action="clear-password-reset-request" data-user-id="${user.id}" class="text-xs text-blue-600 hover:text-blue-700">Clear</button>
+            </div>`
+          : '<span class="text-sm text-gray-400">None</span>';
         return `
-          <div class="grid grid-cols-[1.4fr_1.4fr_0.8fr_0.8fr_0.8fr] gap-4 px-5 py-3 border-b items-center">
+          <div class="grid grid-cols-[13fr_13fr_7fr_8fr_8fr_10fr] gap-4 px-5 py-3 border-b items-center">
             <div class="min-w-0">
               <div class="text-sm font-medium text-gray-800">${_escapeAdminHtml(user.display_name)}</div>
               ${youBadge}
@@ -149,6 +162,7 @@ function _createAdmin() {
             <div class="text-sm text-gray-500">${_escapeAdminHtml(user.board_count)}</div>
             <div>${statusSelect}</div>
             <div>${roleSelect}</div>
+            <div>${recoveryStatus}</div>
           </div>
         `;
       }).join('');
@@ -188,6 +202,7 @@ function _createAdmin() {
       const updated = await res.json();
       user.role = updated.role;
       user.is_active = updated.is_active;
+      user.password_reset_requested = !!updated.password_reset_requested;
       this.renderUsers();
     },
 
@@ -210,6 +225,30 @@ function _createAdmin() {
       const updated = await res.json();
       user.role = updated.role;
       user.is_active = updated.is_active;
+      user.password_reset_requested = !!updated.password_reset_requested;
+      this.renderUsers();
+    },
+
+    async updatePasswordResetRequested(user, passwordResetRequested) {
+      this.showError('');
+      const previousValue = user.password_reset_requested;
+      user.password_reset_requested = passwordResetRequested;
+      const res = await fetch(`/api/admin/users/${user.id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({password_reset_requested: passwordResetRequested}),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        this.showError(data.detail || 'Unable to update password recovery status');
+        user.password_reset_requested = previousValue;
+        this.renderUsers();
+        return;
+      }
+      const updated = await res.json();
+      user.role = updated.role;
+      user.is_active = updated.is_active;
+      user.password_reset_requested = !!updated.password_reset_requested;
       this.renderUsers();
     },
 

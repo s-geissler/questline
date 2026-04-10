@@ -102,6 +102,7 @@ class User(Base):
     display_name = Column(String, nullable=False)
     role = Column(String, nullable=False, default="user")
     is_active = Column(Boolean, nullable=False, default=True)
+    password_reset_requested = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, server_default=func.now())
     sessions = relationship(
         "UserSession",

@@ -202,7 +202,6 @@
   color-scheme: dark;
 }
 
-[x-cloak] { display: none !important; }
 body {
   font-family: "Inter", sans-serif;
   font-style: normal;

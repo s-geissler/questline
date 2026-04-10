@@ -153,7 +153,10 @@ def test_unauthenticated_board_listing_is_denied_and_security_headers_are_set(ap
     assert response.status_code == 401
     assert response.headers["x-content-type-options"] == "nosniff"
     assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"
-    assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
+    csp = response.headers["content-security-policy"]
+    assert "frame-ancestors 'none'" in csp
+    assert "'unsafe-eval'" not in csp
+    assert "script-src 'self' 'unsafe-inline'" not in csp
 
 
 def test_invalid_board_color_is_rejected(app_env):

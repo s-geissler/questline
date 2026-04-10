@@ -129,6 +129,34 @@ def test_login_failure_and_admin_update_are_logged(app_env, caplog):
     assert admin_update["new_role"] == "admin"
 
 
+def test_password_recovery_request_is_audited(app_env, caplog):
+    main = app_env["main"]
+    db = app_env["db"]
+    caplog.set_level("INFO", logger="questline.audit")
+
+    user = main.auth_register(
+        main.RegisterRequest(
+            email="recovery-audit@example.com",
+            password="supersecret",
+            display_name="Recovery Audit",
+        ),
+        main.Response(),
+        db,
+        request_with_cookie(path="/api/auth/register", method="POST"),
+    )
+
+    main.auth_password_recovery_request(
+        main.PasswordRecoveryRequest(email=user["email"]),
+        db,
+        request_with_cookie(path="/api/auth/password-recovery-request", method="POST"),
+    )
+
+    events = audit_events(caplog)
+    recovery_request = next(event for event in events if event["event"] == "password_recovery_requested")
+    assert recovery_request["target_user_id"] == user["id"]
+    assert recovery_request["email"] == user["email"]
+
+
 def test_audit_log_path_writes_json_lines(tmp_path, monkeypatch):
     db_path = tmp_path / "test.db"
     audit_log_path = tmp_path / "audit.log"

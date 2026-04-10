@@ -189,3 +189,43 @@ def test_overdue_notifications_are_generated_for_assigned_tasks(app_env):
         db,
     )
     assert any(item["type"] == "task_overdue" and item["body"] == "Overdue item" for item in payload["items"])
+
+
+def test_password_recovery_request_notifies_all_admins(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+
+    admin1, admin1_cookie = register_and_cookie(main, db, "admin-reset-1@example.com", "Admin One")
+    admin2, _ = register_and_cookie(main, db, "admin-reset-2@example.com", "Admin Two")
+    user, _ = register_and_cookie(main, db, "user-reset@example.com", "Needs Help")
+
+    main.update_admin_user(
+        admin2["id"],
+        main.AdminUserUpdate(role="admin"),
+        main.Request(request_with_cookie(path=f"/api/admin/users/{admin2['id']}", cookie=admin1_cookie)),
+        db,
+    )
+
+    admin2_login = main.Response()
+    main.auth_login(main.LoginRequest(email=admin2["email"], password="supersecret"), admin2_login, db)
+    admin2_cookie = admin2_login.headers.get("set-cookie").split(";", 1)[0]
+
+    main.auth_password_recovery_request(
+        main.PasswordRecoveryRequest(email=user["email"]),
+        db,
+        main.Request(request_with_cookie(path="/api/auth/password-recovery-request")),
+    )
+
+    user_row = db.query(main.models.User).filter(main.models.User.id == user["id"]).first()
+    assert user_row.password_reset_requested is True
+
+    admin1_payload = main.get_notifications(
+        main.Request(request_with_cookie(path="/api/notifications", cookie=admin1_cookie)),
+        db,
+    )
+    admin2_payload = main.get_notifications(
+        main.Request(request_with_cookie(path="/api/notifications", cookie=admin2_cookie)),
+        db,
+    )
+    assert any(item["type"] == "password_recovery_requested" and user["email"] in item["body"] for item in admin1_payload["items"])
+    assert any(item["type"] == "password_recovery_requested" and user["email"] in item["body"] for item in admin2_payload["items"])

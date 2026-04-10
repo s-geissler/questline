@@ -200,6 +200,32 @@ def test_admin_can_update_instance_settings_and_board_defaults(app_env):
     assert admin["role"] == "admin"
 
 
+def test_admin_can_clear_password_recovery_request_flag(app_env):
+    main = app_env["main"]
+    db = app_env["db"]
+
+    admin, admin_cookie = register_and_cookie(main, db, "admin-reset-clear@example.com", "Admin")
+    user, _ = register_and_cookie(main, db, "user-reset-clear@example.com", "User")
+
+    main.auth_password_recovery_request(
+        main.PasswordRecoveryRequest(email=user["email"]),
+        db,
+        main.Request(request_with_cookie(path="/api/auth/password-recovery-request")),
+    )
+
+    users = main.get_admin_users(main.Request(request_with_cookie(path="/api/admin/users", cookie=admin_cookie)), db)
+    listed = next(entry for entry in users if entry["id"] == user["id"])
+    assert listed["password_reset_requested"] is True
+
+    updated = main.update_admin_user(
+        user["id"],
+        main.AdminUserUpdate(password_reset_requested=False),
+        main.Request(request_with_cookie(path=f"/api/admin/users/{user['id']}", cookie=admin_cookie)),
+        db,
+    )
+    assert updated["password_reset_requested"] is False
+
+
 def test_registration_can_be_disabled_after_first_user(app_env):
     main = app_env["main"]
     db = app_env["db"]

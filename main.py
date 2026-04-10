@@ -80,6 +80,10 @@ LOGIN_WINDOW_SECONDS = 60
 LOGIN_MAX_ATTEMPTS = 5
 REGISTRATION_WINDOW_SECONDS = 600
 REGISTRATION_MAX_ATTEMPTS = 5
+REGISTRATION_FAILURE_MIN_DELAY_SECONDS = max(
+    float(os.getenv("QUESTLINE_REGISTRATION_FAILURE_MIN_DELAY_SECONDS", "0.25")),
+    0.0,
+)
 login_attempt_lock = threading.Lock()
 login_attempts = defaultdict(deque)
 registration_attempt_lock = threading.Lock()
@@ -97,8 +101,8 @@ MAX_FILTER_JSON_LENGTH = 20000
 SECURITY_HEADERS = {
     "Content-Security-Policy": (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net; "
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "script-src 'self' https://cdn.jsdelivr.net; "
+        "style-src 'self' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com; "
         "img-src 'self' data: https:; "
         "connect-src 'self'; "
@@ -130,6 +134,12 @@ TRUSTED_PROXY_NETWORKS = _parse_trusted_proxy_networks()
 
 def _utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
+
+
+def _smooth_registration_failure_timing(started_at: float):
+    remaining = REGISTRATION_FAILURE_MIN_DELAY_SECONDS - (time.perf_counter() - started_at)
+    if remaining > 0:
+        time.sleep(remaining)
 
 
 def _configure_audit_logger():
@@ -208,6 +218,7 @@ def _run_column_migrations():
         ("board_memberships", "role", "VARCHAR"),
         ("users", "role", "VARCHAR"),
         ("users", "is_active", "BOOLEAN"),
+        ("users", "password_reset_requested", "BOOLEAN"),
         ("instance_settings", "key", "VARCHAR"),
         ("instance_settings", "value", "TEXT"),
         ("task_recurrences", "mode", "VARCHAR"),
@@ -254,6 +265,7 @@ def _run_index_migrations():
         ("ix_automations_trigger_stage_id", "CREATE INDEX IF NOT EXISTS ix_automations_trigger_stage_id ON automations(trigger_list_id)"),
         ("ix_automations_action_stage_id", "CREATE INDEX IF NOT EXISTS ix_automations_action_stage_id ON automations(action_list_id)"),
         ("ix_users_is_active", "CREATE INDEX IF NOT EXISTS ix_users_is_active ON users(is_active)"),
+        ("ix_users_password_reset_requested", "CREATE INDEX IF NOT EXISTS ix_users_password_reset_requested ON users(password_reset_requested)"),
         ("uq_board_memberships_board_user", "CREATE UNIQUE INDEX IF NOT EXISTS uq_board_memberships_board_user ON board_memberships(board_id, user_id)"),
         ("ix_notifications_user_read_created", "CREATE INDEX IF NOT EXISTS ix_notifications_user_read_created ON notifications(user_id, read_at, created_at)"),
         ("ix_notifications_dedupe_key", "CREATE UNIQUE INDEX IF NOT EXISTS ix_notifications_dedupe_key ON notifications(dedupe_key) WHERE dedupe_key IS NOT NULL"),
@@ -338,6 +350,7 @@ def _migrate_admin_role():
     try:
         db.query(models.User).filter(models.User.role.is_(None)).update({"role": "user"})
         db.query(models.User).filter(models.User.is_active.is_(None)).update({"is_active": True})
+        db.query(models.User).filter(models.User.password_reset_requested.is_(None)).update({"password_reset_requested": False})
         admin_count = db.query(models.User).filter(models.User.role == "admin").count()
         if admin_count == 0:
             first_user = db.query(models.User).order_by(models.User.id).first()
@@ -523,7 +536,7 @@ def _require_api_csrf(request: Request):
     if not _request_origin_is_same_origin(request):
         raise HTTPException(status_code=403, detail="CSRF validation failed")
 
-    if request.url.path in {"/api/auth/login", "/api/auth/register"}:
+    if request.url.path in {"/api/auth/login", "/api/auth/register", "/api/auth/password-recovery-request"}:
         return
 
     session_token = request.cookies.get(SESSION_COOKIE)
@@ -734,6 +747,10 @@ class LoginRequest(BaseModel):
     password: str = Field(max_length=MAX_PASSWORD_LENGTH)
 
 
+class PasswordRecoveryRequest(BaseModel):
+    email: str = Field(max_length=MAX_EMAIL_LENGTH)
+
+
 class ProfileUpdate(BaseModel):
     display_name: str = Field(max_length=MAX_DISPLAY_NAME_LENGTH)
     password: Optional[str] = Field(default=None, max_length=MAX_PASSWORD_LENGTH)
@@ -751,6 +768,7 @@ class BoardMemberUpdate(BaseModel):
 class AdminUserUpdate(BaseModel):
     role: Optional[str] = None
     is_active: Optional[bool] = None
+    password_reset_requested: Optional[bool] = None
 
 
 class AdminSettingsUpdate(BaseModel):
@@ -1120,6 +1138,29 @@ def create_notification(
     db.add(notification)
     db.flush()
     return notification
+
+
+def notify_admins_password_recovery_requested(user: models.User, db: Session):
+    admins = (
+        db.query(models.User)
+        .filter(
+            models.User.role == "admin",
+            models.User.is_active.is_(True),
+        )
+        .order_by(models.User.id)
+        .all()
+    )
+    title = "Password recovery requested"
+    body = f"{user.display_name} ({user.email}) requested password recovery assistance."
+    for admin in admins:
+        create_notification(
+            admin.id,
+            "password_recovery_requested",
+            title,
+            body,
+            db,
+            link_url="/admin",
+        )
 
 
 def generate_due_notifications_for_user(user: models.User, db: Session):
@@ -1516,50 +1557,56 @@ def auth_register(
     request: Request = None,
 ):
     _enforce_registration_rate_limit(request)
-    email = _normalize_email(data.email)
-    password = data.password or ""
-    display_name = (data.display_name or "").strip() or email.split("@", 1)[0]
-    if not email or "@" not in email:
-        _audit_log("registration_failed", request=request, outcome="failure", reason="invalid_email", email=email or None)
-        raise HTTPException(status_code=400, detail="Registration failed")
-    if len(password) < 8:
-        _audit_log("registration_failed", request=request, outcome="failure", reason="password_too_short", email=email)
-        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
-    existing = db.query(models.User).filter(models.User.email == email).first()
-    if existing:
+    started_at = time.perf_counter()
+    try:
+        email = _normalize_email(data.email)
+        password = data.password or ""
+        display_name = (data.display_name or "").strip() or email.split("@", 1)[0]
+        if not email or "@" not in email:
+            _audit_log("registration_failed", request=request, outcome="failure", reason="invalid_email", email=email or None)
+            raise HTTPException(status_code=400, detail="Registration failed")
+        if len(password) < 8:
+            _audit_log("registration_failed", request=request, outcome="failure", reason="password_too_short", email=email)
+            raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+        existing = db.query(models.User).filter(models.User.email == email).first()
+        if existing:
+            _record_registration_attempt(request)
+            _audit_log("registration_failed", request=request, outcome="failure", reason="duplicate_email", email=email)
+            raise HTTPException(status_code=400, detail="Registration failed")
+        existing_user_count = db.query(models.User).count()
+        if existing_user_count > 0 and not get_instance_settings(db)["registration_enabled"]:
+            _audit_log("registration_failed", request=request, outcome="failure", reason="registration_disabled", email=email)
+            raise HTTPException(status_code=403, detail="Registration is currently disabled")
+        user_role = "admin" if existing_user_count == 0 else "user"
+        is_active = True if existing_user_count == 0 else get_instance_settings(db)["new_accounts_active_by_default"]
+        user = models.User(
+            email=email,
+            password_hash=hash_password(password),
+            display_name=display_name,
+            role=user_role,
+            is_active=is_active,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
         _record_registration_attempt(request)
-        _audit_log("registration_failed", request=request, outcome="failure", reason="duplicate_email", email=email)
-        raise HTTPException(status_code=400, detail="Registration failed")
-    existing_user_count = db.query(models.User).count()
-    if existing_user_count > 0 and not get_instance_settings(db)["registration_enabled"]:
-        _audit_log("registration_failed", request=request, outcome="failure", reason="registration_disabled", email=email)
-        raise HTTPException(status_code=403, detail="Registration is currently disabled")
-    user_role = "admin" if existing_user_count == 0 else "user"
-    is_active = True if existing_user_count == 0 else get_instance_settings(db)["new_accounts_active_by_default"]
-    user = models.User(
-        email=email,
-        password_hash=hash_password(password),
-        display_name=display_name,
-        role=user_role,
-        is_active=is_active,
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    _record_registration_attempt(request)
-    claim_legacy_boards_for_first_user(user, db)
-    if user.is_active:
-        token, csrf_token = create_user_session(user, db)
-        _set_session_cookie(response, token, csrf_token)
-    _audit_log(
-        "registration_succeeded",
-        request=request,
-        actor_user_id=user.id,
-        target_user_id=user.id,
-        email=user.email,
-        details={"role": user.role, "is_active": user.is_active},
-    )
-    return user_to_dict(user)
+        claim_legacy_boards_for_first_user(user, db)
+        if user.is_active:
+            token, csrf_token = create_user_session(user, db)
+            _set_session_cookie(response, token, csrf_token)
+        _audit_log(
+            "registration_succeeded",
+            request=request,
+            actor_user_id=user.id,
+            target_user_id=user.id,
+            email=user.email,
+            details={"role": user.role, "is_active": user.is_active},
+        )
+        return user_to_dict(user)
+    except HTTPException as exc:
+        if exc.status_code in {400, 403}:
+            _smooth_registration_failure_timing(started_at)
+        raise
 
 
 @app.post("/api/auth/login")
@@ -1585,6 +1632,27 @@ def auth_login(
     _set_session_cookie(response, token, csrf_token)
     _audit_log("login_succeeded", request=request, actor_user_id=user.id, target_user_id=user.id, email=user.email)
     return user_to_dict(user)
+
+
+@app.post("/api/auth/password-recovery-request")
+def auth_password_recovery_request(
+    data: PasswordRecoveryRequest,
+    db: Session = Depends(get_db),
+    request: Request = None,
+):
+    email = _normalize_email(data.email)
+    user = db.query(models.User).filter(models.User.email == email).first() if email and "@" in email else None
+    if user and not user.password_reset_requested:
+        user.password_reset_requested = True
+        notify_admins_password_recovery_requested(user, db)
+        db.commit()
+        _audit_log(
+            "password_recovery_requested",
+            request=request,
+            target_user_id=user.id,
+            email=user.email,
+        )
+    return {"ok": True}
 
 
 @app.post("/api/auth/logout")
@@ -1772,6 +1840,7 @@ def get_admin_users(request: Request, db: Session = Depends(get_db)):
             "display_name": user.display_name,
             "role": user.role,
             "is_active": user.is_active,
+            "password_reset_requested": user.password_reset_requested,
             "board_count": board_count_map.get(user.id, 0),
         }
         for user in users
@@ -1840,6 +1909,7 @@ def update_admin_user(user_id: int, data: AdminUserUpdate, request: Request, db:
             raise HTTPException(status_code=400, detail="Questline must have at least one admin")
     previous_role = user.role
     previous_is_active = user.is_active
+    previous_password_reset_requested = user.password_reset_requested
     user.role = target_role
     if data.is_active is not None:
         if user.id == current_user.id and data.is_active is False:
@@ -1847,8 +1917,14 @@ def update_admin_user(user_id: int, data: AdminUserUpdate, request: Request, db:
         user.is_active = data.is_active
         if data.is_active is False:
             db.query(models.UserSession).filter(models.UserSession.user_id == user.id).delete()
+    if data.password_reset_requested is not None:
+        user.password_reset_requested = data.password_reset_requested
     db.commit()
-    if previous_role != user.role or previous_is_active != user.is_active:
+    if (
+        previous_role != user.role
+        or previous_is_active != user.is_active
+        or previous_password_reset_requested != user.password_reset_requested
+    ):
         _audit_log(
             "admin_user_updated",
             request=request,
@@ -1859,6 +1935,8 @@ def update_admin_user(user_id: int, data: AdminUserUpdate, request: Request, db:
                 "new_role": user.role,
                 "previous_is_active": previous_is_active,
                 "new_is_active": user.is_active,
+                "previous_password_reset_requested": previous_password_reset_requested,
+                "new_password_reset_requested": user.password_reset_requested,
             },
         )
     return user_to_dict(user)
