@@ -43,3 +43,22 @@
 .checklist-linked-item:hover .checklist-linked-icon {
   color: #1d4ed8;
 }
+
+.swatch-empty {
+  background: #e5e7eb;
+}
+
+.swatch-ef4444 { background: #ef4444; }
+.swatch-f97316 { background: #f97316; }
+.swatch-f59e0b { background: #f59e0b; }
+.swatch-eab308 { background: #eab308; }
+.swatch-22c55e { background: #22c55e; }
+.swatch-14b8a6 { background: #14b8a6; }
+.swatch-06b6d4 { background: #06b6d4; }
+.swatch-3b82f6 { background: #3b82f6; }
+.swatch-6366f1 { background: #6366f1; }
+.swatch-a855f7 { background: #a855f7; }
+.swatch-ec4899 { background: #ec4899; }
+.swatch-64748b { background: #64748b; }
+.swatch-374151 { background: #374151; }
+.swatch-78716c { background: #78716c; }

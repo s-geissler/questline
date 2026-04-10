@@ -38,24 +38,46 @@ function taskTypesPage() {
       return `field-name-${tt.id}`;
     },
 
+    colorSwatchClass(color) {
+      return color ? `swatch-${String(color).replace('#', '')}` : 'swatch-empty';
+    },
+
     taskTypeSwatchStyle(tt) {
-      return tt.color ? `background:${tt.color}` : 'background:#e5e7eb';
+      return this.colorSwatchClass(tt.color);
     },
 
     fieldSwatchStyle(field) {
-      return field.color ? `background:${field.color}` : 'background:#e5e7eb';
+      return this.colorSwatchClass(field.color);
     },
 
     colorSwatchStyle(color) {
-      return `background:${color}`;
+      return this.colorSwatchClass(color);
     },
 
     selectedColorClass(currentColor, color) {
       return currentColor === color ? 'ring-2 ring-offset-1 ring-gray-500' : '';
     },
 
+    paletteColorClass(currentColor, color) {
+      return `${this.colorSwatchClass(color)} ${this.selectedColorClass(currentColor, color)}`.trim();
+    },
+
     hasCustomFields(tt) {
       return !!(tt.custom_fields && tt.custom_fields.length > 0);
+    },
+
+    fieldShowOnCardTitle(field) {
+      return field?.show_on_card
+        ? 'Shown on card face - click to hide'
+        : 'Hidden on card face - click to show';
+    },
+
+    fieldOptions(field) {
+      return field?.options || [];
+    },
+
+    hasFieldOptions(field) {
+      return this.fieldOptions(field).length > 0;
     },
 
     blankNewField() {
@@ -81,7 +103,7 @@ function taskTypesPage() {
     },
 
     optionSwatchStyle(option) {
-      return option?.color ? `background:${option.color}` : 'background:#e5e7eb';
+      return this.colorSwatchClass(option?.color);
     },
 
     async init() {

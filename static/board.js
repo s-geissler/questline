@@ -114,7 +114,7 @@ function board() {
     },
 
     get settingsBoardColorStyle() {
-      return `background:${this.settingsBoardColor || '#2563eb'}`;
+      return this.colorSwatchClass(this.settingsBoardColor || '#3b82f6');
     },
 
     get recurrenceContainerClass() {
@@ -278,7 +278,7 @@ function board() {
 
     get allBoardTasks() {
       return this.realStages.flatMap(stage =>
-        (stage.tasks || []).map(task => ({
+        (stage.tasks || []).map(task => this._decorateTask({
           ...task,
           stage_id: task.stage_id || stage.id,
           stage_name: task.stage_name || stage.name,
@@ -384,6 +384,7 @@ function board() {
       this.stages = (await stagesRes.json()).map(stage => ({
         ...stage,
         row: Number.isInteger(stage.row) ? stage.row : 0,
+        tasks: (stage.tasks || []).map(task => this._decorateTask(task)),
       }));
       this.$nextTick(() => {
         this.initSortable();
@@ -877,11 +878,11 @@ function board() {
     },
 
     selectedTaskColorStyle() {
-      return this.selectedTask?.color ? `background:${this.selectedTask.color}` : 'background:#e5e7eb';
+      return this.colorSwatchClass(this.selectedTask?.color);
     },
 
-    colorSwatchStyle(color) {
-      return `background:${color}`;
+    colorSwatchClass(color) {
+      return color ? `swatch-${String(color).replace('#', '')}` : 'swatch-empty';
     },
 
     selectedColorClass(currentColor, color) {
@@ -890,6 +891,14 @@ function board() {
 
     selectedColorSettingsClass(currentColor, color) {
       return currentColor === color ? 'ring-2 ring-offset-2 ring-gray-600 scale-110' : '';
+    },
+
+    settingsColorSwatchClass(color) {
+      return `${this.colorSwatchClass(color)} ${this.selectedColorSettingsClass(this.settingsBoardColor, color)}`.trim();
+    },
+
+    taskColorSwatchClass(color) {
+      return `${this.colorSwatchClass(color)} ${this.selectedColorClass(this.selectedTask?.color, color)}`.trim();
     },
 
     emptyColorSettingsClass(value) {
@@ -1411,9 +1420,6 @@ function board() {
     },
 
     taskBorderColor(task) {
-      if (this.hasDueDate(task?.due_date) && this.isPastDate(task.due_date) && !task?.done) {
-        return '#dc2626';
-      }
       return task?.color || '#e2e8f0';
     },
 
@@ -1536,13 +1542,14 @@ function board() {
 
     // Helpers
     _syncTaskInStages(updated) {
+      const nextTask = this._decorateTask(updated);
       let changed = false;
       this.stages = this.stages.map(stage => {
         const idx = stage.tasks.findIndex(t => t.id === updated.id);
         if (idx === -1) return stage;
         changed = true;
         const tasks = [...stage.tasks];
-        tasks.splice(idx, 1, updated);
+        tasks.splice(idx, 1, nextTask);
         return {...stage, tasks};
       });
       if (!changed) return;
@@ -1557,7 +1564,7 @@ function board() {
     },
 
     _normalizeSelectedTask(task) {
-      const selectedTask = JSON.parse(JSON.stringify(task));
+      const selectedTask = this._decorateTask(JSON.parse(JSON.stringify(task)));
       selectedTask.stage_id = task.stage_id;
       const taskTypeId = task.task_type_id ?? task.task_type?.id ?? '';
       selectedTask.task_type_id = taskTypeId === '' || taskTypeId === null ? '' : String(taskTypeId);
@@ -1568,6 +1575,11 @@ function board() {
         selectedTask.recurrence._persisted = true;
       }
       return selectedTask;
+    },
+
+    _decorateTask(task) {
+      if (!task) return task;
+      return {...task};
     },
 
     recurrenceUnitLabel(frequency, interval) {

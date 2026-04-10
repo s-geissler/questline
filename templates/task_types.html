@@ -72,20 +72,19 @@
               @click="tt.showColorPicker = !tt.showColorPicker"
               :disabled="!canEdit"
               class="w-6 h-6 rounded-full border-2 border-gray-200 hover:scale-110 transition-transform shadow-sm"
-              :style="taskTypeSwatchStyle(tt)"
+              :class="taskTypeSwatchStyle(tt)"
               title="Pick color"
             ></button>
             <div x-show="tt.showColorPicker" x-cloak
                  class="absolute top-8 left-0 bg-white shadow-xl rounded-xl p-3 z-20 w-48">
               <div class="flex flex-wrap gap-2">
-                <template x-for="c in PRESET_COLORS" :key="c">
-                  <button
-                    @click="setTypeColor(tt, c); tt.showColorPicker = false"
-                    class="w-6 h-6 rounded-full hover:scale-110 transition-transform border border-black/10"
-                    :style="colorSwatchStyle(c)"
-                    :class="selectedColorClass(tt.color, c)"
-                  ></button>
-                </template>
+            <template x-for="c in PRESET_COLORS" :key="c">
+              <button
+                @click="setTypeColor(tt, c); tt.showColorPicker = false"
+                class="w-6 h-6 rounded-full hover:scale-110 transition-transform border border-black/10"
+                :class="paletteColorClass(tt.color, c)"
+              ></button>
+            </template>
                 <button
                   @click="setTypeColor(tt, null); tt.showColorPicker = false"
                   class="w-6 h-6 rounded-full bg-gray-100 border border-dashed border-gray-300 flex items-center justify-center text-gray-400 text-xs hover:bg-gray-200"
@@ -209,7 +208,7 @@
                         @click="field.showColorPicker = !field.showColorPicker"
                         :disabled="!canEdit"
                         class="w-4 h-4 rounded border border-black/15 hover:scale-110 transition-transform"
-                        :style="fieldSwatchStyle(field)"
+                        :class="fieldSwatchStyle(field)"
                         title="Pick color"
                       ></button>
                       <div x-show="field.showColorPicker" x-cloak
@@ -219,8 +218,7 @@
                             <button
                               @click="setFieldColor(tt, field, c); field.showColorPicker = false"
                               class="w-6 h-6 rounded-full hover:scale-110 transition-transform border border-black/10"
-                              :style="colorSwatchStyle(c)"
-                              :class="selectedColorClass(field.color, c)"
+                              :class="paletteColorClass(field.color, c)"
                             ></button>
                           </template>
                           <button
@@ -240,7 +238,7 @@
                   <div class="flex items-center gap-3">
                     <label
                       class="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none"
-                      :title="field.show_on_card ? 'Shown on card face — click to hide' : 'Hidden on card face — click to show'"
+                      :title="fieldShowOnCardTitle(field)"
                     >
                       <input
                         type="checkbox"
@@ -262,13 +260,13 @@
                 <template x-if="field.field_type === 'dropdown'">
                   <div class="px-3 pb-2.5 border-t border-gray-200" x-show="canEdit">
                     <div class="flex flex-wrap gap-1 mt-2 mb-1.5">
-                      <template x-for="(opt, idx) in (field.options || [])" :key="idx">
+                      <template x-for="(opt, idx) in fieldOptions(field)" :key="idx">
                         <span class="flex items-center gap-1 text-xs bg-white border rounded-md px-1.5 py-0.5 text-gray-700">
                           <button
                             @click="opt.showColorPicker = !opt.showColorPicker"
                             :disabled="!canEdit"
                             class="w-3.5 h-3.5 rounded border border-black/15 hover:scale-110 transition-transform"
-                            :style="optionSwatchStyle(opt)"
+                            :class="optionSwatchStyle(opt)"
                             title="Pick option color"
                           ></button>
                           <span x-text="opt.label"></span>
@@ -284,8 +282,7 @@
                                 <button
                               @click="setFieldOptionColor(tt, field, idx, c); opt.showColorPicker = false"
                               class="w-6 h-6 rounded-full hover:scale-110 transition-transform border border-black/10"
-                                  :style="colorSwatchStyle(c)"
-                                  :class="selectedColorClass(opt.color, c)"
+                                  :class="paletteColorClass(opt.color, c)"
                                 ></button>
                               </template>
                               <button
@@ -297,7 +294,7 @@
                           </div>
                         </span>
                       </template>
-                      <span x-show="!field.options || field.options.length === 0" class="text-xs text-gray-400 italic py-0.5">No options yet</span>
+                      <span x-show="!hasFieldOptions(field)" class="text-xs text-gray-400 italic py-0.5">No options yet</span>
                     </div>
                     <div class="flex gap-1.5">
                       <input
@@ -376,7 +373,7 @@
                       @click="opt.showColorPicker = !opt.showColorPicker"
                       :disabled="!canEdit"
                       class="w-3.5 h-3.5 rounded border border-black/15 hover:scale-110 transition-transform"
-                      :style="optionSwatchStyle(opt)"
+                      :class="optionSwatchStyle(opt)"
                       title="Pick option color"
                     ></button>
                     <span x-text="opt.label"></span>
@@ -390,10 +387,9 @@
                       <div class="flex flex-wrap gap-2">
                         <template x-for="c in PRESET_COLORS" :key="c">
                           <button
-                          @click="setNewFieldOptionColor(tt, idx, c); opt.showColorPicker = false"
-                          class="w-6 h-6 rounded-full hover:scale-110 transition-transform border border-black/10"
-                            :style="colorSwatchStyle(c)"
-                            :class="selectedColorClass(opt.color, c)"
+                            @click="setNewFieldOptionColor(tt, idx, c); opt.showColorPicker = false"
+                            class="w-6 h-6 rounded-full hover:scale-110 transition-transform border border-black/10"
+                            :class="paletteColorClass(opt.color, c)"
                           ></button>
                         </template>
                         <button

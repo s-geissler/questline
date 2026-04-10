@@ -611,7 +611,7 @@
         <template x-for="day in calendarDays" :key="day.date">
           <div
             class="min-h-[11rem] border-b border-r border-slate-200 p-2.5 flex flex-col gap-2"
-            :class="day.inCurrentMonth ? 'calendar-current-month' : 'calendar-other-month'"
+            :class="calendarDayClass(day)"
             :data-calendar-date="day.date"
             @dblclick="openCalendarCreate(day, $event)"
           >
@@ -631,7 +631,7 @@
                   @keydown.enter.prevent="openTask(entry)"
                   @keydown.space.prevent="openTask(entry)"
                   data-calendar-task="true"
-                  :data-task-id="entry.is_calendar_preview ? null : entry.id"
+                  :data-task-id="calendarTaskId(entry)"
                   :data-calendar-draggable="calendarEntryDraggableValue(entry)"
                   role="button"
                   tabindex="0"
@@ -763,8 +763,7 @@
                 @click="settingsBoardColor = c"
                 :disabled="!canManageBoard"
                 class="w-8 h-8 rounded-full hover:scale-110 transition-transform border-2 border-black/10"
-                :style="colorSwatchStyle(c)"
-                :class="selectedColorSettingsClass(settingsBoardColor, c)"
+                :class="settingsColorSwatchClass(c)"
               ></button>
             </template>
             <button
@@ -775,7 +774,7 @@
               title="No color"
             >✕</button>
           </div>
-          <div class="h-6 rounded-lg transition-colors" :style="settingsBoardColorStyle"></div>
+          <div class="h-6 rounded-lg transition-colors" :class="settingsBoardColorStyle"></div>
         </div>
 
         <div x-show="canManageBoard" class="mb-6 border-t pt-5">
@@ -993,7 +992,7 @@
                 @click="toggleTaskColorPicker()"
                 :disabled="!canEditBoard"
                 class="w-8 h-8 rounded-full border-2 border-gray-200 hover:scale-110 transition-transform shadow-sm"
-                :style="selectedTaskColorStyle()"
+                :class="selectedTaskColorStyle()"
                 title="Pick color"
               ></button>
               <div x-show="taskColorPickerOpen" x-cloak
@@ -1003,8 +1002,7 @@
                     <button
                       @click="selectedTask.color = c; updateTaskField('color', c); closeTaskColorPicker()"
                       class="w-6 h-6 rounded-full hover:scale-110 transition-transform border border-black/10"
-                      :style="colorSwatchStyle(c)"
-                      :class="selectedColorClass(selectedTask.color, c)"
+                      :class="taskColorSwatchClass(c)"
                     ></button>
                   </template>
                   <button
