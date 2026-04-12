@@ -173,6 +173,8 @@ def test_audit_log_path_writes_json_lines(tmp_path, monkeypatch):
         "filters_logic",
         "routes",
         "routes.auth",
+        "routes.boards",
+        "routes.stages",
         "routes._deps",
         "routes._helpers",
         "services",

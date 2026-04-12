@@ -23,6 +23,8 @@ def _load_modules(tmp_path, monkeypatch):
         "filters_logic",
         "routes",
         "routes.auth",
+        "routes.boards",
+        "routes.stages",
         "routes._deps",
         "routes._helpers",
         "services",

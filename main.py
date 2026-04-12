@@ -30,6 +30,36 @@ from routes.auth import (
     auth_update_profile,
     router as auth_router,
 )
+from routes.boards import (
+    BoardCreate,
+    BoardMemberCreate,
+    BoardMemberUpdate,
+    BoardUpdate,
+    add_board_member as _add_board_member_route,
+    create_board as _create_board_route,
+    delete_board as _delete_board_route,
+    delete_board_member as _delete_board_member_route,
+    get_board_members as _get_board_members_route,
+    get_boards as _get_boards_route,
+    router as boards_router,
+    update_board as _update_board_route,
+    update_board_member as _update_board_member_route,
+)
+from routes.stages import (
+    ReorderStages,
+    StageConfigUpdate,
+    StageCreate,
+    StageUpdate,
+    _validate_stage_grid,
+    clear_completed_stage_tasks as _clear_completed_stage_tasks_route,
+    create_stage as _create_stage_route,
+    delete_stage as _delete_stage_route,
+    get_stages as _get_stages_route,
+    reorder_stages as _reorder_stages_route,
+    router as stages_router,
+    update_stage as _update_stage_route,
+    update_stage_config as _update_stage_config_route,
+)
 from services.automation import apply_automation, run_automations
 from services.audit import _audit_log, _configure_audit_logger, _request_client_ip
 from services.notifications import (
@@ -381,6 +411,8 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.state.trusted_proxy_networks = TRUSTED_PROXY_NETWORKS
 app.include_router(auth_router)
+app.include_router(boards_router)
+app.include_router(stages_router)
 templates = Jinja2Templates(directory="templates")
 SESSION_COOKIE = "questline_session"
 PASSWORD_HASH_ITERATIONS = 120_000
@@ -480,44 +512,6 @@ def stop_recurrence_worker():
 # Pydantic schemas
 # ---------------------------------------------------------------------------
 
-class BoardCreate(BaseModel):
-    name: str = Field(max_length=MAX_NAME_LENGTH)
-    color: Optional[str] = Field(default=None, max_length=7)
-
-class BoardUpdate(BaseModel):
-    name: Optional[str] = Field(default=None, max_length=MAX_NAME_LENGTH)
-    color: Optional[str] = Field(default=None, max_length=7)
-
-class StageCreate(BaseModel):
-    name: str = Field(max_length=MAX_NAME_LENGTH)
-    board_id: int
-    row: int = 0
-    position: Optional[int] = None
-
-class StageUpdate(BaseModel):
-    name: str = Field(max_length=MAX_NAME_LENGTH)
-
-class StageConfigUpdate(BaseModel):
-    is_log: Optional[bool] = None
-    filter_id: Optional[int] = None
-
-class ReorderStages(BaseModel):
-    ids: Optional[PyList[int]] = None
-    stages: Optional[PyList[dict]] = None
-
-
-def _validate_stage_grid(board_id: int, placements: PyList[dict], db: Session):
-    top_row_positions = {
-        int(placement["position"])
-        for placement in placements
-        if int(placement["row"]) == 0
-    }
-    for placement in placements:
-        row = int(placement["row"])
-        position = int(placement["position"])
-        if row == 1 and position not in top_row_positions:
-            raise HTTPException(status_code=400, detail="Second row stages require a top row stage above them")
-
 class TaskCreate(BaseModel):
     title: str = Field(max_length=MAX_TASK_TITLE_LENGTH)
     stage_id: int
@@ -612,15 +606,6 @@ class SavedFilterCreate(BaseModel):
 class SavedFilterUpdate(BaseModel):
     name: Optional[str] = Field(default=None, max_length=MAX_NAME_LENGTH)
     definition: Optional[dict] = None
-
-
-class BoardMemberCreate(BaseModel):
-    email: str = Field(max_length=MAX_EMAIL_LENGTH)
-    role: str = "viewer"
-
-
-class BoardMemberUpdate(BaseModel):
-    role: str
 
 
 class AdminUserUpdate(BaseModel):
@@ -980,6 +965,72 @@ def _validate_membership_role(role: str) -> str:
     return role
 
 
+def get_boards(request: Request, db: Session = Depends(get_db)):
+    return _get_boards_route(request, db)
+
+
+def create_board(data: BoardCreate, db: Session = Depends(get_db), request: Request = None):
+    return _create_board_route(request, data, db)
+
+
+def update_board(board_id: int, data: BoardUpdate, db: Session = Depends(get_db), request: Request = None):
+    return _update_board_route(board_id, request, data, db)
+
+
+def delete_board(board_id: int, db: Session = Depends(get_db), request: Request = None):
+    return _delete_board_route(board_id, request, db)
+
+
+def get_board_members(board_id: int, db: Session = Depends(get_db), request: Request = None):
+    return _get_board_members_route(board_id, request, db)
+
+
+def add_board_member(board_id: int, data: BoardMemberCreate, db: Session = Depends(get_db), request: Request = None):
+    return _add_board_member_route(board_id, request, data, db)
+
+
+def update_board_member(
+    board_id: int,
+    user_id: int,
+    data: BoardMemberUpdate,
+    db: Session = Depends(get_db),
+    request: Request = None,
+):
+    return _update_board_member_route(board_id, user_id, request, data, db)
+
+
+def delete_board_member(board_id: int, user_id: int, db: Session = Depends(get_db), request: Request = None):
+    return _delete_board_member_route(board_id, user_id, request, db)
+
+
+def get_stages(board_id: int, db: Session = Depends(get_db), request: Request = None):
+    return _get_stages_route(board_id, request, db)
+
+
+def create_stage(data: StageCreate, db: Session = Depends(get_db), request: Request = None):
+    return _create_stage_route(request, data, db)
+
+
+def reorder_stages(data: ReorderStages, db: Session = Depends(get_db), request: Request = None):
+    return _reorder_stages_route(request, data, db)
+
+
+def update_stage(stage_id: int, data: StageUpdate, db: Session = Depends(get_db), request: Request = None):
+    return _update_stage_route(stage_id, request, data, db)
+
+
+def update_stage_config(stage_id: int, data: StageConfigUpdate, db: Session = Depends(get_db), request: Request = None):
+    return _update_stage_config_route(stage_id, request, data, db)
+
+
+def delete_stage(stage_id: int, db: Session = Depends(get_db), request: Request = None):
+    return _delete_stage_route(stage_id, request, db)
+
+
+def clear_completed_stage_tasks(stage_id: int, db: Session = Depends(get_db), request: Request = None):
+    return _clear_completed_stage_tasks_route(stage_id, request, db)
+
+
 @app.get("/api/notifications")
 def get_notifications(request: Request, db: Session = Depends(get_db)):
     user = require_current_user(request, db)
@@ -1053,56 +1104,6 @@ def _list_boards_internal(db: Session):
         }
         for b in boards
     ]
-
-
-@app.get("/api/boards")
-def get_boards(request: Request, db: Session = Depends(get_db)):
-    user = require_current_user(request, db)
-    boards = get_accessible_boards(user, db)
-    board_ids = [board.id for board in boards]
-    role_map = _board_role_map(board_ids, user, db)
-    shared_map = _board_shared_map(board_ids, db)
-    return [
-        {
-            "id": b.id,
-            "name": b.name,
-            "color": b.color,
-            "position": b.position,
-            "role": role_map.get(b.id),
-            "is_shared": shared_map.get(b.id, False),
-            "is_owner": b.owner_user_id == user.id,
-        }
-        for b in boards
-    ]
-
-@app.post("/api/boards")
-def create_board(data: BoardCreate, db: Session = Depends(get_db), request: Request = None):
-    owner_user = require_current_user(request, db) if request is not None else None
-    instance_settings = get_instance_settings(db)
-    pos = db.query(models.Board).count()
-    board = models.Board(
-        name=data.name,
-        color=_validated_optional_hex_color(
-            data.color,
-            "Board color must be a valid hex color",
-        ) or instance_settings["default_board_color"] or None,
-        position=pos,
-        owner_user_id=owner_user.id if owner_user else None,
-    )
-    db.add(board)
-    db.commit()
-    db.refresh(board)
-    if owner_user:
-        ensure_board_membership(board, owner_user, "owner", db)
-        db.commit()
-    return {
-        "id": board.id,
-        "name": board.name,
-        "color": board.color,
-        "position": board.position,
-        "role": "owner" if owner_user else None,
-        "is_shared": False,
-    }
 
 
 @app.get("/api/admin/users")
@@ -1394,150 +1395,6 @@ def delete_admin_user(user_id: int, request: Request, db: Session = Depends(get_
     )
     return {"ok": True}
 
-@app.put("/api/boards/{board_id}")
-def update_board(board_id: int, data: BoardUpdate, db: Session = Depends(get_db), request: Request = None):
-    _authorize_board_request(request, db, board_id, "owner")
-    board = db.query(models.Board).filter(models.Board.id == board_id).first()
-    if not board:
-        raise HTTPException(status_code=404, detail="Board not found")
-    if data.name is not None:
-        board.name = data.name
-    if "color" in data.model_fields_set:
-        board.color = _validated_optional_hex_color(data.color, "Board color must be a valid hex color")
-    db.commit()
-    return {"id": board.id, "name": board.name, "color": board.color}
-
-@app.delete("/api/boards/{board_id}")
-def delete_board(board_id: int, db: Session = Depends(get_db), request: Request = None):
-    _authorize_board_request(request, db, board_id, "owner")
-    board = db.query(models.Board).filter(models.Board.id == board_id).first()
-    if not board:
-        raise HTTPException(status_code=404, detail="Board not found")
-    db.delete(board)
-    db.commit()
-    return {"ok": True}
-
-
-@app.get("/api/boards/{board_id}/members")
-def get_board_members(board_id: int, db: Session = Depends(get_db), request: Request = None):
-    current_user = _authorize_board_request(request, db, board_id, "viewer")
-    memberships = (
-        db.query(models.BoardMembership)
-        .filter(models.BoardMembership.board_id == board_id)
-        .order_by(models.BoardMembership.created_at, models.BoardMembership.id)
-        .all()
-    )
-    return {
-        "current_role": get_board_role(board_id, current_user, db) if current_user else None,
-        "members": [board_membership_to_dict(membership) for membership in memberships],
-    }
-
-
-@app.post("/api/boards/{board_id}/members")
-def add_board_member(board_id: int, data: BoardMemberCreate, db: Session = Depends(get_db), request: Request = None):
-    actor = _authorize_board_request(request, db, board_id, "owner")
-    role = _validate_membership_role(data.role)
-    email = _normalize_email(data.email)
-    user = db.query(models.User).filter(models.User.email == email).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    board = db.query(models.Board).filter(models.Board.id == board_id).first()
-    if not board:
-        raise HTTPException(status_code=404, detail="Board not found")
-    existing_membership = (
-        db.query(models.BoardMembership)
-        .filter(
-            models.BoardMembership.board_id == board_id,
-            models.BoardMembership.user_id == user.id,
-        )
-        .first()
-    )
-    membership = ensure_board_membership(board, user, role, db)
-    db.commit()
-    db.refresh(membership)
-    if existing_membership is None and actor and actor.id != user.id:
-        create_notification(
-            user.id,
-            "board_shared",
-            "Hub shared with you",
-            f"{actor.display_name} shared {board.name} with you",
-            db,
-            link_url=f"/board/{board.id}",
-            board_id=board.id,
-            dedupe_key=f"board_shared:board:{board.id}:user:{user.id}",
-        )
-        db.commit()
-    return board_membership_to_dict(membership)
-
-
-@app.put("/api/boards/{board_id}/members/{user_id}")
-def update_board_member(board_id: int, user_id: int, data: BoardMemberUpdate, db: Session = Depends(get_db), request: Request = None):
-    _authorize_board_request(request, db, board_id, "owner")
-    role = _validate_membership_role(data.role)
-    membership = (
-        db.query(models.BoardMembership)
-        .filter(
-            models.BoardMembership.board_id == board_id,
-            models.BoardMembership.user_id == user_id,
-        )
-        .first()
-    )
-    if not membership:
-        raise HTTPException(status_code=404, detail="Board membership not found")
-    if membership.role == "owner" and role != "owner" and _owner_membership_count(board_id, db) <= 1:
-        raise HTTPException(status_code=400, detail="Board must have at least one owner")
-    membership.role = role
-    board = db.query(models.Board).filter(models.Board.id == board_id).first()
-    if board and role == "owner":
-        board.owner_user_id = user_id
-    elif board and board.owner_user_id == user_id and role != "owner":
-        replacement = (
-            db.query(models.BoardMembership)
-            .filter(
-                models.BoardMembership.board_id == board_id,
-                models.BoardMembership.role == "owner",
-                models.BoardMembership.user_id != user_id,
-            )
-            .first()
-        )
-        board.owner_user_id = replacement.user_id if replacement else None
-    db.commit()
-    db.refresh(membership)
-    return board_membership_to_dict(membership)
-
-
-@app.delete("/api/boards/{board_id}/members/{user_id}")
-def delete_board_member(board_id: int, user_id: int, db: Session = Depends(get_db), request: Request = None):
-    _authorize_board_request(request, db, board_id, "owner")
-    membership = (
-        db.query(models.BoardMembership)
-        .filter(
-            models.BoardMembership.board_id == board_id,
-            models.BoardMembership.user_id == user_id,
-        )
-        .first()
-    )
-    if not membership:
-        raise HTTPException(status_code=404, detail="Board membership not found")
-    if membership.role == "owner" and _owner_membership_count(board_id, db) <= 1:
-        raise HTTPException(status_code=400, detail="Board must have at least one owner")
-    board = db.query(models.Board).filter(models.Board.id == board_id).first()
-    db.delete(membership)
-    if board and board.owner_user_id == user_id:
-        replacement = (
-            db.query(models.BoardMembership)
-            .filter(
-                models.BoardMembership.board_id == board_id,
-                models.BoardMembership.role == "owner",
-                models.BoardMembership.user_id != user_id,
-            )
-            .first()
-        )
-        board.owner_user_id = replacement.user_id if replacement else None
-    db.commit()
-    return {"ok": True}
-
-
 # ---------------------------------------------------------------------------
 # Saved Filters API
 # ---------------------------------------------------------------------------
@@ -1609,170 +1466,6 @@ def delete_saved_filter(filter_id: int, db: Session = Depends(get_db), request: 
 # ---------------------------------------------------------------------------
 # Stages API
 # ---------------------------------------------------------------------------
-
-@app.get("/api/stages")
-def get_stages(board_id: int, db: Session = Depends(get_db), request: Request = None):
-    current_user = _authorize_board_request(request, db, board_id, "viewer")
-    stages = (
-        db.query(models.Stage)
-        .filter(models.Stage.board_id == board_id)
-        .order_by(models.Stage.row, models.Stage.position)
-        .all()
-    )
-    result = []
-    for stage in stages:
-        tasks = get_stage_tasks(stage, db, current_user)
-        result.append(
-            {
-                **stage_to_dict(stage),
-                "tasks": [task_to_dict(t) for t in tasks],
-            }
-        )
-    return result
-
-@app.post("/api/stages")
-def create_stage(data: StageCreate, db: Session = Depends(get_db), request: Request = None):
-    _authorize_board_request(request, db, data.board_id, "editor")
-    row = max(0, data.row)
-    row_query = db.query(models.Stage).filter(models.Stage.board_id == data.board_id, models.Stage.row == row)
-    if data.position is None:
-        max_position = row_query.with_entities(func.max(models.Stage.position)).scalar()
-        pos = 0 if max_position is None else max_position + 1
-    else:
-        pos = max(0, data.position)
-    existing_placements = [
-        {"id": stage.id, "row": stage.row or 0, "position": stage.position}
-        for stage in db.query(models.Stage).filter(models.Stage.board_id == data.board_id).all()
-    ]
-    planned_placements = []
-    for placement in sorted(existing_placements, key=lambda item: (item["row"], item["position"], item["id"])):
-        same_row = placement["row"] == row
-        next_position = placement["position"]
-        if same_row and next_position >= pos:
-            next_position += 1
-        planned_placements.append({**placement, "position": next_position})
-    planned_placements.append({"id": -1, "row": row, "position": pos})
-    _validate_stage_grid(data.board_id, planned_placements, db)
-    if data.position is not None:
-        row_query.filter(models.Stage.position >= pos).update(
-            {"position": models.Stage.position + 1},
-            synchronize_session=False,
-        )
-    stage = models.Stage(name=data.name, board_id=data.board_id, row=row, position=pos)
-    db.add(stage)
-    db.commit()
-    db.refresh(stage)
-    return {**stage_to_dict(stage), "tasks": []}
-
-# NOTE: /api/stages/reorder must be declared before /api/stages/{stage_id}
-@app.put("/api/stages/reorder")
-def reorder_stages(data: ReorderStages, db: Session = Depends(get_db), request: Request = None):
-    placements = []
-    if data.stages:
-        for index, stage_data in enumerate(data.stages):
-            stage_id = stage_data.get("id")
-            if not isinstance(stage_id, int):
-                raise HTTPException(status_code=400, detail="Invalid stage reorder payload")
-            placements.append(
-                {
-                    "id": stage_id,
-                    "row": max(0, int(stage_data.get("row", 0))),
-                    "position": max(0, int(stage_data.get("position", index))),
-                }
-            )
-    elif data.ids:
-        placements = [{"id": stage_id, "row": 0, "position": i} for i, stage_id in enumerate(data.ids)]
-
-    if placements:
-        board_id = _board_id_for_stage(placements[0]["id"], db)
-        if board_id is not None:
-            _authorize_board_request(request, db, board_id, "editor")
-            for placement in placements:
-                stage_id = placement["id"]
-                _require_stage_in_board(stage_id, board_id, db)
-            _validate_stage_grid(board_id, placements, db)
-    for placement in placements:
-        db.query(models.Stage).filter(models.Stage.id == placement["id"]).update(
-            {"row": placement["row"], "position": placement["position"]}
-        )
-    db.commit()
-    return {"ok": True}
-
-@app.put("/api/stages/{stage_id}")
-def update_stage(stage_id: int, data: StageUpdate, db: Session = Depends(get_db), request: Request = None):
-    board_id = _board_id_for_stage(stage_id, db)
-    if board_id is not None:
-        _authorize_board_request(request, db, board_id, "editor")
-    stage = db.query(models.Stage).filter(models.Stage.id == stage_id).first()
-    if not stage:
-        raise HTTPException(status_code=404, detail="Stage not found")
-    stage.name = data.name
-    db.commit()
-    return {"id": stage.id, "name": stage.name}
-
-
-@app.put("/api/stages/{stage_id}/config")
-def update_stage_config(stage_id: int, data: StageConfigUpdate, db: Session = Depends(get_db), request: Request = None):
-    board_id = _board_id_for_stage(stage_id, db)
-    if board_id is not None:
-        _authorize_board_request(request, db, board_id, "editor")
-    stage = db.query(models.Stage).filter(models.Stage.id == stage_id).first()
-    if not stage:
-        raise HTTPException(status_code=404, detail="Stage not found")
-    if "is_log" in data.model_fields_set:
-        if data.is_log and not stage.is_log and stage.tasks:
-            raise HTTPException(status_code=400, detail="Cannot convert a non-empty stage into a log")
-        stage.is_log = bool(data.is_log)
-    if "filter_id" in data.model_fields_set:
-        if data.filter_id is not None:
-            saved_filter = db.query(models.SavedFilter).filter(models.SavedFilter.id == data.filter_id).first()
-            if not saved_filter or saved_filter.board_id != stage.board_id:
-                raise HTTPException(status_code=400, detail="Invalid saved filter")
-        stage.filter_id = data.filter_id
-    if not stage.is_log:
-        stage.filter_id = None
-    db.commit()
-    db.refresh(stage)
-    return stage_to_dict(stage)
-
-@app.delete("/api/stages/{stage_id}")
-def delete_stage(stage_id: int, db: Session = Depends(get_db), request: Request = None):
-    board_id = _board_id_for_stage(stage_id, db)
-    if board_id is not None:
-        _authorize_board_request(request, db, board_id, "editor")
-    stage = db.query(models.Stage).filter(models.Stage.id == stage_id).first()
-    if not stage:
-        raise HTTPException(status_code=404, detail="Stage not found")
-    task_ids = [t.id for t in stage.tasks]
-    if task_ids:
-        delete_tasks_by_ids(collect_descendant_task_ids(task_ids, db), db)
-        db.refresh(stage)
-    db.delete(stage)
-    db.commit()
-    return {"ok": True}
-
-
-@app.post("/api/stages/{stage_id}/clear-completed")
-def clear_completed_stage_tasks(stage_id: int, db: Session = Depends(get_db), request: Request = None):
-    board_id = _board_id_for_stage(stage_id, db)
-    if board_id is not None:
-        _authorize_board_request(request, db, board_id, "editor")
-    stage = db.query(models.Stage).filter(models.Stage.id == stage_id).first()
-    if not stage:
-        raise HTTPException(status_code=404, detail="Stage not found")
-    if stage.is_log:
-        raise HTTPException(status_code=400, detail="Cannot clear tasks from a log stage")
-
-    completed_task_ids = [
-        task.id
-        for task in db.query(models.Task)
-        .filter(models.Task.stage_id == stage_id, models.Task.done == True)
-        .all()
-    ]
-    task_ids_to_delete = collect_descendant_task_ids(completed_task_ids, db)
-    deleted_count = delete_tasks_by_ids(task_ids_to_delete, db)
-    return {"ok": True, "deleted": deleted_count}
-
 
 # ---------------------------------------------------------------------------
 # Tasks API
