@@ -19,6 +19,11 @@ from typing import Optional, List as PyList, Union
 
 import models
 from database import engine, SessionLocal, get_db
+from services.settings import (
+    INSTANCE_SETTINGS_DEFAULTS,
+    RECURRENCE_MIN_INTERVAL_SECONDS,
+    get_instance_settings,
+)
 from authz import (
     CSRF_COOKIE,
     SESSION_MAX_AGE,
@@ -413,17 +418,8 @@ templates = Jinja2Templates(directory="templates")
 SESSION_COOKIE = "questline_session"
 PASSWORD_HASH_ITERATIONS = 120_000
 BOARD_ROLE_ORDER = {"viewer": 1, "editor": 2, "owner": 3}
-INSTANCE_SETTINGS_DEFAULTS = {
-    "registration_enabled": "true",
-    "default_board_color": "#2563eb",
-    "new_accounts_active_by_default": "false",
-    "instance_theme_color": "#1d4ed8",
-    "recurrence_worker_interval_seconds": "60",
-}
-
 RECURRENCE_FREQUENCIES = {"daily", "weekly", "monthly"}
 RECURRENCE_MODES = {"create_new", "reuse_existing"}
-RECURRENCE_MIN_INTERVAL_SECONDS = 5
 recurrence_worker_stop_event = threading.Event()
 recurrence_worker_thread = None
 
@@ -1024,29 +1020,6 @@ def admin_page(request: Request, db: Session = Depends(get_db), board_id: Option
             "page_theme_color": instance_settings["instance_theme_color"],
         },
     )
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def get_instance_settings(db: Session) -> dict:
-    values = dict(INSTANCE_SETTINGS_DEFAULTS)
-    rows = db.query(models.InstanceSetting).all()
-    for row in rows:
-        values[row.key] = row.value
-    if not values.get("instance_theme_color") and values.get("overview_theme_color"):
-        values["instance_theme_color"] = values["overview_theme_color"]
-    return {
-        "registration_enabled": str(values.get("registration_enabled", "true")).lower() == "true",
-        "default_board_color": (values.get("default_board_color") or INSTANCE_SETTINGS_DEFAULTS["default_board_color"]).strip(),
-        "new_accounts_active_by_default": str(values.get("new_accounts_active_by_default", "true")).lower() == "true",
-        "instance_theme_color": (values.get("instance_theme_color") or INSTANCE_SETTINGS_DEFAULTS["instance_theme_color"]).strip(),
-        "recurrence_worker_interval_seconds": max(
-            RECURRENCE_MIN_INTERVAL_SECONDS,
-            int(str(values.get("recurrence_worker_interval_seconds", INSTANCE_SETTINGS_DEFAULTS["recurrence_worker_interval_seconds"])).strip() or INSTANCE_SETTINGS_DEFAULTS["recurrence_worker_interval_seconds"]),
-        ),
-    }
 
 
 def set_instance_settings(db: Session, updates: dict) -> dict:
