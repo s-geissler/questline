@@ -96,6 +96,7 @@ def test_register_rejects_duplicate_email(app_env):
 
 def test_register_failure_timing_is_smoothed(app_env, monkeypatch):
     main = app_env["main"]
+    auth = app_env["auth"]
     db = app_env["db"]
 
     main.auth_register(
@@ -111,7 +112,7 @@ def test_register_failure_timing_is_smoothed(app_env, monkeypatch):
     started_values = []
 
     monkeypatch.setattr(
-        main,
+        auth,
         "_smooth_registration_failure_timing",
         lambda started_at: started_values.append(started_at),
     )
@@ -356,7 +357,23 @@ def test_session_cookie_flags_are_secure_by_default(tmp_path, monkeypatch):
     monkeypatch.setenv("QUESTLINE_DATABASE_URL", f"sqlite:///{db_path}")
     monkeypatch.setenv("QUESTLINE_SESSION_COOKIE_SAMESITE", "strict")
 
-    for module_name in ("main", "models", "database", "authz"):
+    for module_name in (
+        "main",
+        "models",
+        "database",
+        "authz",
+        "routes",
+        "routes.auth",
+        "routes._deps",
+        "routes._helpers",
+        "services",
+        "services.audit",
+        "services.settings",
+        "services.tasks",
+        "services.notifications",
+        "services.automation",
+        "services.recurrence",
+    ):
         sys.modules.pop(module_name, None)
 
     main = importlib.import_module("main")
@@ -387,7 +404,23 @@ def test_session_cookie_flags_can_allow_local_insecure_override(tmp_path, monkey
     monkeypatch.setenv("QUESTLINE_ALLOW_INSECURE_COOKIES", "true")
     monkeypatch.setenv("QUESTLINE_SESSION_COOKIE_SAMESITE", "lax")
 
-    for module_name in ("main", "models", "database", "authz"):
+    for module_name in (
+        "main",
+        "models",
+        "database",
+        "authz",
+        "routes",
+        "routes.auth",
+        "routes._deps",
+        "routes._helpers",
+        "services",
+        "services.audit",
+        "services.settings",
+        "services.tasks",
+        "services.notifications",
+        "services.automation",
+        "services.recurrence",
+    ):
         sys.modules.pop(module_name, None)
 
     main = importlib.import_module("main")
@@ -441,7 +474,23 @@ def test_session_max_age_days_can_be_configured(tmp_path, monkeypatch):
     monkeypatch.setenv("QUESTLINE_ALLOW_INSECURE_COOKIES", "true")
     monkeypatch.setenv("QUESTLINE_SESSION_MAX_AGE_DAYS", "7")
 
-    for module_name in ("main", "models", "database", "authz"):
+    for module_name in (
+        "main",
+        "models",
+        "database",
+        "authz",
+        "routes",
+        "routes.auth",
+        "routes._deps",
+        "routes._helpers",
+        "services",
+        "services.audit",
+        "services.settings",
+        "services.tasks",
+        "services.notifications",
+        "services.automation",
+        "services.recurrence",
+    ):
         sys.modules.pop(module_name, None)
 
     main = importlib.import_module("main")
@@ -472,7 +521,23 @@ def test_invalid_session_max_age_days_fails_fast(tmp_path, monkeypatch):
     monkeypatch.setenv("QUESTLINE_DATABASE_URL", f"sqlite:///{db_path}")
     monkeypatch.setenv("QUESTLINE_SESSION_MAX_AGE_DAYS", "0")
 
-    for module_name in ("main", "models", "database", "authz"):
+    for module_name in (
+        "main",
+        "models",
+        "database",
+        "authz",
+        "routes",
+        "routes.auth",
+        "routes._deps",
+        "routes._helpers",
+        "services",
+        "services.audit",
+        "services.settings",
+        "services.tasks",
+        "services.notifications",
+        "services.automation",
+        "services.recurrence",
+    ):
         sys.modules.pop(module_name, None)
 
     try:
@@ -486,7 +551,23 @@ def test_runtime_security_defaults_to_production(tmp_path, monkeypatch):
     db_path = tmp_path / "cookie-default-env.db"
     monkeypatch.setenv("QUESTLINE_DATABASE_URL", f"sqlite:///{db_path}")
 
-    for module_name in ("main", "models", "database", "authz"):
+    for module_name in (
+        "main",
+        "models",
+        "database",
+        "authz",
+        "routes",
+        "routes.auth",
+        "routes._deps",
+        "routes._helpers",
+        "services",
+        "services.audit",
+        "services.settings",
+        "services.tasks",
+        "services.notifications",
+        "services.automation",
+        "services.recurrence",
+    ):
         sys.modules.pop(module_name, None)
 
     authz = importlib.import_module("authz")
@@ -499,7 +580,23 @@ def test_runtime_security_rejects_insecure_cookies_in_production(tmp_path, monke
     monkeypatch.setenv("QUESTLINE_DATABASE_URL", f"sqlite:///{db_path}")
     monkeypatch.setenv("QUESTLINE_ALLOW_INSECURE_COOKIES", "true")
 
-    for module_name in ("main", "models", "database", "authz"):
+    for module_name in (
+        "main",
+        "models",
+        "database",
+        "authz",
+        "routes",
+        "routes.auth",
+        "routes._deps",
+        "routes._helpers",
+        "services",
+        "services.audit",
+        "services.settings",
+        "services.tasks",
+        "services.notifications",
+        "services.automation",
+        "services.recurrence",
+    ):
         sys.modules.pop(module_name, None)
 
     main = importlib.import_module("main")

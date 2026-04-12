@@ -165,7 +165,24 @@ def test_audit_log_path_writes_json_lines(tmp_path, monkeypatch):
     monkeypatch.setenv("QUESTLINE_ALLOW_INSECURE_COOKIES", "true")
     monkeypatch.setenv("QUESTLINE_AUDIT_LOG_PATH", str(audit_log_path))
 
-    for module_name in ("main", "models", "database", "authz", "filters_logic"):
+    for module_name in (
+        "main",
+        "models",
+        "database",
+        "authz",
+        "filters_logic",
+        "routes",
+        "routes.auth",
+        "routes._deps",
+        "routes._helpers",
+        "services",
+        "services.audit",
+        "services.settings",
+        "services.tasks",
+        "services.notifications",
+        "services.automation",
+        "services.recurrence",
+    ):
         sys.modules.pop(module_name, None)
 
     database = importlib.import_module("database")

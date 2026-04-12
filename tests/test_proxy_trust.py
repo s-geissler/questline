@@ -23,7 +23,24 @@ def load_main_with_trusted_proxies(tmp_path, monkeypatch, trusted_proxies):
     monkeypatch.setenv("QUESTLINE_ALLOW_INSECURE_COOKIES", "true")
     monkeypatch.setenv("QUESTLINE_TRUSTED_PROXIES", trusted_proxies)
 
-    for module_name in ("main", "models", "database", "authz", "filters_logic"):
+    for module_name in (
+        "main",
+        "models",
+        "database",
+        "authz",
+        "filters_logic",
+        "routes",
+        "routes.auth",
+        "routes._deps",
+        "routes._helpers",
+        "services",
+        "services.audit",
+        "services.settings",
+        "services.tasks",
+        "services.notifications",
+        "services.automation",
+        "services.recurrence",
+    ):
         sys.modules.pop(module_name, None)
 
     return importlib.import_module("main")
@@ -60,7 +77,24 @@ def test_invalid_trusted_proxy_config_fails_fast(tmp_path, monkeypatch):
     monkeypatch.setenv("QUESTLINE_ALLOW_INSECURE_COOKIES", "true")
     monkeypatch.setenv("QUESTLINE_TRUSTED_PROXIES", "not-a-network")
 
-    for module_name in ("main", "models", "database", "authz", "filters_logic"):
+    for module_name in (
+        "main",
+        "models",
+        "database",
+        "authz",
+        "filters_logic",
+        "routes",
+        "routes.auth",
+        "routes._deps",
+        "routes._helpers",
+        "services",
+        "services.audit",
+        "services.settings",
+        "services.tasks",
+        "services.notifications",
+        "services.automation",
+        "services.recurrence",
+    ):
         sys.modules.pop(module_name, None)
 
     try:
