@@ -60,6 +60,15 @@ from routes.stages import (
     update_stage as _update_stage_route,
     update_stage_config as _update_stage_config_route,
 )
+from routes.filters import (
+    SavedFilterCreate,
+    SavedFilterUpdate,
+    create_saved_filter as _create_saved_filter_route,
+    delete_saved_filter as _delete_saved_filter_route,
+    get_saved_filters as _get_saved_filters_route,
+    router as filters_router,
+    update_saved_filter as _update_saved_filter_route,
+)
 from routes.tasks import (
     ChecklistItemCreate,
     ChecklistItemUpdate,
@@ -81,6 +90,21 @@ from routes.tasks import (
     update_checklist_item as _update_checklist_item_route,
     update_task as _update_task_route,
     upsert_task_recurrence as _upsert_task_recurrence_route,
+)
+from routes.task_types import (
+    CustomFieldCreate,
+    TaskTypeCreate,
+    TaskTypeUpdate,
+    add_custom_field as _add_custom_field_route,
+    create_task_type as _create_task_type_route,
+    delete_custom_field as _delete_custom_field_route,
+    delete_task_type as _delete_task_type_route,
+    field_to_dict,
+    get_task_types as _get_task_types_route,
+    router as task_types_router,
+    task_type_to_dict,
+    update_custom_field as _update_custom_field_route,
+    update_task_type as _update_task_type_route,
 )
 from services.automation import apply_automation, run_automations
 from services.audit import _audit_log, _configure_audit_logger, _request_client_ip
@@ -436,6 +460,8 @@ app.include_router(auth_router)
 app.include_router(boards_router)
 app.include_router(stages_router)
 app.include_router(tasks_router)
+app.include_router(task_types_router)
+app.include_router(filters_router)
 templates = Jinja2Templates(directory="templates")
 SESSION_COOKIE = "questline_session"
 PASSWORD_HASH_ITERATIONS = 120_000
@@ -535,29 +561,6 @@ def stop_recurrence_worker():
 # Pydantic schemas
 # ---------------------------------------------------------------------------
 
-class TaskTypeCreate(BaseModel):
-    name: str = Field(max_length=MAX_NAME_LENGTH)
-    is_epic: bool = False
-    board_id: int
-    color: Optional[str] = Field(default=None, max_length=7)
-    show_description_on_card: bool = False
-    show_checklist_on_card: bool = False
-
-class TaskTypeUpdate(BaseModel):
-    name: Optional[str] = Field(default=None, max_length=MAX_NAME_LENGTH)
-    is_epic: Optional[bool] = None
-    spawn_stage_id: Optional[int] = None
-    color: Optional[str] = Field(default=None, max_length=7)
-    show_description_on_card: Optional[bool] = None
-    show_checklist_on_card: Optional[bool] = None
-
-class CustomFieldCreate(BaseModel):
-    name: str = Field(max_length=MAX_NAME_LENGTH)
-    field_type: str = "text"
-    show_on_card: bool = False
-    options: Optional[PyList[Union[str, dict]]] = None
-    color: Optional[str] = Field(default=None, max_length=7)
-
 class AutomationCreate(BaseModel):
     name: str = Field(max_length=MAX_NAME_LENGTH)
     trigger_type: str
@@ -577,17 +580,6 @@ class AutomationUpdate(BaseModel):
     action_task_type_id: Optional[int] = None
     action_color: Optional[str] = Field(default=None, max_length=7)
     action_days_offset: Optional[int] = None
-
-
-class SavedFilterCreate(BaseModel):
-    name: str = Field(max_length=MAX_NAME_LENGTH)
-    board_id: int
-    definition: dict
-
-
-class SavedFilterUpdate(BaseModel):
-    name: Optional[str] = Field(default=None, max_length=MAX_NAME_LENGTH)
-    definition: Optional[dict] = None
 
 
 class AdminUserUpdate(BaseModel):
@@ -1011,6 +1003,56 @@ def delete_checklist_item(task_id: int, item_id: int, db: Session = Depends(get_
     return _delete_checklist_item_route(task_id, item_id, db, request)
 
 
+def get_saved_filters(board_id: int, db: Session = Depends(get_db), request: Request = None):
+    return _get_saved_filters_route(board_id, db, request)
+
+
+def create_saved_filter(data: SavedFilterCreate, db: Session = Depends(get_db), request: Request = None):
+    return _create_saved_filter_route(data, db, request)
+
+
+def update_saved_filter(filter_id: int, data: SavedFilterUpdate, db: Session = Depends(get_db), request: Request = None):
+    return _update_saved_filter_route(filter_id, data, db, request)
+
+
+def delete_saved_filter(filter_id: int, db: Session = Depends(get_db), request: Request = None):
+    return _delete_saved_filter_route(filter_id, db, request)
+
+
+def get_task_types(board_id: int, db: Session = Depends(get_db), request: Request = None):
+    return _get_task_types_route(board_id, db, request)
+
+
+def create_task_type(data: TaskTypeCreate, db: Session = Depends(get_db), request: Request = None):
+    return _create_task_type_route(data, db, request)
+
+
+def update_task_type(type_id: int, data: TaskTypeUpdate, db: Session = Depends(get_db), request: Request = None):
+    return _update_task_type_route(type_id, data, db, request)
+
+
+def delete_task_type(type_id: int, db: Session = Depends(get_db), request: Request = None):
+    return _delete_task_type_route(type_id, db, request)
+
+
+def add_custom_field(type_id: int, data: CustomFieldCreate, db: Session = Depends(get_db), request: Request = None):
+    return _add_custom_field_route(type_id, data, db, request)
+
+
+def update_custom_field(
+    type_id: int,
+    field_id: int,
+    data: CustomFieldCreate,
+    db: Session = Depends(get_db),
+    request: Request = None,
+):
+    return _update_custom_field_route(type_id, field_id, data, db, request)
+
+
+def delete_custom_field(type_id: int, field_id: int, db: Session = Depends(get_db), request: Request = None):
+    return _delete_custom_field_route(type_id, field_id, db, request)
+
+
 @app.get("/api/notifications")
 def get_notifications(request: Request, db: Session = Depends(get_db)):
     user = require_current_user(request, db)
@@ -1379,74 +1421,6 @@ def delete_admin_user(user_id: int, request: Request, db: Session = Depends(get_
 # Saved Filters API
 # ---------------------------------------------------------------------------
 
-@app.get("/api/filters")
-def get_saved_filters(board_id: int, db: Session = Depends(get_db), request: Request = None):
-    _authorize_board_request(request, db, board_id, "viewer")
-    filters = (
-        db.query(models.SavedFilter)
-        .filter(models.SavedFilter.board_id == board_id)
-        .order_by(models.SavedFilter.name)
-        .all()
-    )
-    return [saved_filter_to_dict(saved_filter) for saved_filter in filters]
-
-
-@app.post("/api/filters")
-def create_saved_filter(data: SavedFilterCreate, db: Session = Depends(get_db), request: Request = None):
-    current_user = _authorize_board_request(request, db, data.board_id, "editor")
-    _validate_filter_definition_size(data.definition)
-    definition = _validated_filter_definition(data.definition, data.board_id, db, current_user)
-    saved_filter = models.SavedFilter(
-        name=data.name,
-        board_id=data.board_id,
-        definition=json.dumps(definition),
-    )
-    db.add(saved_filter)
-    db.commit()
-    db.refresh(saved_filter)
-    return saved_filter_to_dict(saved_filter)
-
-
-@app.put("/api/filters/{filter_id}")
-def update_saved_filter(filter_id: int, data: SavedFilterUpdate, db: Session = Depends(get_db), request: Request = None):
-    board_id = _board_id_for_saved_filter(filter_id, db)
-    if board_id is not None:
-        current_user = _authorize_board_request(request, db, board_id, "editor")
-    else:
-        current_user = None
-    saved_filter = db.query(models.SavedFilter).filter(models.SavedFilter.id == filter_id).first()
-    if not saved_filter:
-        raise HTTPException(status_code=404, detail="Saved filter not found")
-    if data.name is not None:
-        saved_filter.name = data.name
-    if "definition" in data.model_fields_set:
-        _validate_filter_definition_size(data.definition)
-        saved_filter.definition = json.dumps(
-            _validated_filter_definition(data.definition, saved_filter.board_id, db, current_user)
-        )
-    db.commit()
-    db.refresh(saved_filter)
-    return saved_filter_to_dict(saved_filter)
-
-
-@app.delete("/api/filters/{filter_id}")
-def delete_saved_filter(filter_id: int, db: Session = Depends(get_db), request: Request = None):
-    board_id = _board_id_for_saved_filter(filter_id, db)
-    if board_id is not None:
-        _authorize_board_request(request, db, board_id, "editor")
-    saved_filter = db.query(models.SavedFilter).filter(models.SavedFilter.id == filter_id).first()
-    if not saved_filter:
-        raise HTTPException(status_code=404, detail="Saved filter not found")
-    db.query(models.Stage).filter(models.Stage.filter_id == filter_id).update({"filter_id": None})
-    db.delete(saved_filter)
-    db.commit()
-    return {"ok": True}
-
-
-# ---------------------------------------------------------------------------
-# Stages API
-# ---------------------------------------------------------------------------
-
 def normalize_field_options(options) -> list[dict]:
     if len(options or []) > MAX_OPTION_COUNT:
         raise HTTPException(status_code=400, detail="Too many custom field options")
@@ -1470,166 +1444,6 @@ def normalize_field_options(options) -> list[dict]:
                     }
                 )
     return normalized
-
-
-# ---------------------------------------------------------------------------
-# Task Types API
-# ---------------------------------------------------------------------------
-
-def field_to_dict(f: models.CustomFieldDef) -> dict:
-    return {
-        "id": f.id,
-        "name": f.name,
-        "field_type": f.field_type,
-        "color": f.color,
-        "show_on_card": f.show_on_card,
-        "options": normalize_field_options(json.loads(f.options) if f.options else []),
-    }
-
-def task_type_to_dict(tt: models.TaskType) -> dict:
-    return {
-        "id": tt.id,
-        "name": tt.name,
-        "color": tt.color,
-        "is_epic": tt.is_epic,
-        "show_description_on_card": tt.show_description_on_card,
-        "show_checklist_on_card": tt.show_checklist_on_card,
-        "spawn_stage_id": tt.spawn_stage_id,
-        "custom_fields": [field_to_dict(f) for f in tt.custom_fields],
-    }
-
-@app.get("/api/task-types")
-def get_task_types(board_id: int, db: Session = Depends(get_db), request: Request = None):
-    _authorize_board_request(request, db, board_id, "viewer")
-    types = db.query(models.TaskType).filter(models.TaskType.board_id == board_id).all()
-    return [task_type_to_dict(tt) for tt in types]
-
-@app.post("/api/task-types")
-def create_task_type(data: TaskTypeCreate, db: Session = Depends(get_db), request: Request = None):
-    _authorize_board_request(request, db, data.board_id, "editor")
-    tt = models.TaskType(
-        name=data.name,
-        is_epic=data.is_epic,
-        board_id=data.board_id,
-        color=_validated_optional_hex_color(data.color, "Task type color must be a valid hex color"),
-        show_description_on_card=data.show_description_on_card,
-        show_checklist_on_card=data.show_checklist_on_card,
-    )
-    db.add(tt)
-    db.commit()
-    db.refresh(tt)
-    return task_type_to_dict(tt)
-
-@app.put("/api/task-types/{type_id}")
-def update_task_type(type_id: int, data: TaskTypeUpdate, db: Session = Depends(get_db), request: Request = None):
-    board_id = _board_id_for_task_type(type_id, db)
-    if board_id is not None:
-        current_user = _authorize_board_request(request, db, board_id, "editor")
-    else:
-        current_user = None
-    tt = db.query(models.TaskType).filter(models.TaskType.id == type_id).first()
-    if not tt:
-        raise HTTPException(status_code=404, detail="Task type not found")
-    if data.name is not None:
-        tt.name = data.name
-    if data.is_epic is not None:
-        tt.is_epic = data.is_epic
-    if "spawn_stage_id" in data.model_fields_set:
-        if data.spawn_stage_id is not None:
-            target_stage = db.query(models.Stage).filter(models.Stage.id == data.spawn_stage_id).first()
-            if not target_stage:
-                raise HTTPException(status_code=404, detail="Stage not found")
-            if target_stage.is_log:
-                raise HTTPException(status_code=400, detail="Cannot spawn tasks into a log stage")
-            if request is not None and current_user is not None:
-                require_board_access(target_stage.board_id, current_user, db, "editor")
-        tt.spawn_stage_id = data.spawn_stage_id
-    if "color" in data.model_fields_set:
-        tt.color = _validated_optional_hex_color(data.color, "Task type color must be a valid hex color")
-    if "show_description_on_card" in data.model_fields_set:
-        tt.show_description_on_card = data.show_description_on_card
-    if "show_checklist_on_card" in data.model_fields_set:
-        tt.show_checklist_on_card = data.show_checklist_on_card
-    db.commit()
-    db.refresh(tt)
-    return task_type_to_dict(tt)
-
-@app.delete("/api/task-types/{type_id}")
-def delete_task_type(type_id: int, db: Session = Depends(get_db), request: Request = None):
-    board_id = _board_id_for_task_type(type_id, db)
-    if board_id is not None:
-        _authorize_board_request(request, db, board_id, "editor")
-    tt = db.query(models.TaskType).filter(models.TaskType.id == type_id).first()
-    if not tt:
-        raise HTTPException(status_code=404, detail="Task type not found")
-    db.delete(tt)
-    db.commit()
-    return {"ok": True}
-
-@app.post("/api/task-types/{type_id}/fields")
-def add_custom_field(
-    type_id: int, data: CustomFieldCreate, db: Session = Depends(get_db), request: Request = None
-):
-    board_id = _board_id_for_task_type(type_id, db)
-    if board_id is not None:
-        _authorize_board_request(request, db, board_id, "editor")
-    tt = db.query(models.TaskType).filter(models.TaskType.id == type_id).first()
-    if not tt:
-        raise HTTPException(status_code=404, detail="Task type not found")
-    field = models.CustomFieldDef(
-        task_type_id=type_id,
-        name=data.name,
-        field_type=data.field_type,
-        show_on_card=data.show_on_card,
-        options=json.dumps(normalize_field_options(data.options)) if data.options else None,
-        color=_validated_optional_hex_color(data.color, "Custom field color must be a valid hex color"),
-    )
-    db.add(field)
-    db.commit()
-    db.refresh(field)
-    return field_to_dict(field)
-
-@app.put("/api/task-types/{type_id}/fields/{field_id}")
-def update_custom_field(type_id: int, field_id: int, data: CustomFieldCreate, db: Session = Depends(get_db), request: Request = None):
-    board_id = _board_id_for_task_type(type_id, db)
-    if board_id is not None:
-        _authorize_board_request(request, db, board_id, "editor")
-    field = (
-        db.query(models.CustomFieldDef)
-        .filter(
-            models.CustomFieldDef.id == field_id,
-            models.CustomFieldDef.task_type_id == type_id,
-        )
-        .first()
-    )
-    if not field:
-        raise HTTPException(status_code=404, detail="Field not found")
-    field.show_on_card = data.show_on_card
-    if "options" in data.model_fields_set:
-        field.options = json.dumps(normalize_field_options(data.options)) if data.options else None
-    if "color" in data.model_fields_set:
-        field.color = _validated_optional_hex_color(data.color, "Custom field color must be a valid hex color")
-    db.commit()
-    return field_to_dict(field)
-
-@app.delete("/api/task-types/{type_id}/fields/{field_id}")
-def delete_custom_field(type_id: int, field_id: int, db: Session = Depends(get_db), request: Request = None):
-    board_id = _board_id_for_task_type(type_id, db)
-    if board_id is not None:
-        _authorize_board_request(request, db, board_id, "editor")
-    field = (
-        db.query(models.CustomFieldDef)
-        .filter(
-            models.CustomFieldDef.id == field_id,
-            models.CustomFieldDef.task_type_id == type_id,
-        )
-        .first()
-    )
-    if not field:
-        raise HTTPException(status_code=404, detail="Field not found")
-    db.delete(field)
-    db.commit()
-    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------
