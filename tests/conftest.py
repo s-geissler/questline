@@ -27,6 +27,7 @@ def _load_modules(tmp_path, monkeypatch):
         "routes.stages",
         "routes._deps",
         "routes._helpers",
+        "routes.pages",
         "services",
         "services.audit",
         "services.settings",
@@ -41,17 +42,19 @@ def _load_modules(tmp_path, monkeypatch):
     models = importlib.import_module("models")
     main = importlib.import_module("main")
     auth = importlib.import_module("routes.auth")
-    return database, models, main, auth
+    pages = importlib.import_module("routes.pages")
+    return database, models, main, auth, pages
 
 
 @pytest.fixture()
 def app_env(tmp_path, monkeypatch):
-    database, models, main, auth = _load_modules(tmp_path, monkeypatch)
+    database, models, main, auth, pages = _load_modules(tmp_path, monkeypatch)
     db = database.SessionLocal()
     try:
         yield {
             "main": main,
             "auth": auth,
+            "pages": pages,
             "models": models,
             "database": database,
             "db": db,

@@ -45,10 +45,11 @@ def register_and_cookie(main, db, email, display_name):
 
 def test_home_redirects_unauthenticated_users(app_env):
     main = app_env["main"]
+    pages = app_env["pages"]
     db = app_env["db"]
     request = main.Request(request_with_cookie())
 
-    response = main.home(request, db)
+    response = pages.home(request, db)
     assert isinstance(response, RedirectResponse)
     assert response.status_code == 303
     assert response.headers["location"] == "/login"
@@ -56,6 +57,7 @@ def test_home_redirects_unauthenticated_users(app_env):
 
 def test_instance_theme_color_is_used_for_home(app_env):
     main = app_env["main"]
+    pages = app_env["pages"]
     db = app_env["db"]
 
     _, admin_cookie = register_and_cookie(main, db, "overview-admin@example.com", "Overview Admin")
@@ -70,12 +72,13 @@ def test_instance_theme_color_is_used_for_home(app_env):
         db,
     )
 
-    response = main.home(main.Request(request_with_cookie(cookie=admin_cookie)), db)
+    response = pages.home(main.Request(request_with_cookie(cookie=admin_cookie)), db)
     assert response.context["page_theme_color"] == "#0f766e"
 
 
 def test_instance_theme_color_is_used_for_admin(app_env):
     main = app_env["main"]
+    pages = app_env["pages"]
     db = app_env["db"]
 
     _, admin_cookie = register_and_cookie(main, db, "instance-admin@example.com", "Instance Admin")
@@ -90,7 +93,7 @@ def test_instance_theme_color_is_used_for_admin(app_env):
         db,
     )
 
-    response = main.admin_page(main.Request(request_with_cookie(path="/admin", cookie=admin_cookie)), db)
+    response = pages.admin_page(main.Request(request_with_cookie(path="/admin", cookie=admin_cookie)), db)
     assert response.context["page_theme_color"] == "#7c3aed"
 
 
@@ -161,6 +164,7 @@ def test_board_creation_via_authenticated_route_assigns_owner_membership(app_env
 
 def test_board_page_requires_membership_and_allows_shared_user(app_env):
     main = app_env["main"]
+    pages = app_env["pages"]
     db = app_env["db"]
     models = app_env["models"]
 
@@ -178,7 +182,7 @@ def test_board_page_requires_membership_and_allows_shared_user(app_env):
     main.ensure_board_membership(board_row, viewer_row, "viewer", db)
     db.commit()
 
-    viewer_page = main.board_page(
+    viewer_page = pages.board_page(
         main.Request(request_with_cookie(path=f"/board/{board['id']}", cookie=viewer_cookie)),
         board["id"],
         db,
@@ -186,7 +190,7 @@ def test_board_page_requires_membership_and_allows_shared_user(app_env):
     assert viewer_page.status_code == 200
 
     try:
-        main.board_page(
+        pages.board_page(
             main.Request(request_with_cookie(path=f"/board/{board['id']}", cookie=outsider_cookie)),
             board["id"],
             db,
@@ -195,7 +199,7 @@ def test_board_page_requires_membership_and_allows_shared_user(app_env):
     except main.HTTPException as exc:
         assert exc.status_code == 403
 
-    login_redirect = main.board_page(
+    login_redirect = pages.board_page(
         main.Request(request_with_cookie(path=f"/board/{board['id']}")),
         board["id"],
         db,

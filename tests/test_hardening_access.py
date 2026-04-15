@@ -78,13 +78,14 @@ def setup_shared_board(app_env):
 def test_board_scoped_pages_require_membership(app_env):
     ctx = setup_shared_board(app_env)
     main = ctx["main"]
+    pages_module = app_env["pages"]
     db = ctx["db"]
     board_id = ctx["board"]["id"]
 
     pages = (
-        main.task_types_page,
-        main.filters_page,
-        main.automations_page,
+        pages_module.task_types_page,
+        pages_module.filters_page,
+        pages_module.automations_page,
     )
 
     for page in pages:
@@ -197,6 +198,7 @@ def test_viewer_is_blocked_from_reorder_clear_and_checklist_mutations(app_env):
 def test_removed_member_loses_board_access_immediately(app_env):
     ctx = setup_shared_board(app_env)
     main = ctx["main"]
+    pages = app_env["pages"]
     db = ctx["db"]
 
     listed_before = main.get_boards(
@@ -220,7 +222,7 @@ def test_removed_member_loses_board_access_immediately(app_env):
     assert listed_after == []
 
     try:
-        main.board_page(
+        pages.board_page(
             main.Request(request_with_cookie(path=f"/board/{ctx['board']['id']}", cookie=ctx["viewer_cookie"])),
             ctx["board"]["id"],
             db,

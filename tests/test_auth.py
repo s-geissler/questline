@@ -183,6 +183,7 @@ def test_login_and_logout_flow(app_env):
 
 def test_auth_pages_redirect_authenticated_users(app_env):
     main = app_env["main"]
+    pages = app_env["pages"]
     db = app_env["db"]
     response = main.Response()
     main.auth_register(
@@ -197,8 +198,8 @@ def test_auth_pages_redirect_authenticated_users(app_env):
     session_token = response.headers.get("set-cookie").split(";", 1)[0]
     request = request_with_cookie(session_token)
 
-    login_page = main.login_page(request, db)
-    register_page = main.register_page(request, db)
+    login_page = pages.login_page(request, db)
+    register_page = pages.register_page(request, db)
 
     assert isinstance(login_page, RedirectResponse)
     assert login_page.status_code == 303
