@@ -210,3 +210,13 @@ def test_duplicate_registration_is_generic(app_env):
     )
     assert second.status_code == 400
     assert second.json()["detail"] == "Registration failed"
+
+
+def test_board_script_asset_is_served_with_content(app_env):
+    main = app_env["main"]
+    client = TestClient(main.app)
+
+    response = client.get("/static/board/board.js")
+
+    assert response.status_code == 200
+    assert "_createBoard" in response.text
