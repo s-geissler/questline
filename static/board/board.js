@@ -405,8 +405,7 @@ function _createBoard() {
     },
 
     async loadStages() {
-      const stagesRes = await fetch('/api/stages?board_id=' + this.boardId);
-      this.stages = (await stagesRes.json()).map(stage => ({
+      this.stages = (await apiGetStages(this.boardId)).map(stage => ({
         ...stage,
         row: Number.isInteger(stage.row) ? stage.row : 0,
         tasks: (stage.tasks || []).map(task => this._decorateTask(task)),
@@ -427,17 +426,17 @@ function _createBoard() {
     },
 
     async loadMetadata() {
-      const [typesRes, filtersRes] = await Promise.all([
-        fetch('/api/task-types?board_id=' + this.boardId),
-        fetch('/api/filters?board_id=' + this.boardId),
+      const [taskTypes, savedFilters] = await Promise.all([
+        apiGetTaskTypes(this.boardId),
+        apiGetFilters(this.boardId),
       ]);
-      this.taskTypes = await typesRes.json();
-      this.savedFilters = await filtersRes.json();
+      this.taskTypes = taskTypes;
+      this.savedFilters = savedFilters;
       this.renderBoardSurface();
     },
 
     async loadBoardMembers() {
-      const res = await fetch(`/api/boards/${this.boardId}/members`);
+      const res = await apiGetBoardMembers(this.boardId);
       if (!res.ok) return;
       const payload = await res.json();
       this.currentBoardRole = payload.current_role;
@@ -1978,11 +1977,7 @@ function _createBoard() {
                 };
               });
             }
-            await fetch('/api/tasks/reorder', {
-              method: 'PUT',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({stage_id: newStageId, ids}),
-            });
+            await apiReorderTasks({stage_id: newStageId, ids});
             await this.reloadStagesAfterDrag();
           },
         });
@@ -2233,11 +2228,7 @@ function _createBoard() {
     },
 
     async persistStagePlacements(placements = this._pendingStagePlacements || this.buildStagePlacements()) {
-      const res = await fetch('/api/stages/reorder', {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({stages: placements}),
-      });
+      const res = await apiReorderStages({stages: placements});
       if (!res.ok) {
         await this.loadStages();
         return;
@@ -2281,11 +2272,7 @@ function _createBoard() {
     async createStage(row = this.newStageRow, position = this.newStagePosition) {
       if (!this.canEditBoard) return;
       if (!this.newStageName.trim()) return;
-      const res = await fetch('/api/stages', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({name: this.newStageName.trim(), board_id: this.boardId, row, position}),
-      });
+      const res = await apiCreateStage({name: this.newStageName.trim(), board_id: this.boardId, row, position});
       await res.json();
       this.newStageName = '';
       this.showNewStage = false;
@@ -2296,17 +2283,13 @@ function _createBoard() {
     async saveStageName(stage) {
       if (!this.canEditBoard) return;
       if (!stage.name.trim()) return;
-      await fetch(`/api/stages/${stage.id}`, {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({name: stage.name.trim()}),
-      });
+      await apiUpdateStage(stage.id, {name: stage.name.trim()});
     },
 
     async deleteStage(stageId) {
       if (!this.canEditBoard) return;
       if (!confirm('Delete this stage and all its objectives?')) return;
-      await fetch(`/api/stages/${stageId}`, {method: 'DELETE'});
+      await apiDeleteStage(stageId);
       this.stages = this.stages.filter(s => s.id !== stageId);
       this.renderBoardSurface();
     },
@@ -2316,11 +2299,7 @@ function _createBoard() {
       if (!this.canEditBoard) return;
       const title = (this.newTaskTitles[stageId] || '').trim();
       if (!title) return;
-      const res = await fetch('/api/tasks', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({title, stage_id: stageId}),
-      });
+      const res = await apiCreateTask({title, stage_id: stageId});
       const task = await res.json();
       const stage = this.stages.find(s => s.id === stageId);
       if (stage) stage.tasks.push(task);
@@ -2379,7 +2358,7 @@ function _createBoard() {
     },
 
     async openTaskById(taskId) {
-      const res = await fetch(`/api/tasks/${taskId}`);
+      const res = await apiGetTask(taskId);
       if (!res.ok) return;
       const task = await res.json();
       if (task.board_id && String(task.board_id) !== String(this.boardId)) {
@@ -2470,11 +2449,7 @@ function _createBoard() {
       if (!this.canEditBoard) return;
       const body = {};
       body[field] = value;
-      const res = await fetch(`/api/tasks/${this.selectedTask.id}`, {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(body),
-      });
+      const res = await apiUpdateTask(this.selectedTask.id, body);
       const updated = await res.json();
       this.selectedTask = this._normalizeSelectedTask(updated);
       this._syncTaskInStages(updated);
@@ -2487,11 +2462,7 @@ function _createBoard() {
     async updateTaskType() {
       if (!this.canEditBoard) return;
       const typeId = this.selectedTask.task_type_id ? parseInt(this.selectedTask.task_type_id) : null;
-      const res = await fetch(`/api/tasks/${this.selectedTask.id}`, {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({task_type_id: typeId}),
-      });
+      const res = await apiUpdateTask(this.selectedTask.id, {task_type_id: typeId});
       const updated = await res.json();
       this.selectedTask = this._normalizeSelectedTask(updated);
       this._syncTaskInStages(updated);
@@ -2501,11 +2472,7 @@ function _createBoard() {
     async updateAssignee() {
       if (!this.canEditBoard) return;
       const assigneeUserId = this.selectedTask.assignee_user_id ? parseInt(this.selectedTask.assignee_user_id) : null;
-      const res = await fetch(`/api/tasks/${this.selectedTask.id}`, {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({assignee_user_id: assigneeUserId}),
-      });
+      const res = await apiUpdateTask(this.selectedTask.id, {assignee_user_id: assigneeUserId});
       const updated = await res.json();
       this.selectedTask = this._normalizeSelectedTask(updated);
       this._syncTaskInStages(updated);
@@ -2514,11 +2481,7 @@ function _createBoard() {
 
     async updateCustomField(fieldDefId, value) {
       if (!this.canEditBoard) return;
-      const res = await fetch(`/api/tasks/${this.selectedTask.id}`, {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({custom_fields: {[fieldDefId]: value}}),
-      });
+      const res = await apiUpdateTask(this.selectedTask.id, {custom_fields: {[fieldDefId]: value}});
       const updated = await res.json();
       this.selectedTask.custom_field_values = updated.custom_field_values;
       this._syncTaskInStages(updated);
@@ -2542,11 +2505,7 @@ function _createBoard() {
     },
 
     async _setTaskDone(taskId, newDone) {
-      const res = await fetch(`/api/tasks/${taskId}`, {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({done: newDone}),
-      });
+      const res = await apiUpdateTask(taskId, {done: newDone});
       const updated = await res.json();
       await this.loadStages();
       return updated;
@@ -2583,18 +2542,14 @@ function _createBoard() {
       const newStageId = parseInt(this.selectedTask.stage_id);
       const targetStage = this.stages.find(s => s.id === newStageId);
       const position = targetStage ? targetStage.tasks.length : 0;
-      await fetch(`/api/tasks/${this.selectedTask.id}/move`, {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({stage_id: newStageId, position}),
-      });
+      await apiMoveTask(this.selectedTask.id, {stage_id: newStageId, position});
       await this.loadStages();
     },
 
     async deleteTask() {
       if (!this.canEditBoard) return;
       if (!confirm('Delete this objective?')) return;
-      await fetch(`/api/tasks/${this.selectedTask.id}`, {method: 'DELETE'});
+      await apiDeleteTask(this.selectedTask.id);
       await this.loadStages();
       this.closeModal();
     },
@@ -2604,11 +2559,7 @@ function _createBoard() {
       if (!this.canEditBoard) return;
       const title = this.newChecklistItem.trim();
       if (!title) return;
-      const res = await fetch(`/api/tasks/${this.selectedTask.id}/checklist`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({title}),
-      });
+      const res = await apiCreateChecklistItem(this.selectedTask.id, {title});
       const item = await res.json();
       this.selectedTask.checklist.push(item);
       this._syncTaskInStages(this.selectedTask);
@@ -2622,11 +2573,7 @@ function _createBoard() {
 
     async toggleChecklistItem(item) {
       if (!this.canEditBoard) return;
-      const res = await fetch(`/api/tasks/${this.selectedTask.id}/checklist/${item.id}`, {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({done: !item.done}),
-      });
+      const res = await apiUpdateChecklistItem(this.selectedTask.id, item.id, {done: !item.done});
       const updated = await res.json();
       const idx = this.selectedTask.checklist.findIndex(i => i.id === item.id);
       if (idx !== -1) this.selectedTask.checklist[idx] = updated;
@@ -2655,11 +2602,7 @@ function _createBoard() {
         item._draft_title = item.title;
         return;
       }
-      const res = await fetch(`/api/tasks/${this.selectedTask.id}/checklist/${item.id}`, {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({title: nextTitle}),
-      });
+      const res = await apiUpdateChecklistItem(this.selectedTask.id, item.id, {title: nextTitle});
       const updated = await res.json();
       const idx = this.selectedTask.checklist.findIndex(i => i.id === item.id);
       if (idx !== -1) this.selectedTask.checklist[idx] = updated;
@@ -2669,7 +2612,7 @@ function _createBoard() {
 
     async deleteChecklistItem(item) {
       if (!this.canEditBoard) return;
-      await fetch(`/api/tasks/${this.selectedTask.id}/checklist/${item.id}`, {method: 'DELETE'});
+      await apiDeleteChecklistItem(this.selectedTask.id, item.id);
       this.selectedTask.checklist = this.selectedTask.checklist.filter(i => i.id !== item.id);
       this._syncTaskInStages(this.selectedTask);
       await this.loadStages();
@@ -2700,11 +2643,7 @@ function _createBoard() {
       this.stages = [...this.stages];
 
       try {
-        const res = await fetch('/api/tasks/reorder', {
-          method: 'PUT',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({stage_id: stage.id, ids: sortedIds}),
-        });
+        const res = await apiReorderTasks({stage_id: stage.id, ids: sortedIds});
         if (!res.ok) {
           const data = await res.json();
           throw new Error(data.detail || 'Unable to sort objectives by due date');
@@ -2721,7 +2660,7 @@ function _createBoard() {
     async clearCompletedStage(stage) {
       if (!this.canEditBoard) return;
       if (!confirm(`Clear completed objectives from "${stage.name}"? Completed quests will also clear their spawned objectives.`)) return;
-      await fetch(`/api/stages/${stage.id}/clear-completed`, {method: 'POST'});
+      await apiClearCompletedStage(stage.id);
       await this.loadStages();
       if (this.selectedTask) {
         const stillExists = this._findTaskInStages(this.selectedTask.id);
@@ -2749,11 +2688,7 @@ function _createBoard() {
         is_log: this.logConfigStage.is_log,
         filter_id: this.logConfigStage.is_log && this.logConfigStage.filter_id ? parseInt(this.logConfigStage.filter_id, 10) : null,
       };
-      await fetch(`/api/stages/${this.logConfigStage.id}/config`, {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload),
-      });
+      await apiUpdateStageConfig(this.logConfigStage.id, payload);
       this.showLogConfig = false;
       this.logConfigStage = null;
       this.renderLogConfigModal();
@@ -3029,11 +2964,7 @@ function _createBoard() {
     // Settings
     async saveSettings() {
       if (!this.canManageBoard) return;
-      await fetch(`/api/boards/${this.boardId}`, {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({name: this.settingsBoardName, color: this.settingsBoardColor}),
-      });
+      await apiUpdateBoard(this.boardId, {name: this.settingsBoardName, color: this.settingsBoardColor});
       this.showSettings = false;
       document.title = 'questline';
       applyBoardColor(this.settingsBoardColor);
@@ -3044,11 +2975,7 @@ function _createBoard() {
       if (!this.canManageBoard) return;
       this.shareError = '';
       if (!this.shareEmail.trim()) return;
-      const res = await fetch(`/api/boards/${this.boardId}/members`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({email: this.shareEmail.trim(), role: this.shareRole}),
-      });
+      const res = await apiAddBoardMember(this.boardId, {email: this.shareEmail.trim(), role: this.shareRole});
       if (!res.ok) {
         const data = await res.json();
         this.shareError = data.detail || 'Unable to share hub';
@@ -3069,11 +2996,7 @@ function _createBoard() {
 
     async updateBoardMemberRole(member, role) {
       if (!this.canManageBoard) return;
-      const res = await fetch(`/api/boards/${this.boardId}/members/${member.user_id}`, {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({role}),
-      });
+      const res = await apiUpdateBoardMember(this.boardId, member.user_id, {role});
       if (!res.ok) {
         const data = await res.json();
         this.shareError = data.detail || 'Unable to update role';
@@ -3088,9 +3011,7 @@ function _createBoard() {
       if (!this.canManageBoard) return;
       this.shareError = '';
       if (!confirm(`Remove ${member.display_name} from this hub?`)) return;
-      const res = await fetch(`/api/boards/${this.boardId}/members/${member.user_id}`, {
-        method: 'DELETE',
-      });
+      const res = await apiDeleteBoardMember(this.boardId, member.user_id);
       if (!res.ok) {
         const data = await res.json();
         this.shareError = data.detail || 'Unable to remove member';
@@ -3210,14 +3131,10 @@ function _createBoard() {
       if (!this.canEditBoard) return;
       const stageId = parseInt(this.calendarCreateStageId, 10);
       if (!stageId || !this.calendarCreateDate) return;
-      const res = await fetch('/api/tasks', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          title: 'New objective',
-          stage_id: stageId,
-          due_date: this.calendarCreateDate,
-        }),
+      const res = await apiCreateTask({
+        title: 'New objective',
+        stage_id: stageId,
+        due_date: this.calendarCreateDate,
       });
       if (!res.ok) {
         const data = await res.json();
@@ -3240,11 +3157,7 @@ function _createBoard() {
       }
 
       try {
-        const res = await fetch(`/api/tasks/${taskId}`, {
-          method: 'PUT',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({due_date: targetDate}),
-        });
+        const res = await apiUpdateTask(taskId, {due_date: targetDate});
         if (!res.ok) {
           const data = await res.json();
           throw new Error(data.detail || 'Unable to update due date');
@@ -3375,11 +3288,7 @@ function _createBoard() {
         next_run_on: this.selectedTask.recurrence.next_run_on,
         spawn_stage_id: parseInt(this.selectedTask.recurrence.spawn_stage_id, 10),
       };
-      const res = await fetch(`/api/tasks/${this.selectedTask.id}/recurrence`, {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload),
-      });
+      const res = await apiUpsertTaskRecurrence(this.selectedTask.id, payload);
       if (!res.ok) {
         const data = await res.json();
         alert(data.detail || 'Unable to save recurrence');
@@ -3402,9 +3311,7 @@ function _createBoard() {
         this.renderTaskModal();
         return;
       }
-      const res = await fetch(`/api/tasks/${this.selectedTask.id}/recurrence`, {
-        method: 'DELETE',
-      });
+      const res = await apiDeleteTaskRecurrence(this.selectedTask.id);
       if (!res.ok) {
         const data = await res.json();
         alert(data.detail || 'Unable to delete recurrence');
