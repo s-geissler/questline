@@ -604,7 +604,7 @@ class TaskTypesPageController {
 
     return `
       <div class="flex items-center gap-3 px-5 py-4 border-b">
-        <div class="relative flex-shrink-0">
+        <div class="relative flex-shrink-0" data-role="color-popover-anchor">
           <button
             type="button"
             data-action="toggle-type-color"
@@ -734,7 +734,7 @@ class TaskTypesPageController {
       <div class="bg-gray-50 rounded-lg group">
         <div class="flex items-center justify-between py-1.5 px-3">
           <div class="flex items-center gap-2.5">
-            <div class="relative flex-shrink-0">
+            <div class="relative flex-shrink-0" data-role="color-popover-anchor">
               <button
                 type="button"
                 data-action="toggle-field-color"
@@ -774,7 +774,7 @@ class TaskTypesPageController {
         onClearAction: 'clear-field-option-color',
       });
       return `
-        <span class="relative flex items-center gap-1 text-xs bg-white border rounded-md px-1.5 py-0.5 text-gray-700">
+        <span class="relative flex items-center gap-1 text-xs bg-white border rounded-md px-1.5 py-0.5 text-gray-700" data-role="color-popover-anchor">
           <button
             type="button"
             data-action="toggle-field-option-color"
@@ -827,7 +827,7 @@ class TaskTypesPageController {
         onClearAction: 'clear-new-field-option-color',
       });
       return `
-        <span class="relative flex items-center gap-1 text-xs bg-white border rounded-md px-1.5 py-0.5 text-gray-700">
+        <span class="relative flex items-center gap-1 text-xs bg-white border rounded-md px-1.5 py-0.5 text-gray-700" data-role="color-popover-anchor">
           <button
             type="button"
             data-action="toggle-new-field-option-color"
@@ -1150,6 +1150,9 @@ class TaskTypesPageController {
 
   handleDocumentClick(event) {
     if (!this.activePopover) return;
+    if (event.target.closest('[data-role="color-popover-anchor"]')) {
+      return;
+    }
     if (!this.root.contains(event.target)) {
       this.closePopover();
       return;
