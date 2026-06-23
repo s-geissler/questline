@@ -59,14 +59,14 @@ def normalize_field_options(options) -> list[dict]:
     normalized = []
     for option in options or []:
         if isinstance(option, dict):
-            value = str(option.get("value", "")).strip()
+            label = str(option.get("label") or option.get("value") or "").strip()[:MAX_NAME_LENGTH]
             color = str(option.get("color", "")).strip() or None
         else:
-            value = str(option).strip()
+            label = str(option).strip()[:MAX_NAME_LENGTH]
             color = None
-        if not value:
+        if not label:
             continue
-        normalized.append({"value": value, "color": color})
+        normalized.append({"label": label, "color": color})
     return normalized
 
 

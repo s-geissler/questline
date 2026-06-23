@@ -2702,8 +2702,25 @@ function _createBoard() {
 
     customFieldChipColor(field, value) {
       if (field?.field_type !== 'dropdown' || !value) return field?.color || null;
-      const option = (field.options || []).find(opt => this.customFieldOptionLabel(opt) === value);
+      // Try the task's embedded field options first
+      let options = field.options || [];
+      // If empty, fall back to globally loaded task types data
+      if (!options.length) {
+        const fallbackField = this._findFieldInTaskTypes(field.id);
+        if (fallbackField) options = fallbackField.options || [];
+      }
+      const option = options.find(opt => this.customFieldOptionLabel(opt) === value);
       return option?.color || field?.color || null;
+    },
+
+    _findFieldInTaskTypes(fieldId) {
+      if (!this.taskTypes) return null;
+      for (const tt of this.taskTypes) {
+        if (!tt.custom_fields) continue;
+        const f = tt.custom_fields.find(cf => String(cf.id) === String(fieldId));
+        if (f) return f;
+      }
+      return null;
     },
 
     hasCustomFieldValue(value) {
