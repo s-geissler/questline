@@ -2711,7 +2711,7 @@ function _createBoard() {
         if (fallbackField) options = fallbackField.options || [];
       }
       const option = options.find(opt => this.customFieldOptionLabel(opt) === value);
-      return option?.color || field?.color || null;
+      return this.normalizeHexColor(option?.color) ? option.color : field?.color || null;
     },
 
     _findFieldInTaskTypes(fieldId) {

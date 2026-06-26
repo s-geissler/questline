@@ -60,7 +60,8 @@ def normalize_field_options(options) -> list[dict]:
     for option in options or []:
         if isinstance(option, dict):
             label = str(option.get("label") or option.get("value") or "").strip()[:MAX_NAME_LENGTH]
-            color = str(option.get("color", "")).strip() or None
+            raw_color = option.get("color")
+            color = str(raw_color).strip() if raw_color else None
         else:
             label = str(option).strip()[:MAX_NAME_LENGTH]
             color = None
