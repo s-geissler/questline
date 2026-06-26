@@ -2412,7 +2412,8 @@ function _createBoard() {
     },
 
     colorSwatchClass(color) {
-      return color ? `swatch-${String(color).replace('#', '')}` : 'swatch-empty';
+      const normalized = this.normalizeHexColor(color);
+      return normalized ? `swatch-${normalized.replace('#', '')}` : 'swatch-empty';
     },
 
     selectedColorClass(currentColor, color) {
@@ -2839,10 +2840,19 @@ function _createBoard() {
     },
 
     contrastTextClass(color) {
-      const normalized = color || '#6b7280';
+      const normalized = this.normalizeHexColor(color) || '#6b7280';
       const n = parseInt(normalized.replace('#', ''), 16);
       const luminance = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
       return luminance > 0.55 ? 'swatch-text-dark' : 'swatch-text-light';
+    },
+
+    normalizeHexColor(color) {
+      const value = String(color || '').trim();
+      if (!/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value)) return null;
+      if (value.length === 4) {
+        return `#${value[1]}${value[1]}${value[2]}${value[2]}${value[3]}${value[3]}`.toLowerCase();
+      }
+      return value.toLowerCase();
     },
 
     taskCardClass(task) {
