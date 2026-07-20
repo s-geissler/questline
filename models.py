@@ -109,6 +109,11 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    api_tokens = relationship(
+        "ApiToken",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
     notifications = relationship(
         "Notification",
         back_populates="user",
@@ -134,6 +139,24 @@ class UserSession(Base):
     created_at = Column(DateTime, server_default=func.now())
     expires_at = Column(DateTime, nullable=True)
     user = relationship("User", back_populates="sessions")
+
+
+class ApiToken(Base):
+    __tablename__ = "api_tokens"
+    __table_args__ = (
+        Index("ix_api_tokens_user_id", "user_id"),
+        Index("ix_api_tokens_token_hash", "token_hash"),
+        Index("ix_api_tokens_revoked_at", "revoked_at"),
+    )
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    name = Column(String, nullable=False)
+    token_hash = Column(String, nullable=False, unique=True)
+    last_four = Column(String, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+    last_used_at = Column(DateTime, nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
+    user = relationship("User", back_populates="api_tokens")
 
 
 class BoardMembership(Base):

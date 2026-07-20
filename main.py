@@ -107,19 +107,32 @@ from routes.automations import (
     update_automation as _update_automation_route,
 )
 from routes.admin import (
+    AdminAgentCreate,
+    AdminAgentTokenCreate,
     AdminBoardOwnerUpdate,
     AdminSettingsUpdate,
     AdminUserUpdate,
     _list_boards_internal,
     assign_admin_board_owner as _assign_admin_board_owner_route,
+    create_admin_agent as _create_admin_agent_route,
+    create_admin_agent_token as _create_admin_agent_token_route,
     delete_admin_orphaned_boards as _delete_admin_orphaned_boards_route,
     delete_admin_user as _delete_admin_user_route,
     get_admin_boards as _get_admin_boards_route,
     get_admin_settings as _get_admin_settings_route,
     get_admin_users as _get_admin_users_route,
+    list_admin_agent_tokens as _list_admin_agent_tokens_route,
+    revoke_admin_agent_token as _revoke_admin_agent_token_route,
     router as admin_router,
     update_admin_settings as _update_admin_settings_route,
     update_admin_user as _update_admin_user_route,
+)
+from routes.api_tokens import (
+    TokenCreate,
+    create_token as _create_token_route,
+    list_tokens as _list_tokens_route,
+    revoke_token as _revoke_token_route,
+    router as api_tokens_router,
 )
 from routes.pages import router as pages_router
 from routes.task_types import (
@@ -190,6 +203,7 @@ from authz import (
     _set_session_cookie,
     board_is_shared,
     board_membership_to_dict,
+    request_uses_bearer_auth,
     require_admin,
     claim_legacy_boards_for_first_user,
     create_user_session,
@@ -349,6 +363,9 @@ def _run_index_migrations():
         ("ix_task_recurrences_next_run_on", "CREATE INDEX IF NOT EXISTS ix_task_recurrences_next_run_on ON task_recurrences(enabled, next_run_on)"),
         ("ix_task_recurrences_spawn_stage_id", "CREATE INDEX IF NOT EXISTS ix_task_recurrences_spawn_stage_id ON task_recurrences(spawn_stage_id)"),
         ("uq_task_recurrences_task_id", "CREATE UNIQUE INDEX IF NOT EXISTS uq_task_recurrences_task_id ON task_recurrences(task_id)"),
+        ("ix_api_tokens_user_id", "CREATE INDEX IF NOT EXISTS ix_api_tokens_user_id ON api_tokens(user_id)"),
+        ("ix_api_tokens_token_hash", "CREATE INDEX IF NOT EXISTS ix_api_tokens_token_hash ON api_tokens(token_hash)"),
+        ("ix_api_tokens_revoked_at", "CREATE INDEX IF NOT EXISTS ix_api_tokens_revoked_at ON api_tokens(revoked_at)"),
     ]
     with engine.begin() as conn:
         for _, sql in indexes:
@@ -496,6 +513,7 @@ app.include_router(filters_router)
 app.include_router(automations_router)
 app.include_router(notifications_router)
 app.include_router(admin_router)
+app.include_router(api_tokens_router)
 app.include_router(pages_router)
 SESSION_COOKIE = "questline_session"
 PASSWORD_HASH_ITERATIONS = 120_000
@@ -524,6 +542,16 @@ def _require_api_csrf(request: Request):
         return
     if not request.url.path.startswith("/api/"):
         return
+    # Bearer-authenticated requests bypass CSRF: browsers do not send
+    # `Authorization` headers cross-origin, so the CSRF threat model does
+    # not apply. If both a session cookie and a bearer token are present,
+    # the session is the source of truth (handled in the route handlers).
+    db = SessionLocal()
+    try:
+        if request_uses_bearer_auth(request, db):
+            return
+    finally:
+        db.close()
     if request.headers.get("x-requested-with") != "XMLHttpRequest":
         raise HTTPException(status_code=403, detail="CSRF validation failed")
     if not _request_origin_is_same_origin(request):
@@ -931,6 +959,34 @@ def update_admin_user(user_id: int, data: AdminUserUpdate, request: Request, db:
 
 def delete_admin_user(user_id: int, request: Request, db: Session = Depends(get_db)):
     return _delete_admin_user_route(user_id, request, db)
+
+
+def create_admin_agent(data, request: Request, db: Session = Depends(get_db)):
+    return _create_admin_agent_route(data, request, db)
+
+
+def create_admin_agent_token(agent_id: int, data, request: Request, db: Session = Depends(get_db)):
+    return _create_admin_agent_token_route(agent_id, data, request, db)
+
+
+def list_admin_agent_tokens(agent_id: int, request: Request, db: Session = Depends(get_db)):
+    return _list_admin_agent_tokens_route(agent_id, request, db)
+
+
+def revoke_admin_agent_token(agent_id: int, token_id: int, request: Request, db: Session = Depends(get_db)):
+    return _revoke_admin_agent_token_route(agent_id, token_id, request, db)
+
+
+def create_token(data, request: Request, db: Session = Depends(get_db)):
+    return _create_token_route(data, request, db)
+
+
+def list_tokens(request: Request, db: Session = Depends(get_db)):
+    return _list_tokens_route(request, db)
+
+
+def revoke_token(token_id: int, request: Request, db: Session = Depends(get_db)):
+    return _revoke_token_route(token_id, request, db)
 
 
 def get_automations(board_id: int, db: Session = Depends(get_db), request: Request = None):

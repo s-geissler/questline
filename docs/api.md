@@ -1,10 +1,10 @@
 # API Reference
 
-All API endpoints are prefixed with `/api`. Authentication is via session cookie (see [auth.md](auth.md)). Responses are JSON. Errors follow FastAPI's default `{"detail": "..."}` format.
+All API endpoints are prefixed with `/api`. Authentication is via session cookie (browsers) or `Authorization: Bearer <token>` (scripts, CLIs, agents) — see [auth.md](auth.md). Responses are JSON. Errors follow FastAPI's default `{"detail": "..."}` format.
 
 The interactive Swagger UI is available at `/docs` when the server is running.
 
-Unsafe `/api/` requests (`POST`, `PUT`, `PATCH`, `DELETE`) must send `X-Requested-With: XMLHttpRequest`. Authenticated unsafe requests must also send the session-bound CSRF token in `X-CSRF-Token`. `POST /api/auth/login` is rate-limited and returns `429` after too many failed attempts. Sessions expire after `QUESTLINE_SESSION_MAX_AGE_DAYS` days (30 by default).
+Unsafe `/api/` requests (`POST`, `PUT`, `PATCH`, `DELETE`) made with a session cookie must send `X-Requested-With: XMLHttpRequest` and the session-bound CSRF token in `X-CSRF-Token`. Bearer-authenticated requests are exempt from CSRF. `POST /api/auth/login` is rate-limited and returns `429` after too many failed attempts. Sessions expire after `QUESTLINE_SESSION_MAX_AGE_DAYS` days (30 by default). API tokens do not expire by default; revoke them via `DELETE /api/tokens/{id}`.
 
 ---
 
@@ -66,7 +66,109 @@ Update the current user's display name and/or password.
 { "display_name": "Alice", "password": "newpassword123" }
 ```
 
-`password` is optional. If provided, must be at least 8 characters. Changing the password invalidates all existing sessions and issues a new session cookie automatically.
+`password` is optional. If provided, must be at least 8 characters. Changing the password invalidates all existing sessions and issues a new session cookie automatically. **It also revokes all of the user's API tokens.**
+
+---
+
+## API Tokens
+
+Any authenticated user (any role) can mint, list, and revoke their own bearer tokens. The raw token value is returned exactly once at creation. Use the token in subsequent requests as `Authorization: Bearer <token>`. Bearer-authenticated requests bypass CSRF.
+
+### `POST /api/tokens`
+
+Mint a new API token for the current user.
+
+**Body**
+```json
+{ "name": "alice-cli" }
+```
+
+**Returns** the new token record. The `raw_token` field contains the full token (prefixed `qgl_`) and is shown **only at creation**. Store it securely.
+
+```json
+{
+  "id": 7,
+  "name": "alice-cli",
+  "last_four": "x7q2",
+  "created_at": "2026-07-20T11:08:01",
+  "last_used_at": null,
+  "raw_token": "qgl_a8f3..."
+}
+```
+
+---
+
+### `GET /api/tokens`
+
+List the caller's active tokens. `raw_token` is never included; only `id`, `name`, `last_four`, `created_at`, `last_used_at`.
+
+```json
+[
+  { "id": 7, "name": "alice-cli", "last_four": "x7q2", "created_at": "2026-07-20T11:08:01", "last_used_at": "2026-07-20T11:09:14" }
+]
+```
+
+---
+
+### `DELETE /api/tokens/{id}`
+
+Revoke a token owned by the current user. Returns `{"ok": true}`. Subsequent requests with the revoked token will receive `401`.
+
+---
+
+## Admin: Agents
+
+The agent endpoints let an admin create a non-human User (`role="agent"`) for use by external automation, and mint/revoke API tokens on its behalf. Agents never use passwords — they authenticate exclusively via API tokens.
+
+### `POST /api/admin/agents`
+
+Create a new agent User. The agent is created active, with a random unusable password (the agent never logs in via the form).
+
+**Body**
+```json
+{ "display_name": "AcmeBot", "email": "acmebot@example.com" }
+```
+
+**Returns** the agent User object (`id`, `email`, `display_name`, `role="agent"`, `is_active=true`).
+
+`403` if the caller is not an instance admin. `400` if the email is missing/invalid or already taken.
+
+---
+
+### `POST /api/admin/agents/{agent_id}/tokens`
+
+Mint an API token for a specific agent. The raw value is shown once.
+
+**Body**
+```json
+{ "name": "acmebot-primary" }
+```
+
+**Returns**
+```json
+{
+  "id": 12,
+  "name": "acmebot-primary",
+  "last_four": "x7q2",
+  "created_at": "2026-07-20T11:08:01",
+  "last_used_at": null,
+  "raw_token": "qgl_a8f3..."
+}
+```
+
+`404` if the agent does not exist. `400` if the user exists but is not an agent, or is inactive.
+
+---
+
+### `GET /api/admin/agents/{agent_id}/tokens`
+
+List an agent's active tokens. Same shape as `GET /api/tokens` but for the named agent.
+
+---
+
+### `DELETE /api/admin/agents/{agent_id}/tokens/{token_id}`
+
+Revoke a specific agent token.
 
 ---
 
@@ -713,17 +815,19 @@ Update a user's role, active status, password-recovery flag, and/or password.
 **Body**
 ```json
 {
-  "role": "admin",
+  "role": "agent",
   "is_active": true,
   "password_reset_requested": false,
   "password": "newpassword123"
 }
 ```
 
+`role` accepts `"user"`, `"admin"`, or `"agent"`.
+
 Notes:
 
-- Deactivating a user immediately invalidates all their sessions.
-- Setting a password as admin also invalidates all of that user's sessions and clears any pending password recovery request.
+- Deactivating a user immediately invalidates all their sessions and revokes all their API tokens.
+- Setting a password as admin also invalidates all of that user's sessions and revokes all their API tokens; it clears any pending password recovery request.
 - The last admin cannot be demoted.
 - A user cannot deactivate their own account.
 

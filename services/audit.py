@@ -79,6 +79,7 @@ def _audit_log(
     event: str,
     request: Optional[Request] = None,
     actor_user_id: Optional[int] = None,
+    actor_token_id: Optional[int] = None,
     target_user_id: Optional[int] = None,
     board_id: Optional[int] = None,
     outcome: str = "success",
@@ -86,9 +87,16 @@ def _audit_log(
     email: Optional[str] = None,
     details: Optional[dict] = None,
 ):
+    if actor_token_id is None and request is not None:
+        try:
+            actor_token_id = getattr(request.state, "actor_token_id", None)
+        except AttributeError:
+            actor_token_id = None
     payload = {
         "event": event,
         "actor_user_id": actor_user_id,
+        "actor_token_id": actor_token_id,
+        "actor_kind": "token" if actor_token_id else "session",
         "target_user_id": target_user_id,
         "board_id": board_id,
         "remote_ip": _request_client_ip(request),

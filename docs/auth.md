@@ -2,11 +2,16 @@
 
 ## Authentication
 
-Questline uses **session cookies**. On login a random 32-byte URL-safe token is generated, its SHA-256 hash is stored in `user_sessions`, and the raw token is sent to the browser as an `httponly` cookie named `questline_session`.
+Questline accepts two authentication methods:
 
-Sessions have an absolute server-side lifetime controlled by `QUESTLINE_SESSION_MAX_AGE_DAYS` and default to 30 days. Expired sessions are rejected and deleted on use. The browser cookies use the same lifetime via `Max-Age`.
+- **Session cookie** — for the web UI. On login a random 32-byte URL-safe token is generated, its SHA-256 hash is stored in `user_sessions`, and the raw token is sent to the browser as an `httponly` cookie named `questline_session`.
+- **Bearer token** — for scripts, CLIs, and external agents. An `Authorization: Bearer <token>` header authenticates as the User that owns the token. Tokens are minted via `POST /api/tokens` (self-service) or `POST /api/admin/agents/{id}/tokens` (admin, for a role=agent user). The raw token value is shown **once** at creation; later listings show only the `qgl_` prefix and last four characters.
 
-Unsafe API requests are protected with a session-bound CSRF token exposed to the browser as the `questline_csrf` cookie. The frontend echoes that value in `X-CSRF-Token`, and unsafe `/api/` requests must also present `X-Requested-With: XMLHttpRequest`.
+If a request carries both a session cookie and a valid bearer token, the session wins. This keeps the web UI unchanged and avoids ambiguity if a token and a session somehow coexist in one HTTP client.
+
+Sessions have an absolute server-side lifetime controlled by `QUESTLINE_SESSION_MAX_AGE_DAYS` and default to 30 days. API tokens do not expire by default — revoke them explicitly via `DELETE /api/tokens/{id}`.
+
+Unsafe API requests are protected with a session-bound CSRF token exposed to the browser as the `questline_csrf` cookie. The frontend echoes that value in `X-CSRF-Token`, and unsafe `/api/` requests must also present `X-Requested-With: XMLHttpRequest`. **Bearer-authenticated requests bypass the CSRF check entirely** because browsers do not send `Authorization` headers cross-origin, so the CSRF threat model does not apply.
 
 Passwords are stored as `pbkdf2_sha256$<iterations>$<salt>$<digest>` using 120,000 PBKDF2-HMAC-SHA-256 iterations.
 
@@ -50,9 +55,10 @@ The default behavior is suitable for `systemd` or container deployments where st
 | Role | Description |
 |---|---|
 | `user` | Normal user — access gated by board membership |
+| `agent` | Non-human User account that operates the system via API tokens. For now, no permission difference from `user`; the role is a hook for future per-role rules. |
 | `admin` | Can access all hubs, manage users, assign hub ownership, and change instance settings |
 
-The instance must always have at least one admin; demoting or deleting the last admin is blocked.
+The instance must always have at least one admin; demoting or deleting the last admin is blocked. Agents are created via `POST /api/admin/agents` (admin only) — they are never created through the public registration path, so the "first registered user becomes admin" rule cannot fire for an agent.
 
 ## Board Membership Roles
 

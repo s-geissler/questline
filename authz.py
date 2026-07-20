@@ -15,6 +15,8 @@ import models
 SESSION_COOKIE = "questline_session"
 CSRF_COOKIE = "questline_csrf"
 PASSWORD_HASH_ITERATIONS = 120_000
+API_TOKEN_PREFIX = "qgl_"
+API_TOKEN_BYTES = 32
 BOARD_ROLE_ORDER = {"viewer": 1, "editor": 2, "owner": 3, "admin": 4}
 
 
@@ -216,6 +218,105 @@ def create_user_session(user: models.User, db: Session) -> tuple[str, str]:
     return token, csrf_token
 
 
+def generate_api_token() -> tuple[str, str, str]:
+    """Return (raw_token, token_hash, last_four) for a new API token."""
+    raw_body = secrets.token_urlsafe(API_TOKEN_BYTES)
+    raw = API_TOKEN_PREFIX + raw_body
+    digest = _hash_api_token(raw)
+    last_four = raw[-4:]
+    return raw, digest, last_four
+
+
+def _hash_api_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _extract_bearer_token(request: Request) -> Optional[str]:
+    auth = request.headers.get("authorization", "")
+    if not auth:
+        return None
+    parts = auth.split(" ", 1)
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        return None
+    token = parts[1].strip()
+    return token or None
+
+
+def get_optional_user_from_bearer(
+    request: Request, db: Session
+) -> Optional[models.User]:
+    """Authenticate a request via an `Authorization: Bearer <token>` header.
+
+    Returns the owning User if the token exists, is not revoked, and the
+    user is active. Does NOT touch the database for the last_used_at column
+    — callers that want that should use `consume_api_token` instead.
+    """
+    token = _extract_bearer_token(request)
+    if not token:
+        return None
+    return _lookup_active_api_token_user(token, db)
+
+
+def consume_api_token(
+    request: Request, db: Session
+) -> Optional[tuple[models.User, models.ApiToken]]:
+    """Authenticate via bearer AND update last_used_at in one pass.
+
+    Returns (user, api_token) on success, None otherwise. The token is the
+    one stored in the request, looked up and stamped; the caller is
+    responsible for committing the session if it cares about the write.
+    """
+    token = _extract_bearer_token(request)
+    if not token:
+        return None
+    api_token = (
+        db.query(models.ApiToken)
+        .filter(models.ApiToken.token_hash == _hash_api_token(token))
+        .first()
+    )
+    if not api_token or api_token.revoked_at is not None:
+        return None
+    if not api_token.user or not api_token.user.is_active:
+        return None
+    api_token.last_used_at = _utcnow()
+    return api_token.user, api_token
+
+
+def _lookup_active_api_token_user(token: str, db: Session) -> Optional[models.User]:
+    api_token = (
+        db.query(models.ApiToken)
+        .filter(models.ApiToken.token_hash == _hash_api_token(token))
+        .first()
+    )
+    if not api_token or api_token.revoked_at is not None:
+        return None
+    if not api_token.user or not api_token.user.is_active:
+        return None
+    return api_token.user
+
+
+def request_uses_bearer_auth(request: Request, db: Session) -> bool:
+    """True if the request carries a valid (unrevoked, active-owner) bearer token.
+
+    Used by the CSRF middleware to short-circuit the CSRF dance for non-browser
+    callers. Does not update last_used_at; that happens on the route itself.
+    """
+    token = _extract_bearer_token(request)
+    if not token:
+        return False
+    return _lookup_active_api_token_user(token, db) is not None
+
+
+def api_token_to_dict(token: models.ApiToken) -> dict:
+    return {
+        "id": token.id,
+        "name": token.name,
+        "last_four": token.last_four,
+        "created_at": token.created_at.isoformat() if token.created_at else None,
+        "last_used_at": token.last_used_at.isoformat() if token.last_used_at else None,
+    }
+
+
 def ensure_board_membership(board: models.Board, user: models.User, role: str, db: Session):
     existing = (
         db.query(models.BoardMembership)
@@ -244,25 +345,42 @@ def claim_legacy_boards_for_first_user(user: models.User, db: Session):
 
 
 def get_optional_current_user(request: Request, db: Session) -> Optional[models.User]:
-    token = request.cookies.get(SESSION_COOKIE)
-    if not token:
-        return None
-    session = (
-        db.query(models.UserSession)
-        .filter(models.UserSession.token_hash == _hash_session_token(token))
-        .first()
-    )
-    if not session or not session.user:
-        return None
-    if not session.expires_at or session.expires_at <= _utcnow():
-        db.delete(session)
-        db.commit()
-        return None
-    if not session.user.is_active:
-        db.delete(session)
-        db.commit()
-        return None
-    return session.user
+    """Resolve the current user from session cookie, falling back to bearer.
+
+    Session wins if both are present (per CONTEXT.md). When a bearer token
+    is used, the token's `last_used_at` is updated and the token id is
+    stored on `request.state.actor_token_id` so audit logging can pick it
+    up without each call site threading it through.
+    """
+    session_token = request.cookies.get(SESSION_COOKIE)
+    if session_token:
+        session = (
+            db.query(models.UserSession)
+            .filter(models.UserSession.token_hash == _hash_session_token(session_token))
+            .first()
+        )
+        if session and session.user:
+            if not session.expires_at or session.expires_at <= _utcnow():
+                db.delete(session)
+                db.commit()
+                return None
+            if not session.user.is_active:
+                db.delete(session)
+                db.commit()
+                return None
+            return session.user
+    bearer_token = _extract_bearer_token(request)
+    if bearer_token:
+        result = consume_api_token(request, db)
+        if result:
+            user, api_token = result
+            try:
+                request.state.actor_token_id = api_token.id
+            except AttributeError:
+                pass
+            db.commit()
+            return user
+    return None
 
 
 def require_current_user(request: Request, db: Session) -> models.User:

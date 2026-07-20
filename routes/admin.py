@@ -1,6 +1,7 @@
 """Admin routes."""
 from __future__ import annotations
 
+import secrets
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -9,7 +10,16 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 import models
-from authz import ensure_board_membership, require_admin, user_to_dict
+from authz import (
+    API_TOKEN_PREFIX,
+    _utcnow,
+    api_token_to_dict,
+    ensure_board_membership,
+    generate_api_token,
+    hash_password,
+    require_admin,
+    user_to_dict,
+)
 from routes._deps import get_db
 from services.audit import _audit_log
 from services.settings import (
@@ -21,6 +31,9 @@ from services.settings import (
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 MAX_PASSWORD_LENGTH = 4096
+MAX_EMAIL_LENGTH = 255
+MAX_DISPLAY_NAME_LENGTH = 120
+MAX_TOKEN_NAME_LENGTH = 80
 
 
 class AdminUserUpdate(BaseModel):
@@ -40,6 +53,15 @@ class AdminSettingsUpdate(BaseModel):
     new_accounts_active_by_default: bool
     instance_theme_color: Optional[str] = None
     recurrence_worker_interval_seconds: int = 60
+
+
+class AdminAgentCreate(BaseModel):
+    display_name: str = Field(max_length=MAX_DISPLAY_NAME_LENGTH)
+    email: str = Field(max_length=MAX_EMAIL_LENGTH)
+
+
+class AdminAgentTokenCreate(BaseModel):
+    name: str = Field(max_length=MAX_TOKEN_NAME_LENGTH)
 
 
 def _validated_hex_color(value: Optional[str], fallback: str, detail: str) -> str:
@@ -258,7 +280,7 @@ def update_admin_user(user_id: int, data: AdminUserUpdate, request: Request, db:
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    if data.role is not None and data.role not in {"user", "admin"}:
+    if data.role is not None and data.role not in {"user", "admin", "agent"}:
         raise HTTPException(status_code=400, detail="Invalid admin role")
     target_role = data.role if data.role is not None else user.role
     if user.role == "admin" and target_role != "admin":
@@ -276,15 +298,15 @@ def update_admin_user(user_id: int, data: AdminUserUpdate, request: Request, db:
         user.is_active = data.is_active
         if data.is_active is False:
             db.query(models.UserSession).filter(models.UserSession.user_id == user.id).delete()
+            _revoke_user_api_tokens(db, user.id, request=request, actor_user_id=current_user.id)
     if data.password is not None:
         if len(data.password) < 8:
             raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
-        from authz import hash_password  # local import to avoid broad main coupling
-
         user.password_hash = hash_password(data.password)
         user.password_reset_requested = False
         password_changed = True
         db.query(models.UserSession).filter(models.UserSession.user_id == user.id).delete()
+        _revoke_user_api_tokens(db, user.id, request=request, actor_user_id=current_user.id)
     if data.password_reset_requested is not None:
         user.password_reset_requested = data.password_reset_requested
     db.commit()
@@ -358,5 +380,149 @@ def delete_admin_user(user_id: int, request: Request, db: Session = Depends(get_
             "deleted_role": deleted_role,
             "owned_board_count": len(owned_board_ids),
         },
+    )
+    return {"ok": True}
+
+
+def _revoke_user_api_tokens(
+    db: Session, user_id: int, request: Optional[Request] = None, actor_user_id: Optional[int] = None
+) -> int:
+    now = _utcnow()
+    tokens = (
+        db.query(models.ApiToken)
+        .filter(
+            models.ApiToken.user_id == user_id,
+            models.ApiToken.revoked_at.is_(None),
+        )
+        .all()
+    )
+    for token in tokens:
+        token.revoked_at = now
+    if tokens:
+        _audit_log(
+            "api_tokens_revoked_for_user",
+            request=request,
+            actor_user_id=actor_user_id,
+            target_user_id=user_id,
+            details={"count": len(tokens), "reason": "user_deactivated_or_password_reset"},
+        )
+    return len(tokens)
+
+
+@router.post("/agents")
+def create_admin_agent(data: AdminAgentCreate, request: Request, db: Session = Depends(get_db)):
+    """Create a non-human User (role=agent) for use by external automation."""
+    current_user = require_admin(request, db)
+    display_name = (data.display_name or "").strip()
+    email = (data.email or "").strip().lower()
+    if not display_name:
+        raise HTTPException(status_code=400, detail="Display name is required")
+    if "@" not in email:
+        raise HTTPException(status_code=400, detail="Email is required and must contain '@'")
+    existing = db.query(models.User).filter(models.User.email == email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="A user with that email already exists")
+    user = models.User(
+        email=email,
+        display_name=display_name,
+        password_hash=hash_password(secrets.token_urlsafe(48)),
+        role="agent",
+        is_active=True,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    _audit_log(
+        "admin_agent_created",
+        request=request,
+        actor_user_id=current_user.id,
+        target_user_id=user.id,
+        details={"email": email, "display_name": display_name},
+    )
+    return user_to_dict(user)
+
+
+@router.post("/agents/{agent_id}/tokens")
+def create_admin_agent_token(
+    agent_id: int, data: AdminAgentTokenCreate, request: Request, db: Session = Depends(get_db)
+):
+    """Mint an API token for a specific agent user."""
+    current_user = require_admin(request, db)
+    agent = db.query(models.User).filter(models.User.id == agent_id).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    if agent.role != "agent":
+        raise HTTPException(status_code=400, detail="Target user is not an agent")
+    if not agent.is_active:
+        raise HTTPException(status_code=400, detail="Agent is inactive")
+    name = (data.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Token name is required")
+    raw, digest, last_four = generate_api_token()
+    token = models.ApiToken(
+        user_id=agent.id,
+        name=name,
+        token_hash=digest,
+        last_four=last_four,
+    )
+    db.add(token)
+    db.commit()
+    db.refresh(token)
+    _audit_log(
+        "admin_agent_token_issued",
+        request=request,
+        actor_user_id=current_user.id,
+        target_user_id=agent.id,
+        details={"token_id": token.id, "name": name, "prefix": API_TOKEN_PREFIX},
+    )
+    return {
+        **api_token_to_dict(token),
+        "raw_token": raw,
+    }
+
+
+@router.get("/agents/{agent_id}/tokens")
+def list_admin_agent_tokens(agent_id: int, request: Request, db: Session = Depends(get_db)):
+    require_admin(request, db)
+    agent = db.query(models.User).filter(models.User.id == agent_id).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    tokens = (
+        db.query(models.ApiToken)
+        .filter(
+            models.ApiToken.user_id == agent_id,
+            models.ApiToken.revoked_at.is_(None),
+        )
+        .order_by(models.ApiToken.created_at.desc())
+        .all()
+    )
+    return [api_token_to_dict(t) for t in tokens]
+
+
+@router.delete("/agents/{agent_id}/tokens/{token_id}")
+def revoke_admin_agent_token(
+    agent_id: int, token_id: int, request: Request, db: Session = Depends(get_db)
+):
+    current_user = require_admin(request, db)
+    token = (
+        db.query(models.ApiToken)
+        .filter(
+            models.ApiToken.id == token_id,
+            models.ApiToken.user_id == agent_id,
+        )
+        .first()
+    )
+    if not token:
+        raise HTTPException(status_code=404, detail="Token not found")
+    if token.revoked_at is not None:
+        raise HTTPException(status_code=400, detail="Token already revoked")
+    token.revoked_at = _utcnow()
+    db.commit()
+    _audit_log(
+        "admin_agent_token_revoked",
+        request=request,
+        actor_user_id=current_user.id,
+        target_user_id=agent_id,
+        details={"token_id": token.id, "name": token.name},
     )
     return {"ok": True}

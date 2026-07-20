@@ -141,6 +141,11 @@
             type="button"
             class="w-full text-left px-3 py-2 hover:bg-gray-100 text-sm transition-colors"
           >Profile</button>
+          <button
+            id="nav-open-tokens"
+            type="button"
+            class="w-full text-left px-3 py-2 hover:bg-gray-100 text-sm transition-colors"
+          >API Tokens</button>
           {% if current_user and current_user.role == 'admin' %}
           <a
             href="/admin{% if board %}?board_id={{ board.id }}{% endif %}"
@@ -191,6 +196,158 @@
             <button id="profile-save" type="button" class="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60">
               <span id="profile-save-label">Save</span>
             </button>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+      {% if current_user %}
+      <div
+        id="tokens-modal"
+        class="hidden fixed inset-0 z-[100] items-center justify-center p-4"
+      >
+        <div id="tokens-modal-backdrop" class="absolute inset-0 bg-black/50"></div>
+        <div class="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl p-6 max-h-[90vh] overflow-y-auto">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <h2 class="text-lg font-semibold text-gray-900">API Tokens</h2>
+              <p class="text-sm text-gray-500 mt-1">
+                Personal access tokens for use with CLI tools and external agents.
+              </p>
+            </div>
+            <button
+              id="tokens-modal-close-top"
+              type="button"
+              class="text-gray-400 hover:text-gray-600 text-xl leading-none"
+              aria-label="Close"
+            >&times;</button>
+          </div>
+
+          <div
+            id="tokens-just-created-panel"
+            class="hidden mt-5 p-4 bg-amber-50 border border-amber-200 rounded-lg"
+          >
+            <div class="flex items-start gap-2">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path d="M12 2a1 1 0 0 1 .894.553l10 20A1 1 0 0 1 22 24H2a1 1 0 0 1-.894-1.447l10-20A1 1 0 0 1 12 2Zm0 6a1 1 0 0 0-1 1v6a1 1 0 1 0 2 0V9a1 1 0 0 0-1-1Zm0 11a1.25 1.25 0 1 0 0 2.5 1.25 1.25 0 0 0 0-2.5Z"/>
+              </svg>
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-amber-800">Save this token now</p>
+                <p class="text-xs text-amber-700 mt-0.5">
+                  This is the only time you'll see the full value. Copy it and store it somewhere safe — you won't be able to retrieve it later.
+                </p>
+              </div>
+            </div>
+            <div class="mt-3 flex items-stretch gap-2">
+              <code
+                id="tokens-raw-value"
+                class="flex-1 px-3 py-2 bg-white border border-amber-200 rounded text-xs font-mono break-all select-all"
+              ></code>
+              <button
+                id="tokens-copy-raw"
+                type="button"
+                class="px-3 py-2 rounded-lg bg-amber-600 text-white text-sm font-medium hover:bg-amber-700 whitespace-nowrap"
+              >Copy</button>
+            </div>
+            <p class="mt-2 text-xs text-gray-600">
+              Name: <span id="tokens-just-created-name" class="font-medium text-gray-800"></span>
+            </p>
+            <p
+              id="tokens-copy-feedback"
+              class="hidden mt-1 text-xs text-emerald-700"
+            >Copied to clipboard.</p>
+            <div class="mt-4 flex justify-end">
+              <button
+                id="tokens-just-created-close"
+                type="button"
+                class="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
+              >I've saved it — close</button>
+            </div>
+          </div>
+
+          <div id="tokens-list-section">
+            <div class="mt-5">
+              <div id="tokens-list" class="space-y-2"></div>
+              <p
+                id="tokens-list-empty"
+                class="hidden text-sm text-gray-500 py-6 text-center"
+              >No API tokens yet. Create one below to use this account with CLI tools and external agents.</p>
+            </div>
+            <p id="tokens-error" class="hidden mt-3 text-sm text-red-500"></p>
+            <div class="mt-5 flex justify-between items-center gap-3">
+              <p class="text-xs text-gray-500">
+                Tokens authenticate as you with your board access.
+              </p>
+              <button
+                id="tokens-create-toggle"
+                type="button"
+                class="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
+              >+ New token</button>
+            </div>
+          </div>
+
+          <div
+            id="tokens-create-form"
+            class="hidden mt-5 p-4 border border-gray-200 rounded-lg bg-gray-50"
+          >
+            <label class="block">
+              <span class="text-sm font-medium text-gray-700">Token name</span>
+              <input
+                id="tokens-create-name"
+                type="text"
+                class="mt-2 w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                placeholder="e.g. my-cli"
+                maxlength="80"
+                autocomplete="off"
+              >
+              <p class="mt-1 text-xs text-gray-500">A short label so you remember what this token is for.</p>
+            </label>
+            <p id="tokens-create-error" class="hidden mt-3 text-sm text-red-500"></p>
+            <div class="mt-4 flex justify-end gap-2">
+              <button
+                id="tokens-create-cancel"
+                type="button"
+                class="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >Cancel</button>
+              <button
+                id="tokens-create-submit"
+                type="button"
+                class="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60"
+              >
+                <span id="tokens-create-submit-label">Create</span>
+              </button>
+            </div>
+          </div>
+
+          <div
+            id="tokens-confirm-revoke"
+            class="hidden mt-5 p-4 border border-red-200 rounded-lg bg-red-50"
+          >
+            <p class="text-sm font-medium text-red-800">Revoke this token?</p>
+            <p class="text-sm text-red-700 mt-1">
+              <span id="tokens-revoke-target-name" class="font-medium"></span>
+              (<code id="tokens-revoke-target-suffix"></code>) will be permanently invalidated. Any tool using it will stop working immediately.
+            </p>
+            <div class="mt-4 flex justify-end gap-2">
+              <button
+                id="tokens-revoke-cancel"
+                type="button"
+                class="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >Cancel</button>
+              <button
+                id="tokens-revoke-confirm"
+                type="button"
+                class="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-60"
+              >
+                <span id="tokens-revoke-confirm-label">Revoke</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
