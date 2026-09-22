@@ -311,19 +311,50 @@ body {
 [data-stage-drag-handle]:has(.stage-drag-grip) {
   cursor: grab;
 }
-.stage-drag-grip {
+.stage-collapse-toggle {
   flex-shrink: 0;
   width: 32px;
   height: 32px;
   padding-top: 3px;
   margin-right: 4px;
   color: #64748b;
+  cursor: pointer;
+  user-select: none;
+}
+.stage-drag-grip {
   cursor: grab;
   touch-action: none;
-  user-select: none;
 }
 .stage-drag-grip:active {
   cursor: grabbing;
+}
+.stage-column-collapsed {
+  width: 48px;
+}
+.board-stage-collapsed {
+  width: 100%;
+  overflow: hidden;
+}
+.stage-collapsed-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  height: 240px;
+  max-height: inherit;
+  padding: 6px 8px;
+  border-radius: inherit;
+}
+.stage-collapsed-header .stage-collapse-toggle {
+  margin-right: 0;
+}
+.stage-collapsed-title {
+  writing-mode: vertical-rl;
+  text-orientation: sideways;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-height: 0;
 }
 .board-stage-body {
   flex: 1 1 auto;

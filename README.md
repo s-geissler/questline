@@ -36,6 +36,19 @@ columns to its right. Both rows of a shifted column stay together. When a top st
 moves away, the stage beneath it is promoted; empty columns are removed. Guides
 also allow insertion before the first column or after the last column.
 
+### Collapsing stages
+
+Double-click a stage's header grip to collapse its column into narrow, vertical
+headers; double-click again to expand it. If both slots are occupied, both stages
+toggle together. You can also focus the grip and press Enter or Space. Viewers can
+collapse columns too, without changing the shared board.
+
+Collapsed stages hide their objectives, menus, and creation controls; expand them
+to edit or drop objectives into them. Editors can still drag collapsed stages.
+Collapse follows a stage when it moves, also collapsing its new column companion.
+This is local viewing state: it survives board rerenders and calendar switches,
+but resets on page reload. No board data is changed by collapsing or expanding.
+
 ## Technology Stack
 
 The project is built using a modern Python-based stack:

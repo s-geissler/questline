@@ -21,6 +21,7 @@ function _createBoard() {
     boardId: 0,
     boards: [],
     stages: [],
+    collapsedStageIds: new Set(),
     taskTypes: [],
     savedFilters: [],
     showNewStage: false,
@@ -468,7 +469,7 @@ function _createBoard() {
       document.addEventListener('click', event => {
         // Stage menu outside click
         if (this.activeStageMenuId) {
-          if (!event.target.closest('[data-role="stage-menu"]') && !event.target.closest('[data-action="toggle-stage-menu"]')) {
+          if (!event.target.closest('[data-role="stage-menu"]') && !event.target.closest('[data-action="toggle-stage-menu"]') && !event.target.closest('.stage-collapse-toggle')) {
             this.closeStageMenu();
             this.renderBoardSurface();
           }
@@ -503,6 +504,12 @@ function _createBoard() {
       const row = parseInt(actionTarget.dataset.stageRow || '0', 10);
       const position = parseInt(actionTarget.dataset.stagePosition || '0', 10);
 
+      if (action === 'toggle-stage-collapse') {
+        // Pointer activation is a double-click so a single click can start a
+        // drag. Native keyboard/assistive button activation has detail === 0.
+        if (event.detail === 0) this.toggleStageColumn(stageId);
+        return;
+      }
       if (action === 'toggle-board-view') {
         this.setBoardView(this.nextBoardView);
         return;
@@ -739,6 +746,12 @@ function _createBoard() {
     },
 
     handleSurfaceDoubleClick(event) {
+      const grip = event.target.closest('.stage-collapse-toggle');
+      if (grip) {
+        event.preventDefault();
+        this.toggleStageColumn(Number(grip.dataset.stageId));
+        return;
+      }
       const dayEl = event.target.closest('[data-calendar-day]');
       if (!dayEl) return;
       const day = this.calendarDays.find(entry => entry.date === dayEl.dataset.calendarDate);
@@ -1069,7 +1082,9 @@ function _createBoard() {
         this.stagesViewEl.innerHTML = '';
         return;
       }
-      const columns = this.stageColumns.map(column =>
+      const stageColumns = this.stageColumns;
+      this.syncCollapsedStageColumns(stageColumns);
+      const columns = stageColumns.map(column =>
         `${this.canEditBoard ? this.renderStageInsertionTarget(column.position) : ''}${this.renderStageColumn(column)}`
       ).join('');
       const addColumn = this.canEditBoard ? this.renderTrailingStageColumn() : '';
@@ -1088,23 +1103,51 @@ function _createBoard() {
       return `<div class="stage-insertion-target" data-stage-insert-position="${position}" title="Insert stage between columns" aria-label="Insert stage between columns"></div>`;
     },
 
+    isStageColumnCollapsed(column) {
+      return [column.topStage, column.bottomStage].some(stage => stage && this.collapsedStageIds.has(stage.id));
+    },
+
+    syncCollapsedStageColumns(columns) {
+      // Collapse follows stage IDs, not mutable positions. After a move, a
+      // collapsed stage also collapses its new companion; promotion preserves
+      // the remaining stage's state. Drop IDs of deleted stages along the way.
+      this.collapsedStageIds = new Set(columns
+        .filter(column => this.isStageColumnCollapsed(column))
+        .flatMap(column => [column.topStage, column.bottomStage].filter(Boolean).map(stage => stage.id)));
+    },
+
+    toggleStageColumn(stageId) {
+      if (this._stageDropSaving || this._stageDragContext || (typeof Sortable !== 'undefined' && Sortable.dragged)) return;
+      const column = this.stageColumns.find(entry => entry.topStage?.id === stageId || entry.bottomStage?.id === stageId);
+      if (!column) return;
+      const collapsed = this.isStageColumnCollapsed(column);
+      for (const stage of [column.topStage, column.bottomStage].filter(Boolean)) {
+        if (collapsed) this.collapsedStageIds.delete(stage.id);
+        else this.collapsedStageIds.add(stage.id);
+      }
+      this.closeStageMenu();
+      this.renderBoardSurface();
+      this.stagesViewEl.querySelector(`.stage-collapse-toggle[data-stage-id="${stageId}"]`)?.focus({preventScroll: true});
+    },
+
     renderStageColumn(column) {
+      const collapsed = this.isStageColumnCollapsed(column);
       return `
-        <div class="w-72 flex-shrink-0 space-y-3">
-          ${this.renderStageSlot(column.position, 0, column.topStage, 'group/add-top')}
-          ${this.renderStageSlot(column.position, 1, column.bottomStage, 'group/add-bottom', !!column.topStage)}
+        <div class="w-72 flex-shrink-0 space-y-3 ${collapsed ? 'stage-column-collapsed' : ''}">
+          ${this.renderStageSlot(column.position, 0, column.topStage, 'group/add-top', false, collapsed)}
+          ${this.renderStageSlot(column.position, 1, column.bottomStage, 'group/add-bottom', !!column.topStage, collapsed)}
         </div>
       `;
     },
 
-    renderStageSlot(position, row, stage, groupClass, requireAnchor = false) {
+    renderStageSlot(position, row, stage, groupClass, requireAnchor = false, collapsed = false) {
       const canInsert = this.canEditBoard && (!requireAnchor || row === 0 || this.stageColumns.some(column => column.position === position && column.topStage));
-      const showAddButton = !stage && canInsert && (!this.showNewStage || this.newStageRow !== row || this.newStagePosition !== position);
-      const showAddForm = !stage && this.showNewStage && this.newStageRow === row && this.newStagePosition === position;
+      const showAddButton = !collapsed && !stage && canInsert && (!this.showNewStage || this.newStageRow !== row || this.newStagePosition !== position);
+      const showAddForm = !collapsed && !stage && this.showNewStage && this.newStageRow === row && this.newStagePosition === position;
       return `
         <div class="${groupClass}">
           <div class="min-h-[48px] rounded-xl" data-stage-slot data-stage-row="${row}" data-stage-slot-position="${position}">
-            ${stage ? this.renderStage(stage) : ''}
+            ${stage ? this.renderStage(stage, collapsed) : ''}
             ${showAddButton ? `
               <button
                 data-stage-drop-target="true"
@@ -1161,12 +1204,31 @@ function _createBoard() {
       `;
     },
 
-    renderStage(stage) {
+    renderStageGrip(stage, collapsed) {
+      const action = collapsed ? 'Expand' : 'Collapse';
+      const dragHint = this.canEditBoard ? 'Drag stage; drop between columns to insert. ' : '';
+      return `<button type="button" class="stage-collapse-toggle ${this.canEditBoard ? 'stage-drag-grip' : ''}"
+        data-action="toggle-stage-collapse" data-stage-id="${stage.id}"
+        aria-expanded="${!collapsed}" aria-label="${action} column: ${_escapeBoardHtml(stage.name)}"
+        title="${dragHint}Double-click to ${action.toLowerCase()} column (or press Enter/Space)">⠿</button>`;
+    },
+
+    renderStage(stage, collapsed = false) {
+      if (collapsed) {
+        return `
+          <div class="board-stage board-stage-collapsed rounded-xl shadow ${this.stageContainerClass(stage)}" data-stage-column-id="${stage.id}">
+            <div class="stage-collapsed-header ${this.stageHeaderClass(stage)}" data-stage-drag-handle>
+              ${this.renderStageGrip(stage, true)}
+              <span class="stage-collapsed-title font-medium text-sm ${this.stageTitleInputClass(stage)}" title="${_escapeBoardHtml(stage.name)}">${_escapeBoardHtml(stage.name)}</span>
+            </div>
+          </div>
+        `;
+      }
       const stageTasks = this.stageTasks(stage).map(task => this.renderTaskCard(task, stage)).join('');
       return `
         <div class="board-stage rounded-xl shadow w-72 flex-shrink-0 flex flex-col overflow-visible ${this.stageContainerClass(stage)}" data-stage-column-id="${stage.id}">
           <div class="flex flex-wrap items-center justify-between px-3 py-1.5 border-b ${this.stageHeaderClass(stage)}" data-stage-drag-handle>
-            ${this.canEditBoard ? '<button type="button" class="stage-drag-grip" aria-label="Drag stage" title="Drag stage; drop between columns to insert">⠿</button>' : ''}
+            ${this.renderStageGrip(stage, false)}
             <div class="min-w-0 flex-1">
               <input
                 data-field="stage-name"
