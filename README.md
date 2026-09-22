@@ -39,7 +39,8 @@ also allow insertion before the first column or after the last column.
 ### Collapsing stages
 
 Double-click a stage's header grip to collapse its column into narrow, vertical
-headers; double-click again to expand it. If both slots are occupied, both stages
+headers showing the title and task count (for example, `Title (7)`); double-click
+again to expand it. Counts include completed tasks. If both slots are occupied, both stages
 toggle together. You can also focus the grip and press Enter or Space. Viewers can
 collapse columns too, without changing the shared board.
 

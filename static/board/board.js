@@ -1252,11 +1252,12 @@ function _createBoard() {
 
     renderStage(stage, collapsed = false) {
       if (collapsed) {
+        const title = _escapeBoardHtml(`${stage.name} (${this.stageTasks(stage).length})`);
         return `
           <div class="board-stage board-stage-collapsed rounded-xl shadow ${this.stageContainerClass(stage)}" data-stage-column-id="${stage.id}">
             <div class="stage-collapsed-header ${this.stageHeaderClass(stage)}" data-stage-drag-handle>
               ${this.renderStageGrip(stage, true)}
-              <span class="stage-collapsed-title font-medium text-sm ${this.stageTitleInputClass(stage)}" title="${_escapeBoardHtml(stage.name)}">${_escapeBoardHtml(stage.name)}</span>
+              <span class="stage-collapsed-title font-medium text-sm ${this.stageTitleInputClass(stage)}" title="${title}">${title}</span>
             </div>
           </div>
         `;
