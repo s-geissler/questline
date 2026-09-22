@@ -27,6 +27,15 @@ Questline includes several advanced features to help you manage complex workflow
 *   **Checklist Spawning**: Break down Quests into smaller objectives using checklists. Checklist items can be converted into standalone objectives that remain linked to their parent Quest.
 *   **Dynamic UI**: A responsive design with drag-and-drop capabilities and rich browser-side interactions for a smooth management experience.
 
+### Moving stages
+
+Drag a stage by its header grip to move it, independently of the objectives inside it.
+Drop onto a stage slot to use the existing placement/displacement behavior, or onto
+one of the vertical guides between columns to insert a new column and shift the
+columns to its right. Both rows of a shifted column stay together. When a top stage
+moves away, the stage beneath it is promoted; empty columns are removed. Guides
+also allow insertion before the first column or after the last column.
+
 ## Technology Stack
 
 The project is built using a modern Python-based stack:
@@ -65,6 +74,14 @@ To run this project, you will need:
 *   `templates/`: Stores the Jinja2 HTML templates for the frontend.
 *   `static/`: Contains static assets, including CSS and client-side logic.
 *   `tests/`: Includes the suite of unit and integration tests to ensure application stability.
+
+### Drag-and-drop regression checks
+
+Run placement and persistence tests with `python -m pytest tests/test_stage_placements.py`.
+The optional browser suite runs with `node tests/browser_stage_drag.cjs`; it requires
+the `playwright` Node package and its Chromium browser to be installed. It serves an
+isolated in-memory board fixture using the real frontend, without touching your app
+database, and fetches the same pinned SortableJS CDN asset as the application.
 
 ## Deployment Notes
 

@@ -272,6 +272,59 @@ body {
   min-height: 0;
   transition: background-color 160ms ease;
 }
+.stage-columns {
+  display: flex;
+  align-items: flex-start;
+}
+.stage-columns > :not(.stage-insertion-target) + :not(.stage-insertion-target) {
+  margin-left: 0.75rem;
+}
+.stage-insertion-target {
+  flex: 0 0 20px;
+  align-self: stretch;
+  min-height: 120px;
+  position: relative;
+}
+.stage-insertion-target::before {
+  content: '';
+  position: absolute;
+  inset: 0 7px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.3);
+  opacity: 0;
+  pointer-events: none;
+}
+.stage-dragging .stage-insertion-target::before {
+  opacity: 1;
+}
+.stage-dragging .stage-insertion-target.stage-drop-active::before {
+  background: #7dd3fc;
+  box-shadow: 0 0 0 3px rgba(125, 211, 252, 0.3);
+}
+.stage-drop-active[data-stage-slot] {
+  outline: 3px solid #7dd3fc;
+  outline-offset: 2px;
+}
+.stage-ghost {
+  opacity: 0.4;
+}
+[data-stage-drag-handle]:has(.stage-drag-grip) {
+  cursor: grab;
+}
+.stage-drag-grip {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  padding-top: 3px;
+  margin-right: 4px;
+  color: #64748b;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.stage-drag-grip:active {
+  cursor: grabbing;
+}
 .board-stage-body {
   flex: 1 1 auto;
   min-height: 0;

@@ -51,11 +51,9 @@ function _createBoard() {
     newChecklistItem: '',
     _sortables: [],
     showStageDropTargets: false,
-    _stagePersistTimer: null,
-    _pendingStagePlacements: null,
     _stageDragContext: null,
-    _stageDragBound: false,
-    _armedStageDragId: null,
+    _stageDragCancellation: null,
+    _stageDropSaving: false,
     _sortableInitQueued: false,
     _initialized: false,
     _surfaceBound: false,
@@ -389,7 +387,6 @@ function _createBoard() {
       this.cacheSurfaceElements();
       this.bindSurfaceEvents();
       await this.loadData();
-      this.bindStageDragEvents();
       const taskId = this.getRequestedTaskId();
       if (taskId) {
         await this.openTaskById(taskId);
@@ -988,6 +985,13 @@ function _createBoard() {
 
     renderBoardSurface() {
       if (!this.readonlyBannerEl) return;
+      if (this._stageDragContext) {
+        // Do not detach Sortable's active element. Cancel this move if the board
+        // changes underneath it, and render the latest state after drag cleanup.
+        this._stageDragContext.cancelled = true;
+        return;
+      }
+      this._stageDragCancellation?.abort();
       this.renderReadonlyBanner();
       this.renderViewToggle();
       this.renderCalendarToolbar();
@@ -1014,6 +1018,7 @@ function _createBoard() {
     },
 
     updateStageDropTargetVisibility() {
+      this.stagesViewEl.classList.toggle('stage-dragging', this.showStageDropTargets);
       this._el.querySelectorAll('[data-stage-drop-target]').forEach(element => {
         element.classList.toggle('opacity-100', this.showStageDropTargets);
       });
@@ -1064,16 +1069,23 @@ function _createBoard() {
         this.stagesViewEl.innerHTML = '';
         return;
       }
-      const columns = this.stageColumns.map(column => this.renderStageColumn(column)).join('');
+      const columns = this.stageColumns.map(column =>
+        `${this.canEditBoard ? this.renderStageInsertionTarget(column.position) : ''}${this.renderStageColumn(column)}`
+      ).join('');
       const addColumn = this.canEditBoard ? this.renderTrailingStageColumn() : '';
       this.stagesViewEl.innerHTML = `
         <div id="stages-container" class="min-w-max space-y-4">
-          <div class="flex items-start gap-3">
+          <div class="stage-columns">
             ${columns}
+            ${this.canEditBoard ? this.renderStageInsertionTarget(this.topAddStagePosition) : ''}
             ${addColumn}
           </div>
         </div>
       `;
+    },
+
+    renderStageInsertionTarget(position) {
+      return `<div class="stage-insertion-target" data-stage-insert-position="${position}" title="Insert stage between columns" aria-label="Insert stage between columns"></div>`;
     },
 
     renderStageColumn(column) {
@@ -1153,26 +1165,27 @@ function _createBoard() {
       const stageTasks = this.stageTasks(stage).map(task => this.renderTaskCard(task, stage)).join('');
       return `
         <div class="board-stage rounded-xl shadow w-72 flex-shrink-0 flex flex-col overflow-visible ${this.stageContainerClass(stage)}" data-stage-column-id="${stage.id}">
-          <div class="flex items-center justify-between px-3 pt-3 pb-2 border-b ${this.stageHeaderClass(stage)}" data-stage-drag-handle>
+          <div class="flex flex-wrap items-center justify-between px-3 py-1.5 border-b ${this.stageHeaderClass(stage)}" data-stage-drag-handle>
+            ${this.canEditBoard ? '<button type="button" class="stage-drag-grip" aria-label="Drag stage" title="Drag stage; drop between columns to insert">⠿</button>' : ''}
             <div class="min-w-0 flex-1">
               <input
                 data-field="stage-name"
                 data-stage-id="${stage.id}"
                 value="${_escapeBoardHtml(stage.name)}"
                 ${this.canEditBoard ? '' : 'disabled'}
-                class="stage-title-input font-medium bg-transparent w-full rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400 text-sm ${this.stageTitleInputClass(stage)}"
+                class="stage-title-input block font-medium bg-transparent w-full rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400 text-sm ${this.stageTitleInputClass(stage)}"
               >
-              ${stage.is_log ? `
-                <div class="mt-1 px-1 space-y-1">
-                  <div class="flex items-center gap-1.5 flex-wrap">
-                    <span class="log-stage-badge text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded-full font-semibold">Filter Log</span>
-                    <span class="log-stage-summary text-[10px] font-medium">⌕ Read-only view</span>
-                  </div>
-                  <div class="log-stage-summary text-[11px] leading-snug">${_escapeBoardHtml(this.logStageSummary(stage))}</div>
-                </div>
-              ` : ''}
             </div>
             ${this.canEditBoard ? this.renderStageMenu(stage) : ''}
+            ${stage.is_log ? `
+              <div class="w-full mt-1 px-1 space-y-1">
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  <span class="log-stage-badge text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded-full font-semibold">Filter Log</span>
+                  <span class="log-stage-summary text-[10px] font-medium">⌕ Read-only view</span>
+                </div>
+                <div class="log-stage-summary text-[11px] leading-snug">${_escapeBoardHtml(this.logStageSummary(stage))}</div>
+              </div>
+            ` : ''}
           </div>
           <div class="board-stage-body px-2 pt-2 pb-1 space-y-2 min-h-[8px] ${this.stageBodyClass(stage)}" id="${this.stageDomId(stage)}" data-stage-id="${stage.id}">
             ${stageTasks}
@@ -1189,7 +1202,7 @@ function _createBoard() {
           <button
             data-action="toggle-stage-menu"
             data-stage-id="${stage.id}"
-            class="text-gray-400 hover:text-gray-700 px-2 py-1 rounded hover:bg-white transition-colors text-lg leading-none"
+            class="block text-gray-400 hover:text-gray-700 px-2 py-1 rounded hover:bg-white transition-colors text-lg leading-none"
             title="Stage actions"
           >☰</button>
           ${this.isStageMenuOpen(stage.id) ? `
@@ -1939,9 +1952,8 @@ function _createBoard() {
 
     initSortable() {
       this.pruneDetachedSortables();
-      this.showStageDropTargets = false;
+      if (!this.canEditBoard) return;
       if (this.boardView === 'calendar') {
-        if (!this.canEditBoard) return;
         this.initCalendarSortable();
         return;
       }
@@ -1949,6 +1961,7 @@ function _createBoard() {
         return;
       }
 
+      this.initStageSortable();
       this.stages.forEach(stage => {
         const el = document.getElementById('stage-' + stage.id);
         if (!el) return;
@@ -1957,11 +1970,12 @@ function _createBoard() {
         const s = Sortable.create(el, {
           group: 'tasks',
           animation: 150,
-          draggable: '[data-task-id]',
+          draggable: '.board-task-card',
           ghostClass: 'task-ghost',
+          disabled: this._stageDropSaving,
           onEnd: async (evt) => {
             const newStageId = parseInt(evt.to.dataset.stageId);
-            const taskEls = Array.from(evt.to.querySelectorAll('[data-task-id]'));
+            const taskEls = Array.from(evt.to.children).filter(el => el.matches('.board-task-card'));
             const ids = taskEls.map(el => parseInt(el.dataset.taskId));
             const movedTaskId = parseInt(evt.item.dataset.taskId);
             const stageMap = new Map(this.stages.map(stage => [stage.id, {
@@ -2018,6 +2032,7 @@ function _createBoard() {
           animation: 150,
           ghostClass: 'task-ghost',
           draggable: '[data-calendar-draggable="true"]',
+          disabled: this._stageDropSaving,
           onEnd: async (evt) => {
             const taskId = parseInt(evt.item.dataset.taskId, 10);
             const targetDate = evt.to.closest('[data-calendar-date]')?.dataset.calendarDate;
@@ -2033,93 +2048,29 @@ function _createBoard() {
       });
     },
 
-    buildStagePlacements() {
-      const placements = [];
-      const stageSlots = Array.from(document.querySelectorAll('[data-stage-slot]'));
-      stageSlots.forEach(slotEl => {
-        const stageEl = Array.from(slotEl.children).find(child => child.dataset.stageColumnId);
-        if (!stageEl) return;
-        placements.push({
-          id: parseInt(stageEl.dataset.stageColumnId, 10),
-          row: parseInt(slotEl.dataset.stageRow || '0', 10),
-          position: parseInt(slotEl.dataset.stageSlotPosition || '0', 10),
+    initStageSortable() {
+      this.stagesViewEl.querySelectorAll('[data-stage-slot], [data-stage-insert-position]').forEach(el => {
+        if (Sortable.get(el)) return;
+        const sortable = Sortable.create(el, {
+          group: 'stages',
+          draggable: '[data-stage-column-id]',
+          handle: '[data-stage-drag-handle]',
+          filter: 'input, button:not(.stage-drag-grip), textarea, select, a, [contenteditable]',
+          preventOnFilter: false,
+          animation: 150,
+          ghostClass: 'stage-ghost',
+          disabled: this._stageDropSaving,
+          sort: false,
+          // Slots use promotion/displacement, not list insertion. Keep their
+          // geometry stable while Sortable handles the drag image and inputs.
+          // Commit the highlighted target from the placement snapshot on end.
+          onMove: () => false,
+          onChoose: evt => this.prepareStageDrag(evt),
+          onUnchoose: () => this._stageDragCancellation?.abort(),
+          onStart: evt => this.beginStageDrag(evt),
+          onEnd: evt => this.finishStageDrop(evt),
         });
-      });
-      return placements;
-    },
-
-    bindStageDragEvents() {
-      if (this._stageDragBound) return;
-      this._stageDragBound = true;
-      document.addEventListener('mousedown', evt => {
-        const handle = evt.target.closest('[data-stage-drag-handle]');
-        const stageEl = handle?.closest('[data-stage-column-id]');
-        this._armedStageDragId = stageEl ? parseInt(stageEl.dataset.stageColumnId || '0', 10) : null;
-        if (stageEl) {
-          stageEl.draggable = true;
-        }
-      });
-      document.addEventListener('mouseup', () => {
-        this.resetArmedStageDrag();
-      });
-      document.addEventListener('dragstart', evt => {
-        const stageEl = evt.target instanceof HTMLElement && evt.target.matches('[data-stage-column-id]')
-          ? evt.target
-          : null;
-        if (!stageEl) return;
-        const draggedId = parseInt(stageEl.dataset.stageColumnId || '0', 10);
-        if (!this.canEditBoard || this.boardView !== 'stages' || !draggedId || this._armedStageDragId !== draggedId) {
-          evt.preventDefault();
-          return;
-        }
-        this._stageDragContext = {
-          draggedId,
-          placements: this.clonePlacements(this.buildStagePlacements()),
-        };
-        this.showStageDropTargets = true;
-        this.updateStageDropTargetVisibility();
-        if (evt.dataTransfer) {
-          evt.dataTransfer.effectAllowed = 'move';
-          evt.dataTransfer.setData('text/plain', String(draggedId));
-        }
-      });
-      document.addEventListener('dragover', evt => {
-        const slot = evt.target.closest?.('[data-stage-slot]');
-        if (!slot || !this._stageDragContext) return;
-        const targetRow = parseInt(slot.dataset.stageRow || '-1', 10);
-        const targetPosition = parseInt(slot.dataset.stageSlotPosition || '-1', 10);
-        if (!this.canPlaceStageTarget(this._stageDragContext.draggedId, targetRow, targetPosition)) return;
-        evt.preventDefault();
-        if (evt.dataTransfer) {
-          evt.dataTransfer.dropEffect = 'move';
-        }
-      });
-      document.addEventListener('drop', evt => {
-        const slot = evt.target.closest?.('[data-stage-slot]');
-        if (!slot || !this._stageDragContext) return;
-        evt.preventDefault();
-        const targetRow = parseInt(slot.dataset.stageRow || '-1', 10);
-        const targetPosition = parseInt(slot.dataset.stageSlotPosition || '-1', 10);
-        this.finishStageDrop(targetRow, targetPosition);
-      });
-      document.addEventListener('dragend', evt => {
-        const stageEl = evt.target instanceof HTMLElement && evt.target.matches('[data-stage-column-id]')
-          ? evt.target
-          : null;
-        if (stageEl) {
-          stageEl.draggable = false;
-        }
-        this.resetArmedStageDrag();
-        this.showStageDropTargets = false;
-        this.updateStageDropTargetVisibility();
-        this._stageDragContext = null;
-      });
-    },
-
-    resetArmedStageDrag() {
-      this._armedStageDragId = null;
-      document.querySelectorAll('[data-stage-column-id]').forEach(el => {
-        el.draggable = false;
+        this._sortables.push(sortable);
       });
     },
 
@@ -2131,12 +2082,56 @@ function _createBoard() {
       return placements.find(placement => placement.id === stageId) || null;
     },
 
+    prepareStageDrag(evt) {
+      this._stageDragCancellation?.abort();
+      this._stageDragCancellation = new AbortController();
+      const sortable = Sortable.get(evt.from);
+      // Sortable 1.15.7 misses touchcancel, even between choose and start when
+      // Sortable.active is unset. The owning instance's dragend path clears both
+      // a prepared gesture and a running fallback drag without committing it.
+      document.addEventListener('touchcancel', () => {
+        sortable.handleEvent(new Event('dragend'));
+      }, {capture: true, passive: true, signal: this._stageDragCancellation.signal});
+    },
+
     beginStageDrag(evt) {
       const draggedId = parseInt(evt.item?.dataset?.stageColumnId || '0', 10);
+      const listeners = new AbortController();
       this._stageDragContext = {
         draggedId,
-        placements: this.clonePlacements(this.buildStagePlacements()),
+        placements: this.stages.map(stage => ({id: stage.id, row: stage.row, position: stage.position})),
+        listeners,
+        target: null,
       };
+      this.showStageDropTargets = true;
+      this.updateStageDropTargetVisibility();
+      // These listeners only paint feedback; Sortable owns activation and drop.
+      // Resolve the pointer, not evt.to, since rejected moves leave the DOM in place.
+      for (const type of ['dragover', 'pointermove', 'touchmove']) {
+        document.addEventListener(type, event => {
+          const target = this.stageDropTargetAtEvent(event);
+          const validTarget = this.previewStagePlacements(target) ? target : null;
+          this._stageDragContext.target?.classList.remove('stage-drop-active');
+          validTarget?.classList.add('stage-drop-active');
+          this._stageDragContext.target = validTarget;
+        }, {capture: true, passive: true, signal: listeners.signal});
+      }
+    },
+
+    stageDropTargetAtEvent(event) {
+      const pointer = event?.changedTouches?.[0] || event;
+      if (!Number.isFinite(pointer?.clientX) || !Number.isFinite(pointer?.clientY)) return null;
+      const target = document.elementFromPoint(pointer.clientX, pointer.clientY)
+        ?.closest('[data-stage-slot], [data-stage-insert-position]');
+      return target && this.stagesViewEl.contains(target) ? target : null;
+    },
+
+    resetStageDrag() {
+      this._stageDragContext?.listeners.abort();
+      this._stageDragContext?.target?.classList.remove('stage-drop-active');
+      this._stageDragContext = null;
+      this.showStageDropTargets = false;
+      this.updateStageDropTargetVisibility();
     },
 
     stageFallbackTarget(sourcePlacement, placements) {
@@ -2175,6 +2170,23 @@ function _createBoard() {
       return this.normalizeStagePlacements(nextPlacements);
     },
 
+    applyStageInsertion(placements, draggedId, insertPosition) {
+      const sourcePlacement = this.placementForStage(placements, draggedId);
+      if (!sourcePlacement) return this.clonePlacements(placements);
+      const nextPlacements = this.clonePlacements(placements).filter(placement => placement.id !== draggedId);
+      if (sourcePlacement.row === 0) {
+        const lowerStage = nextPlacements.find(placement => placement.row === 1 && placement.position === sourcePlacement.position);
+        if (lowerStage) lowerStage.row = 0;
+      }
+      // Boundaries refer to the original columns. Shift both rows together,
+      // then compact any column emptied by removing the dragged stage.
+      nextPlacements.forEach(placement => {
+        if (placement.position >= insertPosition) placement.position += 1;
+      });
+      nextPlacements.push({id: draggedId, row: 0, position: insertPosition});
+      return this.normalizeStagePlacements(nextPlacements);
+    },
+
     normalizeStagePlacements(placements) {
       const orderedPositions = [...new Set(
         placements
@@ -2191,29 +2203,26 @@ function _createBoard() {
         .sort((a, b) => (a.position - b.position) || (a.row - b.row) || (a.id - b.id));
     },
 
-    canPlaceStageDrop(evt) {
-      const placements = this.previewStagePlacements(evt);
-      if (!placements) return false;
+    previewStagePlacements(target) {
+      const context = this._stageDragContext;
+      if (!target || !context || context.cancelled || !this.canEditBoard || !this.isStagesView) return null;
+      const {draggedId, placements: original} = context;
+      if (!this.placementForStage(original, draggedId)) return null;
+      let placements;
+      if (target.dataset.stageInsertPosition !== undefined) {
+        const position = Number(target.dataset.stageInsertPosition);
+        if (!Number.isInteger(position) || position < 0) return null;
+        placements = this.applyStageInsertion(original, draggedId, position);
+      } else {
+        const row = Number(target.dataset.stageRow);
+        const position = Number(target.dataset.stageSlotPosition);
+        if (![0, 1].includes(row) || !Number.isInteger(position) || position < 0) return null;
+        placements = this.applyStageDrop(original, draggedId, row, position);
+      }
       const topRowPositions = new Set(placements.filter(placement => placement.row === 0).map(placement => placement.position));
-      return placements.every(placement => placement.row !== 1 || topRowPositions.has(placement.position));
-    },
-
-    canPlaceStageTarget(draggedId, targetRow, targetPosition) {
-      if (!draggedId || targetRow < 0 || targetPosition < 0) return false;
-      const basePlacements = this._stageDragContext?.placements || this.buildStagePlacements();
-      const placements = this.applyStageDrop(basePlacements, draggedId, targetRow, targetPosition);
-      const topRowPositions = new Set(placements.filter(placement => placement.row === 0).map(placement => placement.position));
-      return placements.every(placement => placement.row !== 1 || topRowPositions.has(placement.position));
-    },
-
-    previewStagePlacements(evt) {
-      const draggedId = parseInt(evt.dragged?.dataset?.stageColumnId || evt.item?.dataset?.stageColumnId || '0', 10);
-      if (!draggedId) return null;
-      const targetRow = parseInt(evt.to?.dataset?.stageRow || '0', 10);
-      const slotPosition = parseInt(evt.to?.dataset?.stageSlotPosition || '0', 10);
-      if (!Number.isInteger(targetRow) || !Number.isInteger(slotPosition)) return this._stageDragContext?.placements || this.buildStagePlacements();
-      const basePlacements = this._stageDragContext?.placements || this.buildStagePlacements();
-      return this.applyStageDrop(basePlacements, draggedId, targetRow, slotPosition);
+      const occupiedSlots = new Set(placements.map(placement => `${placement.row}:${placement.position}`));
+      if (occupiedSlots.size !== placements.length) return null;
+      return placements.every(placement => placement.row !== 1 || topRowPositions.has(placement.position)) ? placements : null;
     },
 
     syncStagesFromPlacements(placements) {
@@ -2228,49 +2237,40 @@ function _createBoard() {
         .sort((a, b) => (a.row - b.row) || (a.position - b.position));
     },
 
-    commitStageDrop(placements = this.buildStagePlacements()) {
-      this.syncStagesFromPlacements(placements);
-      this.queuePersistStagePlacements(placements);
-    },
-
-    async finishStageDrop(targetRow, targetPosition) {
-      const draggedId = parseInt(this._stageDragContext?.draggedId || '0', 10);
-      const basePlacements = this._stageDragContext?.placements || this.buildStagePlacements();
-      this._stageDragContext = null;
-      if (!draggedId || targetRow < 0 || targetPosition < 0) {
-        this.showStageDropTargets = false;
-        this.updateStageDropTargetVisibility();
-        await this.loadStages();
-        return;
+    async finishStageDrop(evt) {
+      const context = this._stageDragContext;
+      if (!context) return;
+      const event = evt.originalEvent;
+      // dragend without drop (e.g. Escape), and touch/pointer cancellation, must
+      // not commit the last hovered slot. Only the actual release target counts.
+      const released = ['drop', 'mouseup', 'pointerup', 'touchend'].includes(event?.type);
+      const placements = released ? this.previewStagePlacements(this.stageDropTargetAtEvent(event)) : null;
+      const changed = placements && placements.some(placement => {
+        const original = this.placementForStage(context.placements, placement.id);
+        return original.row !== placement.row || original.position !== placement.position;
+      });
+      this.resetStageDrag();
+      this._stageDropSaving = true;
+      this._sortables.forEach(sortable => sortable.option('disabled', true));
+      // Sortable emits onEnd before removing its drag bookkeeping.
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      try {
+        if (changed) {
+          const res = await apiReorderStages({stages: placements});
+          if (!res.ok) throw new Error('Stage reorder failed');
+          this.syncStagesFromPlacements(placements);
+          await this.loadStages();
+        } else {
+          this.renderBoardSurface();
+        }
+      } catch {
+        this.renderBoardSurface();
+        alert('Unable to save or refresh the stage layout. Please reload the board before trying again.');
+      } finally {
+        this._stageDropSaving = false;
+        this.pruneDetachedSortables();
+        this._sortables.forEach(sortable => sortable.option('disabled', !this.canEditBoard));
       }
-      const placements = this.applyStageDrop(basePlacements, draggedId, targetRow, targetPosition);
-      this.showStageDropTargets = false;
-      this.updateStageDropTargetVisibility();
-      await this.persistStagePlacements(placements);
-    },
-
-    async persistStagePlacements(placements = this._pendingStagePlacements || this.buildStagePlacements()) {
-      const res = await apiReorderStages({stages: placements});
-      if (!res.ok) {
-        await this.loadStages();
-        return;
-      }
-      await this.loadStages();
-    },
-
-    queuePersistStagePlacements(placements) {
-      this.showStageDropTargets = false;
-      this.updateStageDropTargetVisibility();
-      this._pendingStagePlacements = placements;
-      if (this._stagePersistTimer) {
-        clearTimeout(this._stagePersistTimer);
-      }
-      this._stagePersistTimer = setTimeout(async () => {
-        this._stagePersistTimer = null;
-        const nextPlacements = this._pendingStagePlacements;
-        this._pendingStagePlacements = null;
-        await this.persistStagePlacements(nextPlacements);
-      }, 0);
     },
 
     // Stages
