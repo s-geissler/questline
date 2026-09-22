@@ -21,6 +21,7 @@ function _createBoard() {
     boardId: 0,
     boards: [],
     stages: [],
+    _stagesLoaded: false,
     collapsedStageIds: new Set(),
     taskTypes: [],
     savedFilters: [],
@@ -379,6 +380,7 @@ function _createBoard() {
       if (this._initialized) return;
       this._initialized = true;
       this.boardId = parseInt(this._el.dataset.boardId || '0', 10);
+      this.restoreCollapsedStages();
       this.boards = _parseBoardPageJson(this._el.dataset.boards, []);
       this.settingsBoardName = _parseBoardPageJson(this._el.dataset.boardName, '');
       this.settingsBoardColor = _parseBoardPageJson(this._el.dataset.boardColor, '') || null;
@@ -409,6 +411,7 @@ function _createBoard() {
         row: Number.isInteger(stage.row) ? stage.row : 0,
         tasks: (stage.tasks || []).map(task => this._decorateTask(task)),
       }));
+      this._stagesLoaded = true;
       this.renderBoardSurface();
     },
 
@@ -1103,17 +1106,50 @@ function _createBoard() {
       return `<div class="stage-insertion-target" data-stage-insert-position="${position}" title="Insert stage between columns" aria-label="Insert stage between columns"></div>`;
     },
 
+    get collapsedStagesStorageKey() {
+      return `questline-board-${this.boardId}-collapsed-stages`;
+    },
+
+    restoreCollapsedStages() {
+      try {
+        const ids = JSON.parse(localStorage.getItem(this.collapsedStagesStorageKey));
+        if (Array.isArray(ids)) {
+          this.collapsedStageIds = new Set(ids.filter(id => Number.isSafeInteger(id) && id > 0));
+        }
+      } catch {
+        // Invalid or inaccessible storage must not prevent loading the board.
+      }
+    },
+
+    saveCollapsedStages() {
+      try {
+        if (this.collapsedStageIds.size) {
+          localStorage.setItem(this.collapsedStagesStorageKey, JSON.stringify([...this.collapsedStageIds]));
+        } else {
+          localStorage.removeItem(this.collapsedStagesStorageKey);
+        }
+      } catch {
+        // Keep the in-memory preference when storage is blocked or full.
+      }
+    },
+
     isStageColumnCollapsed(column) {
       return [column.topStage, column.bottomStage].some(stage => stage && this.collapsedStageIds.has(stage.id));
     },
 
     syncCollapsedStageColumns(columns) {
+      // Metadata can render before stages arrive; don't prune restored IDs yet.
+      if (!this._stagesLoaded) return;
       // Collapse follows stage IDs, not mutable positions. After a move, a
       // collapsed stage also collapses its new companion; promotion preserves
       // the remaining stage's state. Drop IDs of deleted stages along the way.
-      this.collapsedStageIds = new Set(columns
+      const ids = new Set(columns
         .filter(column => this.isStageColumnCollapsed(column))
         .flatMap(column => [column.topStage, column.bottomStage].filter(Boolean).map(stage => stage.id)));
+      if (ids.size !== this.collapsedStageIds.size || [...ids].some(id => !this.collapsedStageIds.has(id))) {
+        this.collapsedStageIds = ids;
+        this.saveCollapsedStages();
+      }
     },
 
     toggleStageColumn(stageId) {
@@ -1125,6 +1161,7 @@ function _createBoard() {
         if (collapsed) this.collapsedStageIds.delete(stage.id);
         else this.collapsedStageIds.add(stage.id);
       }
+      this.saveCollapsedStages();
       this.closeStageMenu();
       this.renderBoardSurface();
       this.stagesViewEl.querySelector(`.stage-collapse-toggle[data-stage-id="${stageId}"]`)?.focus({preventScroll: true});

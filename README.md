@@ -46,8 +46,11 @@ collapse columns too, without changing the shared board.
 Collapsed stages hide their objectives, menus, and creation controls; expand them
 to edit or drop objectives into them. Editors can still drag collapsed stages.
 Collapse follows a stage when it moves, also collapsing its new column companion.
-This is local viewing state: it survives board rerenders and calendar switches,
-but resets on page reload. No board data is changed by collapsing or expanding.
+This is local viewing state, saved per board in your browser's local storage. It
+survives page reloads and browser restarts, but does not sync across browsers or
+devices. Clearing site data resets it. If browser storage is unavailable, collapse
+still works for the current page. No board data is changed by collapsing or
+expanding.
 
 ## Technology Stack
 
