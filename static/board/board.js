@@ -56,6 +56,7 @@ function _createBoard() {
     _stageDragContext: null,
     _stageDragBound: false,
     _armedStageDragId: null,
+    _sortableInitQueued: false,
     _initialized: false,
     _surfaceBound: false,
     activeStageMenuId: null,
@@ -411,9 +412,6 @@ function _createBoard() {
         tasks: (stage.tasks || []).map(task => this._decorateTask(task)),
       }));
       this.renderBoardSurface();
-      requestAnimationFrame(() => {
-        this.initSortable();
-      });
     },
 
     async reloadStagesAfterDrag() {
@@ -1000,6 +998,19 @@ function _createBoard() {
       this.renderTaskModal();
       this.renderLogConfigModal();
       this.updateStageDropTargetVisibility();
+      this.scheduleSortableInit();
+    },
+
+    scheduleSortableInit() {
+      if (this._sortableInitQueued) return;
+      this._sortableInitQueued = true;
+      const schedule = typeof requestAnimationFrame === 'function'
+        ? requestAnimationFrame
+        : callback => callback();
+      schedule(() => {
+        this._sortableInitQueued = false;
+        this.initSortable();
+      });
     },
 
     updateStageDropTargetVisibility() {
@@ -1927,6 +1938,7 @@ function _createBoard() {
     },
 
     initSortable() {
+      this.pruneDetachedSortables();
       this.showStageDropTargets = false;
       if (this.boardView === 'calendar') {
         if (!this.canEditBoard) return;
@@ -1982,6 +1994,16 @@ function _createBoard() {
           },
         });
         this._sortables.push(s);
+      });
+    },
+
+    pruneDetachedSortables() {
+      this._sortables = this._sortables.filter(sortable => {
+        if (sortable?.el && 'isConnected' in sortable.el && !sortable.el.isConnected) {
+          sortable.destroy();
+          return false;
+        }
+        return true;
       });
     },
 
@@ -2306,7 +2328,6 @@ function _createBoard() {
       this.newTaskTitles = {...this.newTaskTitles, [stageId]: ''};
       this.showNewTask = {...this.showNewTask, [stageId]: false};
       this.renderBoardSurface();
-      requestAnimationFrame(() => this.initSortable());
     },
 
     isNewTaskFormOpen(stageId) {
