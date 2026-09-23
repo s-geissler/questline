@@ -25,6 +25,7 @@ def _load_modules(tmp_path, monkeypatch):
         "routes.auth",
         "routes.boards",
         "routes.stages",
+        "routes.tasks",
         "routes._deps",
         "routes._helpers",
         "routes.pages",

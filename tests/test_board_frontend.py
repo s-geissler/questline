@@ -259,3 +259,124 @@ assert.equal(initCount, 1);
 """
 
     run_board_js(script)
+
+
+def test_task_attachment_section_escapes_names_and_respects_viewer_permissions():
+    board_js = ROOT / "static" / "board" / "board.js"
+    script = f"""
+const assert = require('assert');
+const fs = require('fs');
+const vm = require('vm');
+
+const context = {{ document: {{ addEventListener() {{}} }} }};
+vm.createContext(context);
+vm.runInContext(fs.readFileSync({json.dumps(str(board_js))}, 'utf8'), context);
+
+const board = context._createBoard();
+board.taskAttachments = [{{
+  id: 7,
+  filename: '<img src=x onerror=alert(1)>.txt',
+  size_bytes: 1024,
+}}];
+board.taskAttachmentsLoading = false;
+board.taskAttachmentsBusy = false;
+board.taskAttachmentsError = '';
+
+const editableHtml = board._renderTaskAttachmentsSection({{id: 42}}, true);
+assert(editableHtml.includes('&lt;img src=x onerror=alert(1)&gt;.txt'), editableHtml);
+assert(!editableHtml.includes('<img src=x onerror=alert(1)>'), editableHtml);
+assert(editableHtml.includes('/api/tasks/42/attachments/7/download'), editableHtml);
+assert(editableHtml.includes('data-action="modal-delete-attachment"'), editableHtml);
+assert(editableHtml.includes('1.0 KiB'), editableHtml);
+
+const viewerHtml = board._renderTaskAttachmentsSection({{id: 42}}, false);
+assert(viewerHtml.includes('/api/tasks/42/attachments/7/download'), viewerHtml);
+assert(!viewerHtml.includes('data-field="modal-attachment-file"'), viewerHtml);
+assert(!viewerHtml.includes('data-action="modal-delete-attachment"'), viewerHtml);
+
+board.taskAttachments = [];
+assert.equal(board._renderTaskAttachmentsSection({{id: 42}}, true), '');
+board.taskAttachmentsLoading = false;
+board.taskAttachmentsBusy = false;
+board.taskActionMenuOpen = true;
+const menu = board._renderTaskActionMenuDropdown({{id: 42, recurrence: null, task_type_id: null, stage_id: 1}});
+assert(menu.includes('data-action="modal-attach-file"'), menu);
+"""
+
+    run_board_js(script)
+
+
+def test_task_attachment_upload_uses_browser_multipart_boundary():
+    api_js = ROOT / "static" / "board" / "api.js"
+    script = f"""
+const assert = require('assert');
+const fs = require('fs');
+const vm = require('vm');
+
+let request;
+class FakeFormData {{
+  constructor() {{ this.fields = []; }}
+  append(name, value) {{ this.fields.push([name, value]); }}
+}}
+const context = {{
+  FormData: FakeFormData,
+  fetch(url, init) {{ request = {{url, init}}; return Promise.resolve({{ok: true}}); }},
+}};
+vm.createContext(context);
+vm.runInContext(fs.readFileSync({json.dumps(str(api_js))}, 'utf8'), context);
+
+(async () => {{
+  const file = {{name: 'notes.txt'}};
+  await context.apiUploadTaskAttachment(42, file);
+  assert.equal(request.url, '/api/tasks/42/attachments');
+  assert.equal(request.init.method, 'POST');
+  assert(request.init.body instanceof FakeFormData);
+  assert.deepEqual(request.init.body.fields, [['file', file]]);
+  assert.equal(request.init.headers, undefined);
+}})().catch(error => {{ console.error(error); process.exitCode = 1; }});
+"""
+
+    run_board_js(script)
+
+
+def test_task_card_shows_paperclip_only_when_attachments_exist():
+    board_js = ROOT / "static" / "board" / "board.js"
+    script = f"""
+const assert = require('assert');
+const fs = require('fs');
+const vm = require('vm');
+
+const context = {{
+  document: {{ addEventListener() {{}} }},
+  renderMarkdown(value) {{ return value || ''; }},
+}};
+vm.createContext(context);
+vm.runInContext(fs.readFileSync({json.dumps(str(board_js))}, 'utf8'), context);
+
+const board = context._createBoard();
+const task = {{
+  id: 42,
+  title: 'Task',
+  description: 'Has details',
+  done: false,
+  checklist: [],
+  custom_field_values: {{}},
+  recurrence: null,
+  attachment_count: 1,
+}};
+const stage = {{id: 1, is_log: false}};
+const withAttachment = board.renderTaskCard(task, stage);
+const descriptionIndicator = withAttachment.indexOf('aria-label="Has description"');
+const paperclipIndicator = withAttachment.indexOf('aria-label="Has attachments"');
+const metadataRow = withAttachment.indexOf('class="flex items-center gap-1.5 mt-1.5 flex-wrap"');
+assert(descriptionIndicator >= 0, withAttachment);
+assert(paperclipIndicator > descriptionIndicator, withAttachment);
+assert(paperclipIndicator < metadataRow, withAttachment);
+assert(withAttachment.includes('width="11" height="11"'), withAttachment);
+assert(withAttachment.includes('class="task-card-attachment-indicator inline-flex'), withAttachment);
+
+const withoutAttachment = board.renderTaskCard({{...task, attachment_count: 0}}, stage);
+assert(!withoutAttachment.includes('aria-label="Has attachments"'), withoutAttachment);
+"""
+
+    run_board_js(script)
