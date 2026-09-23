@@ -280,7 +280,7 @@ body {
   margin-left: 0.75rem;
 }
 .stage-insertion-target {
-  flex: 0 0 20px;
+  flex: 0 0 10px;
   align-self: stretch;
   min-height: 120px;
   position: relative;
@@ -288,7 +288,7 @@ body {
 .stage-insertion-target::before {
   content: '';
   position: absolute;
-  inset: 0 7px;
+  inset: 0 3px;
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.3);
   opacity: 0;
