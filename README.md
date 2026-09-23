@@ -25,6 +25,7 @@ Questline includes several advanced features to help you manage complex workflow
 *   **Flexible Custom Fields**: Extend your objectives by adding specialized data fields like text, numbers, dates, or dropdown menus based on the objective type.
 *   **Automation Engine**: Create rules that automatically perform actions based on specific triggers. For example, you can set a rule to move an objective to a specific Stage whenever it is marked as completed.
 *   **Checklist Spawning**: Break down Quests into smaller objectives using checklists. Checklist items can be converted into standalone objectives that remain linked to their parent Quest.
+*   **Task Attachments**: Attach up to five files of 10 MiB each to an objective. Files are stored in the configured database and can be downloaded by board viewers.
 *   **Dynamic UI**: A responsive design with drag-and-drop capabilities and rich browser-side interactions for a smooth management experience.
 
 ### Moving stages

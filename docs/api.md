@@ -306,12 +306,46 @@ Returns a single task. Requires `viewer` on the task's board.
   "effective_show_checklist_on_card": false,
   "custom_field_values": { "3": "high" },
   "checklist": [],
+  "attachment_count": 0,
   "board_id": 1,
   "board_name": "My Board",
   "stage_name": "To Do",
   "recurrence": null
 }
 ```
+
+---
+
+### `GET /api/tasks/{task_id}/attachments`
+
+List a task's attachment metadata. Requires `viewer` access to the task's board. File bytes are not included in this response.
+
+Each item contains `id`, `filename`, `size_bytes`, `content_type`, `uploaded_by_user_id`, and `created_at`.
+
+---
+
+### `POST /api/tasks/{task_id}/attachments`
+
+Upload one attachment as `multipart/form-data` with a `file` field. Requires `editor` access.
+
+- Maximum file size: 10 MiB (10,485,760 bytes)
+- Maximum attachments per task: 5
+- Multipart request body is capped at 10 MiB plus 64 KiB of multipart overhead.
+- Returns `413` if the file is too large and `409` if the task already has 5 attachments.
+
+Returns the new attachment's metadata. The original filename is stored as a display name; path components are removed. Downloads are always served as an attachment, not rendered inline.
+
+---
+
+### `GET /api/tasks/{task_id}/attachments/{attachment_id}/download`
+
+Download an attachment's bytes. Requires `viewer` access to the task's board and returns `application/octet-stream` with an attachment content disposition.
+
+---
+
+### `DELETE /api/tasks/{task_id}/attachments/{attachment_id}`
+
+Delete an attachment. Requires `editor` access. Deleting a task also deletes its attachments.
 
 ---
 
@@ -428,6 +462,8 @@ Recurrence is attached to the source task.
 
 - `create_new` creates a new task in `spawn_stage_id`
 - `reuse_existing` resets and moves the same task back to `spawn_stage_id`
+
+Attachments remain on the source task and are not copied to newly created recurring tasks.
 
 In both cases, `spawn_stage_id` is the source of truth for where the next cycle starts, so completion automations moving the task elsewhere do not affect recurrence placement.
 

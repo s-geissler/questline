@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import json
+import unicodedata
 from typing import List as PyList, Optional
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -37,6 +40,10 @@ MAX_DESCRIPTION_LENGTH = 10000
 MAX_OPTION_COUNT = 100
 RECURRENCE_FREQUENCIES = {"daily", "weekly", "monthly"}
 RECURRENCE_MODES = {"create_new", "reuse_existing"}
+MAX_TASK_ATTACHMENT_SIZE = 10 * 1024 * 1024
+MAX_TASK_ATTACHMENT_REQUEST_SIZE = MAX_TASK_ATTACHMENT_SIZE + 64 * 1024
+MAX_TASK_ATTACHMENT_COUNT = 5
+MAX_TASK_ATTACHMENT_FILENAME_LENGTH = 255
 
 
 class TaskCreate(BaseModel):
@@ -204,8 +211,68 @@ def task_to_dict(task: models.Task) -> dict:
         "done": task.done,
         "custom_field_values": custom_values,
         "checklist": checklist,
+        "attachment_count": len(task.attachments),
         "recurrence": recurrence_to_dict(task.recurrence),
     }
+
+
+def _attachment_to_dict(attachment: models.TaskAttachment) -> dict:
+    return {
+        "id": attachment.id,
+        "filename": attachment.filename,
+        "size_bytes": attachment.size_bytes,
+        "content_type": attachment.content_type,
+        "uploaded_by_user_id": attachment.uploaded_by_user_id,
+        "created_at": (
+            attachment.created_at.isoformat() if attachment.created_at else None
+        ),
+    }
+
+
+def _sanitize_attachment_filename(filename: Optional[str]) -> str:
+    basename = (filename or "").replace("\\", "/").rsplit("/", 1)[-1]
+    safe_name = "".join(
+        character
+        for character in basename
+        if not unicodedata.category(character).startswith("C")
+    ).strip(" .")
+    return (safe_name or "attachment")[:MAX_TASK_ATTACHMENT_FILENAME_LENGTH]
+
+
+def _attachment_content_type(upload: UploadFile) -> str:
+    content_type = (upload.content_type or "").strip()
+    if (
+        not content_type
+        or len(content_type) > 255
+        or any(ord(character) < 32 or ord(character) == 127 for character in content_type)
+    ):
+        return "application/octet-stream"
+    return content_type
+
+
+def _authorized_task(
+    task_id: int,
+    request: Optional[Request],
+    db: Session,
+    min_role: str,
+):
+    board_id = _board_id_for_task(task_id, db)
+    current_user = None
+    if board_id is not None:
+        current_user = _authorize_board_request(request, db, board_id, min_role)
+    task = db.query(models.Task).filter(models.Task.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task, current_user
+
+
+def _lock_task_attachment_capacity(task_id: int, db: Session):
+    connection = db.connection()
+    if connection.dialect.name == "sqlite":
+        # Serialize the count-and-insert pair so concurrent uploads cannot exceed the cap.
+        connection.exec_driver_sql("BEGIN IMMEDIATE")
+    else:
+        db.query(models.Task).filter(models.Task.id == task_id).with_for_update().first()
 
 
 def _validate_custom_fields_for_task(
@@ -304,6 +371,118 @@ def get_task(task_id: int, db: Session = Depends(get_db), request: Request = Non
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     return task_to_dict(task)
+
+
+@router.get("/{task_id}/attachments")
+def get_task_attachments(
+    task_id: int,
+    db: Session = Depends(get_db),
+    request: Request = None,
+):
+    _authorized_task(task_id, request, db, "viewer")
+    attachments = (
+        db.query(models.TaskAttachment)
+        .filter(models.TaskAttachment.task_id == task_id)
+        .order_by(models.TaskAttachment.id)
+        .all()
+    )
+    return [_attachment_to_dict(attachment) for attachment in attachments]
+
+
+@router.post("/{task_id}/attachments", status_code=201)
+def upload_task_attachment(
+    task_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    request: Request = None,
+):
+    task, current_user = _authorized_task(task_id, request, db, "editor")
+    content = file.file.read(MAX_TASK_ATTACHMENT_SIZE + 1)
+    if len(content) > MAX_TASK_ATTACHMENT_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail="Attachment exceeds the 10 MiB file size limit",
+        )
+
+    _lock_task_attachment_capacity(task.id, db)
+    if not db.query(models.Task.id).filter(models.Task.id == task_id).first():
+        db.rollback()
+        raise HTTPException(status_code=404, detail="Task not found")
+    attachment_count = (
+        db.query(models.TaskAttachment)
+        .filter(models.TaskAttachment.task_id == task.id)
+        .count()
+    )
+    if attachment_count >= MAX_TASK_ATTACHMENT_COUNT:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="A task can have at most 5 attachments")
+
+    attachment = models.TaskAttachment(
+        task_id=task.id,
+        filename=_sanitize_attachment_filename(file.filename),
+        size_bytes=len(content),
+        content_type=_attachment_content_type(file),
+        content=content,
+        uploaded_by_user_id=current_user.id if current_user else None,
+    )
+    db.add(attachment)
+    db.commit()
+    db.refresh(attachment)
+    return _attachment_to_dict(attachment)
+
+
+@router.get("/{task_id}/attachments/{attachment_id}/download")
+def download_task_attachment(
+    task_id: int,
+    attachment_id: int,
+    db: Session = Depends(get_db),
+    request: Request = None,
+):
+    _authorized_task(task_id, request, db, "viewer")
+    attachment = (
+        db.query(models.TaskAttachment)
+        .filter(
+            models.TaskAttachment.id == attachment_id,
+            models.TaskAttachment.task_id == task_id,
+        )
+        .first()
+    )
+    if not attachment:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+
+    encoded_filename = quote(attachment.filename, safe="")
+    return Response(
+        content=attachment.content,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.delete("/{task_id}/attachments/{attachment_id}")
+def delete_task_attachment(
+    task_id: int,
+    attachment_id: int,
+    db: Session = Depends(get_db),
+    request: Request = None,
+):
+    _authorized_task(task_id, request, db, "editor")
+    attachment = (
+        db.query(models.TaskAttachment)
+        .filter(
+            models.TaskAttachment.id == attachment_id,
+            models.TaskAttachment.task_id == task_id,
+        )
+        .first()
+    )
+    if not attachment:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    db.delete(attachment)
+    db.commit()
+    return {"ok": True}
 
 
 @router.put("/reorder")

@@ -1,5 +1,16 @@
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Text, DateTime, Index, UniqueConstraint
-from sqlalchemy.orm import relationship
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import deferred, relationship
 from sqlalchemy.sql import func
 from database import Base
 
@@ -258,6 +269,36 @@ class Task(Base):
         cascade="all, delete-orphan",
         uselist=False,
     )
+    attachments = relationship(
+        "TaskAttachment",
+        back_populates="task",
+        cascade="all, delete-orphan",
+        order_by="TaskAttachment.id",
+    )
+
+
+class TaskAttachment(Base):
+    __tablename__ = "task_attachments"
+    __table_args__ = (Index("ix_task_attachments_task_id", "task_id"),)
+
+    id = Column(Integer, primary_key=True)
+    task_id = Column(
+        Integer,
+        ForeignKey("tasks.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    filename = Column(String(255), nullable=False)
+    size_bytes = Column(Integer, nullable=False)
+    content_type = Column(String(255), nullable=False, default="application/octet-stream")
+    content = deferred(Column(LargeBinary, nullable=False))
+    uploaded_by_user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(DateTime, server_default=func.now())
+
+    task = relationship("Task", back_populates="attachments")
 
 
 class TaskRecurrence(Base):

@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
+from starlette.types import ASGIApp, Receive, Scope, Send
 from pydantic import BaseModel, Field
 from typing import Optional, List as PyList, Union
 
@@ -86,6 +87,7 @@ from routes.tasks import (
     create_task as _create_task_route,
     delete_checklist_item as _delete_checklist_item_route,
     delete_task as _delete_task_route,
+    MAX_TASK_ATTACHMENT_REQUEST_SIZE,
     delete_task_recurrence as _delete_task_recurrence_route,
     get_task as _get_task_route,
     move_task as _move_task_route,
@@ -485,6 +487,92 @@ _backfill_session_expirations()
 _configure_audit_logger()
 
 app = FastAPI()
+
+
+class _AttachmentUploadBodyLimitMiddleware:
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if (
+            scope["type"] != "http"
+            or scope["method"] != "POST"
+            or not re.fullmatch(r"/api/tasks/\d+/attachments", scope["path"])
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        content_length = next(
+            (
+                value.decode("latin-1")
+                for name, value in scope["headers"]
+                if name.lower() == b"content-length"
+            ),
+            None,
+        )
+        try:
+            declared_length = int(content_length) if content_length is not None else None
+        except ValueError:
+            declared_length = None
+        if declared_length is not None and declared_length > MAX_TASK_ATTACHMENT_REQUEST_SIZE:
+            await self._send_too_large(scope, receive, send)
+            return
+
+        received_bytes = 0
+        request_too_large = False
+        replacement_body_sent = False
+        replacement_body = b'{"detail":"Attachment upload request is too large"}'
+
+        async def receive_with_limit():
+            nonlocal received_bytes, request_too_large
+            message = await receive()
+            if message["type"] == "http.request":
+                received_bytes += len(message.get("body", b""))
+                if received_bytes > MAX_TASK_ATTACHMENT_REQUEST_SIZE:
+                    request_too_large = True
+                    return {"type": "http.request", "body": b"", "more_body": False}
+            return message
+
+        async def send_with_limit(message):
+            nonlocal replacement_body_sent
+            if not request_too_large:
+                await send(message)
+                return
+
+            if message["type"] == "http.response.start":
+                headers = [
+                    (name, value)
+                    for name, value in message.get("headers", [])
+                    if name.lower() not in {b"content-type", b"content-length"}
+                ]
+                headers.extend(
+                    [
+                        (b"content-type", b"application/json"),
+                        (b"content-length", str(len(replacement_body)).encode("ascii")),
+                    ]
+                )
+                await send({**message, "status": 413, "headers": headers})
+            elif message["type"] == "http.response.body" and not replacement_body_sent:
+                await send(
+                    {
+                        **message,
+                        "body": replacement_body,
+                        "more_body": False,
+                    }
+                )
+                replacement_body_sent = True
+
+        await self.app(scope, receive_with_limit, send_with_limit)
+
+    @staticmethod
+    async def _send_too_large(scope: Scope, receive: Receive, send: Send):
+        response = Response(
+            content=json.dumps({"detail": "Attachment upload request is too large"}),
+            status_code=413,
+            media_type="application/json",
+        )
+        await response(scope, receive, send)
+app.add_middleware(_AttachmentUploadBodyLimitMiddleware)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.state.trusted_proxy_networks = TRUSTED_PROXY_NETWORKS
 app.include_router(auth_router)

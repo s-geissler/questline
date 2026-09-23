@@ -366,6 +366,9 @@ body {
 .board-task-card {
   transition: background-color 160ms ease, box-shadow 160ms ease;
 }
+.task-card-attachment-indicator {
+  margin-top: 5px;
+}
 .brand-wordmark {
   font-family: "Exo 2", sans-serif;
   font-style: italic;

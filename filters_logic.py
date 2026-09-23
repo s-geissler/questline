@@ -25,6 +25,7 @@ def _task_detail_load_options():
         joinedload(models.Task.assignee),
         selectinload(models.Task.custom_field_values),
         selectinload(models.Task.checklist_items),
+        selectinload(models.Task.attachments),
         joinedload(models.Task.recurrence),
     )
 

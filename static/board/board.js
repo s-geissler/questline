@@ -16,6 +16,9 @@ function _escapeBoardHtml(value) {
     .replaceAll("'", '&#39;');
 }
 
+const TASK_ATTACHMENT_MAX_SIZE = 10 * 1024 * 1024;
+const TASK_ATTACHMENT_MAX_COUNT = 5;
+
 function _createBoard() {
   return {
     boardId: 0,
@@ -48,6 +51,11 @@ function _createBoard() {
     calendarCreateDate: '',
     calendarCreateStageId: '',
     selectedTask: null,
+    taskAttachments: [],
+    taskAttachmentsLoading: false,
+    taskAttachmentsBusy: false,
+    taskAttachmentsError: '',
+    _taskAttachmentRequestId: 0,
     recurrenceExpanded: false,
     descriptionEditing: false,
     newChecklistItem: '',
@@ -495,6 +503,10 @@ function _createBoard() {
     },
 
     handleSurfaceClick(event) {
+      if (event.target.closest('[data-field="modal-attachment-file"]')) {
+        event.stopPropagation();
+        return;
+      }
       const actionTarget = event.target.closest('[data-action]');
       if (!actionTarget) return;
       // If the click landed inside a data-stop-propagation container that is
@@ -638,6 +650,15 @@ function _createBoard() {
       if (action === 'modal-delete-task') {
         this.deleteTask();
         this.closeTaskActionMenu();
+        return;
+      }
+      if (action === 'modal-attach-file') {
+        event.stopPropagation();
+        this.openTaskAttachmentPicker();
+        return;
+      }
+      if (action === 'modal-delete-attachment') {
+        this.deleteTaskAttachment(parseInt(actionTarget.dataset.attachmentId || '0', 10));
         return;
       }
       if (action === 'modal-toggle-color-picker') {
@@ -811,6 +832,12 @@ function _createBoard() {
 
     handleSurfaceChange(event) {
       const field = event.target.dataset.field;
+      if (field === 'modal-attachment-file') {
+        const file = event.target.files?.[0];
+        this.taskActionMenuOpen = false;
+        if (file) this.uploadTaskAttachment(file);
+        return;
+      }
       if (field === 'board-member-role') {
         const member = this.boardMembers.find(entry => String(entry.user_id) === String(event.target.dataset.userId || ''));
         if (member) this.updateBoardMemberRole(member, event.target.value);
@@ -1324,6 +1351,13 @@ function _createBoard() {
       const recurrenceBadge = task.recurrence ? '<span class="text-xs px-2 py-0.5 rounded font-medium bg-blue-100 text-blue-700">↻ Recurring</span>' : '';
       const dueDateBadge = this.hasDueDate(task.due_date) ? `<span class="text-xs px-2 py-0.5 rounded font-medium ${this.dueDateClass(task.due_date)}">${_escapeBoardHtml(this.dueDateLabel(task.due_date))}</span>` : '';
       const checklistBadge = this.showChecklistSummary(task) ? `<span class="text-xs text-gray-400 flex items-center gap-0.5"><span>☑</span><span>${_escapeBoardHtml(this.checklistProgress(task))}</span></span>` : '';
+      const attachmentBadge = Number(task.attachment_count) > 0 ? `
+        <span class="task-card-attachment-indicator inline-flex flex-shrink-0 items-center text-gray-400" role="img" aria-label="Has attachments" title="Has attachments">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.82l8.49-8.48" />
+          </svg>
+        </span>
+      ` : '';
       const logSourceBadge = this.showLogSourceBadge(stage) ? `<span class="text-xs px-2 py-0.5 rounded font-medium bg-slate-100 text-slate-600">${_escapeBoardHtml(this.logSourceLabel(task))}</span>` : '';
       const description = this.shouldShowDescriptionOnCard(task) ? `<div class="mt-1.5 text-xs text-gray-500 leading-snug prose prose-sm max-w-none">${renderMarkdown(task.description)}</div>` : '';
       const checklist = this.shouldShowChecklistOnCard(task) ? `
@@ -1360,6 +1394,7 @@ function _createBoard() {
               <div class="flex items-start gap-1.5">
                 <span class="text-sm text-gray-800 leading-snug block min-w-0 flex-1 ${this.taskTitleClass(task)}">${_escapeBoardHtml(task.title)}</span>
                 ${this.hasDescription(task) ? '<span class="mt-0.5 flex-shrink-0 text-[11px] text-gray-400" title="Has description" aria-label="Has description">≡</span>' : ''}
+                ${attachmentBadge}
               </div>
             </div>
           </div>
@@ -1550,6 +1585,19 @@ function _createBoard() {
       const task = this.selectedTask;
       const canEdit = this.canEditBoard;
       const dis = canEdit ? '' : 'disabled';
+      const attachmentPickerDisabled = this.taskAttachmentsLoading
+        || this.taskAttachmentsBusy
+        || this.taskAttachments.length >= TASK_ATTACHMENT_MAX_COUNT;
+      const attachmentFilePicker = canEdit ? `
+        <input
+          type="file"
+          data-field="modal-attachment-file"
+          ${attachmentPickerDisabled ? 'disabled' : ''}
+          class="hidden"
+          tabindex="-1"
+          aria-hidden="true"
+        >
+      ` : '';
 
       // --- title row ---
       const doneLabel = task.done ? '✓ Done' : 'Mark Done';
@@ -1567,6 +1615,7 @@ function _createBoard() {
             title="Objective actions"
           >☰</button>
           ${this._renderTaskActionMenuDropdown(task)}
+          ${attachmentFilePicker}
         </div>
       ` : '';
 
@@ -1604,6 +1653,12 @@ function _createBoard() {
 
       // --- recurrence ---
       const recurrenceSection = task.recurrence ? this._renderRecurrenceSection(task, canEdit) : '';
+      const attachmentsSection = this._renderTaskAttachmentsSection(task, canEdit);
+      const attachmentFeedback = this.taskAttachmentsError
+        ? `<p class="mb-4 text-sm text-red-600" role="alert">${_escapeBoardHtml(this.taskAttachmentsError)}</p>`
+        : this.taskAttachmentsBusy
+          ? '<p class="mb-4 text-sm text-gray-500" role="status">Working with attachment…</p>'
+          : '';
 
       // --- description ---
       const descVis = this.descriptionVisibilityValue(task);
@@ -1702,6 +1757,8 @@ function _createBoard() {
 
               ${customFieldsSection}
               ${checklistSection}
+              ${attachmentFeedback}
+              ${attachmentsSection}
             </div>
           </div>
         </div>
@@ -1731,6 +1788,9 @@ function _createBoard() {
       const recurrenceToggle = task.recurrence
         ? `<button data-action="modal-disable-recurrence-menu" class="w-full text-left text-sm text-amber-600 hover:text-amber-800 transition-colors">Stop this objective from recurring</button>`
         : `<button data-action="modal-enable-recurrence-menu" class="w-full text-left text-sm text-blue-600 hover:text-blue-800 transition-colors">Make this a recurring objective</button>`;
+      const attachmentPickerDisabled = this.taskAttachmentsLoading
+        || this.taskAttachmentsBusy
+        || this.taskAttachments.length >= TASK_ATTACHMENT_MAX_COUNT;
       return `
         <div class="absolute top-full right-0 mt-1 bg-white text-gray-800 shadow-xl rounded-xl p-3 min-w-[260px] z-30 space-y-3">
           <div>
@@ -1740,6 +1800,15 @@ function _createBoard() {
           <div>
             <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Stage</label>
             <select data-field="modal-stage" class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">${stageOptions}</select>
+          </div>
+          <div class="border-t pt-3">
+            <button
+              type="button"
+              data-action="modal-attach-file"
+              ${attachmentPickerDisabled ? 'disabled' : ''}
+              class="w-full text-left text-sm text-blue-600 hover:text-blue-800 disabled:text-gray-400"
+            >Add attachment</button>
+            <p class="mt-1 text-xs text-gray-400">Up to 10 MiB per file; 5 files per task.</p>
           </div>
           <div class="border-t pt-3">${recurrenceToggle}</div>
           <div class="border-t pt-3">
@@ -1852,6 +1921,50 @@ function _createBoard() {
           <div class="space-y-2">${fields}</div>
         </div>
       `;
+    },
+
+    _renderTaskAttachmentsSection(task, canEdit) {
+      const attachments = this.taskAttachments || [];
+      if (!attachments.length) return '';
+
+      const rows = attachments.map(attachment => `
+        <li class="flex items-center gap-3 py-2">
+          <a
+            href="/api/tasks/${encodeURIComponent(String(task.id))}/attachments/${encodeURIComponent(String(attachment.id))}/download"
+            class="min-w-0 flex-1 truncate text-sm text-blue-600 hover:text-blue-800 hover:underline"
+            title="Download ${_escapeBoardHtml(attachment.filename)}"
+          >${_escapeBoardHtml(attachment.filename)}</a>
+          <span class="flex-shrink-0 text-xs text-gray-400">${this.formatAttachmentSize(attachment.size_bytes)}</span>
+          ${canEdit ? `
+            <button
+              type="button"
+              data-action="modal-delete-attachment"
+              data-attachment-id="${_escapeBoardHtml(String(attachment.id))}"
+              ${this.taskAttachmentsBusy ? 'disabled' : ''}
+              class="flex-shrink-0 text-gray-300 hover:text-red-500 disabled:opacity-50"
+              aria-label="Remove ${_escapeBoardHtml(attachment.filename)}"
+              title="Remove attachment"
+            >×</button>
+          ` : ''}
+          </li>
+        `).join('');
+
+      return `
+        <section class="mb-5" aria-label="Task attachments">
+          <div class="flex items-center justify-between gap-3">
+            <h3 class="block text-xs font-semibold uppercase tracking-wide text-gray-400">Attachments</h3>
+            <span class="text-xs text-gray-400">${attachments.length}/${TASK_ATTACHMENT_MAX_COUNT}</span>
+          </div>
+          <ul class="mt-1 divide-y divide-gray-100">${rows}</ul>
+        </section>
+      `;
+    },
+
+    formatAttachmentSize(sizeBytes) {
+      const size = Math.max(0, Number(sizeBytes) || 0);
+      if (size < 1024) return `${size} B`;
+      if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KiB`;
+      return `${(size / (1024 * 1024)).toFixed(1)} MiB`;
     },
 
     _renderChecklistSection(task, canEdit) {
@@ -2460,10 +2573,15 @@ function _createBoard() {
       this.taskActionMenuOpen = false;
       this.taskColorPickerOpen = false;
       this.showModal = true;
-      this.renderTaskModal();
+      this.beginTaskAttachmentLoad(task.id);
     },
 
     closeModal() {
+      this._taskAttachmentRequestId += 1;
+      this.taskAttachments = [];
+      this.taskAttachmentsLoading = false;
+      this.taskAttachmentsBusy = false;
+      this.taskAttachmentsError = '';
       this.showModal = false;
       this.recurrenceExpanded = false;
       this.descriptionEditing = false;
@@ -2493,7 +2611,123 @@ function _createBoard() {
       this.descriptionEditing = false;
       this.taskActionMenuOpen = false;
       this.taskColorPickerOpen = false;
+      this.beginTaskAttachmentLoad(task.id);
+    },
+
+    beginTaskAttachmentLoad(taskId) {
+      const requestId = ++this._taskAttachmentRequestId;
+      this.taskAttachments = [];
+      this.taskAttachmentsLoading = true;
+      this.taskAttachmentsBusy = false;
+      this.taskAttachmentsError = '';
       this.renderTaskModal();
+      this.loadTaskAttachments(taskId, requestId);
+    },
+
+    async loadTaskAttachments(taskId, requestId) {
+      try {
+        const response = await apiGetTaskAttachments(taskId);
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || 'Unable to load attachments.');
+        if (requestId !== this._taskAttachmentRequestId) return;
+        this.taskAttachments = Array.isArray(payload) ? payload : [];
+        this.syncTaskAttachmentCount();
+      } catch (error) {
+        if (requestId !== this._taskAttachmentRequestId) return;
+        this.taskAttachmentsError = error.message || 'Unable to load attachments.';
+      } finally {
+        if (requestId === this._taskAttachmentRequestId) {
+          this.taskAttachmentsLoading = false;
+          this.renderTaskModal();
+        }
+      }
+    },
+
+    openTaskAttachmentPicker() {
+      if (
+        !this.canEditBoard
+        || !this.selectedTask
+        || this.taskAttachmentsLoading
+        || this.taskAttachmentsBusy
+        || this.taskAttachments.length >= TASK_ATTACHMENT_MAX_COUNT
+      ) {
+        return;
+      }
+      this.taskModalEl?.querySelector('[data-field="modal-attachment-file"]')?.click();
+    },
+
+    async uploadTaskAttachment(file) {
+      if (!this.canEditBoard || !this.selectedTask || !file) return;
+      if (file.size > TASK_ATTACHMENT_MAX_SIZE) {
+        this.taskAttachmentsError = 'Each attachment must be 10 MiB or smaller.';
+        this.renderTaskModal();
+        return;
+      }
+      if (this.taskAttachments.length >= TASK_ATTACHMENT_MAX_COUNT) {
+        this.taskAttachmentsError = 'A task can have at most 5 attachments.';
+        this.renderTaskModal();
+        return;
+      }
+
+      const taskId = this.selectedTask.id;
+      const requestId = this._taskAttachmentRequestId;
+      this.taskAttachmentsBusy = true;
+      this.taskAttachmentsError = '';
+      this.renderTaskModal();
+      try {
+        const response = await apiUploadTaskAttachment(taskId, file);
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || 'Unable to upload attachment.');
+        if (requestId !== this._taskAttachmentRequestId) return;
+        this.taskAttachments.push(payload);
+        this.syncTaskAttachmentCount();
+      } catch (error) {
+        if (requestId !== this._taskAttachmentRequestId) return;
+        this.taskAttachmentsError = error.message || 'Unable to upload attachment.';
+      } finally {
+        if (requestId === this._taskAttachmentRequestId) {
+          this.taskAttachmentsBusy = false;
+          this.renderTaskModal();
+        }
+      }
+    },
+
+    async deleteTaskAttachment(attachmentId) {
+      if (!this.canEditBoard || !this.selectedTask || !attachmentId || this.taskAttachmentsBusy) return;
+      const attachment = this.taskAttachments.find(item => item.id === attachmentId);
+      if (!attachment || !confirm(`Remove "${attachment.filename}"?`)) return;
+
+      const taskId = this.selectedTask.id;
+      const requestId = this._taskAttachmentRequestId;
+      this.taskAttachmentsBusy = true;
+      this.taskAttachmentsError = '';
+      this.renderTaskModal();
+      try {
+        const response = await apiDeleteTaskAttachment(taskId, attachmentId);
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || 'Unable to remove attachment.');
+        if (requestId !== this._taskAttachmentRequestId) return;
+        this.taskAttachments = this.taskAttachments.filter(item => item.id !== attachmentId);
+        this.syncTaskAttachmentCount();
+      } catch (error) {
+        if (requestId !== this._taskAttachmentRequestId) return;
+        this.taskAttachmentsError = error.message || 'Unable to remove attachment.';
+      } finally {
+        if (requestId === this._taskAttachmentRequestId) {
+          this.taskAttachmentsBusy = false;
+          this.renderTaskModal();
+        }
+      }
+    },
+
+    syncTaskAttachmentCount() {
+      if (!this.selectedTask) return;
+      const attachmentCount = this.taskAttachments.length;
+      const taskInStage = this._findTaskInStages(this.selectedTask.id);
+      const countChanged = Number(this.selectedTask.attachment_count || 0) !== attachmentCount
+        || (taskInStage && Number(taskInStage.attachment_count || 0) !== attachmentCount);
+      this.selectedTask.attachment_count = attachmentCount;
+      if (countChanged) this._syncTaskInStages(this.selectedTask);
     },
 
     toggleStageMenu(stageId) {
