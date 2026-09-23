@@ -200,7 +200,7 @@ vm.runInContext(fs.readFileSync({json.dumps(str(task_types_js))}, 'utf8') + '\\n
 const controller = Object.create(context.TaskTypesPageController.prototype);
 let closed = false;
 controller.activePopover = {{kind: 'type-color', typeId: 1, fieldId: null, optionIndex: null}};
-controller.root = {{ contains() {{ return false; }} }};
+controller.root = {{ contains() {{ return true; }} }};
 controller.closePopover = () => {{ closed = true; controller.activePopover = null; }};
 
 controller.handleDocumentClick({{
