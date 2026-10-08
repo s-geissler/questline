@@ -6,7 +6,7 @@ import unicodedata
 from typing import List as PyList, Optional
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -22,6 +22,7 @@ from authz import (
 )
 from routes._deps import get_db
 from services.automation import run_automations
+from services.email_import import parse_eml_message
 from services.notifications import create_notification, recurrence_to_dict
 from services.recurrence import _advance_recurrence_date, _parse_iso_date
 from services.tasks import (
@@ -357,6 +358,65 @@ def create_task(data: TaskCreate, db: Session = Depends(get_db), request: Reques
     db.commit()
     db.refresh(task)
     run_automations(task, "task_created", db)
+    db.commit()
+    db.refresh(task)
+    return task_to_dict(task)
+
+
+@router.post("/import-email", status_code=201)
+def import_email_task(
+    stage_id: int = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    request: Request = None,
+):
+    board_id = _board_id_for_stage(stage_id, db)
+    current_user = None
+    if board_id is not None:
+        current_user = _authorize_board_request(request, db, board_id, "editor")
+    stage = db.query(models.Stage).filter(models.Stage.id == stage_id).first()
+    if not stage:
+        raise HTTPException(status_code=404, detail="Stage not found")
+    if stage.is_log:
+        raise HTTPException(status_code=400, detail="Cannot add tasks to a log stage")
+
+    content = file.file.read(MAX_TASK_ATTACHMENT_SIZE + 1)
+    if len(content) > MAX_TASK_ATTACHMENT_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail="Email exceeds the 10 MiB size limit",
+        )
+    try:
+        draft = parse_eml_message(content, file.filename or "email.eml")
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    filename = _sanitize_attachment_filename(file.filename or "email.eml")
+    if not filename.lower().endswith(".eml"):
+        filename = f"{filename[:MAX_TASK_ATTACHMENT_FILENAME_LENGTH - 4]}.eml"
+    position = db.query(models.Task).filter(models.Task.stage_id == stage_id).count()
+    task = models.Task(
+        title=draft.title,
+        description=draft.description,
+        stage_id=stage_id,
+        position=position,
+    )
+    task.attachments.append(
+        models.TaskAttachment(
+            filename=filename,
+            size_bytes=len(content),
+            content_type="message/rfc822",
+            content=content,
+            uploaded_by_user_id=current_user.id if current_user else None,
+        )
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    # Keep stage filters tied to the drop target even if a task-created rule moves it.
+    run_automations(task, "task_created", db, trigger_stage_id=stage_id)
+    run_automations(task, "email_dropped", db, trigger_stage_id=stage_id)
     db.commit()
     db.refresh(task)
     return task_to_dict(task)

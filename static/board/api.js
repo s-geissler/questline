@@ -61,6 +61,16 @@ async function apiCreateTask(payload) {
   });
 }
 
+async function apiImportEmailTask(stageId, file) {
+  const formData = new FormData();
+  formData.append('stage_id', String(stageId));
+  formData.append('file', file, file.name || 'dropped-email.eml');
+  return fetch('/api/tasks/import-email', {
+    method: 'POST',
+    body: formData,
+  });
+}
+
 async function apiGetTask(taskId) {
   return fetch(`/api/tasks/${taskId}`);
 }

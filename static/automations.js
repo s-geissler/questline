@@ -194,6 +194,7 @@ function _createAutomations() {
     _triggerLabel(auto) {
       const labels = {
         task_created: ' an objective is created',
+        email_dropped: ' an email is dropped onto a stage',
         task_done: ' an objective is marked done',
         task_moved_to_stage: ' an objective moves into a stage',
         checklist_completed: ' a checklist is fully completed',

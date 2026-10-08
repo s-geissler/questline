@@ -514,10 +514,16 @@ class _AttachmentUploadBodyLimitMiddleware:
         if (
             scope["type"] != "http"
             or scope["method"] != "POST"
-            or not re.fullmatch(r"/api/tasks/\d+/attachments", scope["path"])
+            or not re.fullmatch(r"/api/tasks/(?:\d+/attachments|import-email)", scope["path"])
         ):
             await self.app(scope, receive, send)
             return
+
+        error_detail = (
+            "Email upload request is too large"
+            if scope["path"] == "/api/tasks/import-email"
+            else "Attachment upload request is too large"
+        )
 
         content_length = next(
             (
@@ -532,13 +538,13 @@ class _AttachmentUploadBodyLimitMiddleware:
         except ValueError:
             declared_length = None
         if declared_length is not None and declared_length > MAX_TASK_ATTACHMENT_REQUEST_SIZE:
-            await self._send_too_large(scope, receive, send)
+            await self._send_too_large(scope, receive, send, error_detail)
             return
 
         received_bytes = 0
         request_too_large = False
         replacement_body_sent = False
-        replacement_body = b'{"detail":"Attachment upload request is too large"}'
+        replacement_body = json.dumps({"detail": error_detail}).encode("utf-8")
 
         async def receive_with_limit():
             nonlocal received_bytes, request_too_large
@@ -582,9 +588,14 @@ class _AttachmentUploadBodyLimitMiddleware:
         await self.app(scope, receive_with_limit, send_with_limit)
 
     @staticmethod
-    async def _send_too_large(scope: Scope, receive: Receive, send: Send):
+    async def _send_too_large(
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+        detail: str,
+    ):
         response = Response(
-            content=json.dumps({"detail": "Attachment upload request is too large"}),
+            content=json.dumps({"detail": detail}),
             status_code=413,
             media_type="application/json",
         )

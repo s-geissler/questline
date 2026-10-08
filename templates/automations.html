@@ -23,7 +23,7 @@
 
   <p class="text-blue-200 text-sm mb-5">
     Automations run automatically when a trigger condition is met.
-    Supported triggers now include creation, completion, stage moves, and checklist completion.
+    Supported triggers include creation, email drops, completion, stage moves, and checklist completion.
   </p>
 
   <!-- Create form -->
@@ -50,6 +50,7 @@
             class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white"
           >
             <option value="task_created">An objective is created</option>
+            <option value="email_dropped">An email is dropped onto a stage</option>
             <option value="task_done">An objective is marked as done</option>
             <option value="task_moved_to_stage">An objective is moved into a stage</option>
             <option value="checklist_completed">A checklist is fully completed</option>

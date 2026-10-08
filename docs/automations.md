@@ -16,6 +16,7 @@ Action:  "Then [do something]"
 | `trigger_type` | Description | `trigger_stage_id` used? |
 |---|---|---|
 | `task_created` | A new objective is created | Optional — limits to a specific stage |
+| `email_dropped` | An email is dropped onto a stage to create an objective | Optional — limits to the drop target stage |
 | `task_moved_to_stage` | An objective is moved into a stage | Required — the target stage |
 | `task_done` | An objective is marked complete | Optional — limits to a specific stage |
 | `checklist_completed` | All checklist items on an objective are checked | Optional |
@@ -37,12 +38,14 @@ When `trigger_stage_id` is set, the automation only fires when the task is in (o
 `run_automations(task, event, db)` is called from route handlers whenever a relevant state change occurs:
 
 - After `POST /api/tasks` → fires `task_created`
+- After `POST /api/tasks/import-email` → fires `task_created` and then `email_dropped`
 - After `PUT /api/tasks/reorder` or `PUT /api/tasks/{id}/move` when stage changes → fires `task_moved_to_stage`
 - After `PUT /api/tasks/{id}` when `done` transitions to `true` → fires `task_done`
 - After `PUT /api/tasks/{id}/checklist/{item_id}` when all items become done → fires `checklist_completed`
 - When a Quest's checklist item is checked, the spawned child objective also gets `task_done` fired.
 
 Multiple automations can match a single event; they all run in the order they are returned from the database.
+For email imports, stage filters on both creation events use the stage where the email was dropped, even if an earlier automation moves the objective.
 
 ## Example Rules
 

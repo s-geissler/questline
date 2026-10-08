@@ -65,7 +65,7 @@ Suggested baseline responsibilities for nginx:
 - HTTP to HTTPS redirect
 - HSTS header
 - forwarding `Host`, `X-Forwarded-Proto`, and `X-Forwarded-For`
-- request size and timeout limits appropriate for your environment; allow at least 10 MiB plus 64 KiB of multipart overhead for task attachment uploads
+- request size and timeout limits appropriate for your environment; allow at least 10 MiB plus 64 KiB of multipart overhead for task attachment uploads and `.eml` imports
 
 ## Database Backups
 

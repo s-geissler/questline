@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+from typing import Optional
 
 from sqlalchemy.orm import Session
 
@@ -26,8 +27,14 @@ def apply_automation(task: models.Task, automation: models.Automation, db: Sessi
         task.due_date = (date.today() + timedelta(days=automation.action_days_offset)).isoformat()
 
 
-def run_automations(task: models.Task, event_type: str, db: Session):
+def run_automations(
+    task: models.Task,
+    event_type: str,
+    db: Session,
+    trigger_stage_id: Optional[int] = None,
+):
     board_id = task.stage.board_id if task.stage else None
+    event_stage_id = task.stage_id if trigger_stage_id is None else trigger_stage_id
     query = db.query(models.Automation).filter(
         models.Automation.enabled == True,
         models.Automation.trigger_type == event_type,
@@ -35,6 +42,6 @@ def run_automations(task: models.Task, event_type: str, db: Session):
     if board_id is not None:
         query = query.filter(models.Automation.board_id == board_id)
     for automation in query.all():
-        if automation.trigger_stage_id and task.stage_id != automation.trigger_stage_id:
+        if automation.trigger_stage_id and event_stage_id != automation.trigger_stage_id:
             continue
         apply_automation(task, automation, db)

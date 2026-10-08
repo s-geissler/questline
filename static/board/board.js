@@ -56,6 +56,8 @@ function _createBoard() {
     taskAttachmentsBusy: false,
     taskAttachmentsError: '',
     _taskAttachmentRequestId: 0,
+    _emailDropTargetId: null,
+    _emailDropBusy: false,
     recurrenceExpanded: false,
     descriptionEditing: false,
     newChecklistItem: '',
@@ -477,6 +479,10 @@ function _createBoard() {
       this._el.addEventListener('input', event => this.handleSurfaceInput(event));
       this._el.addEventListener('keydown', event => this.handleSurfaceKeydown(event));
       this._el.addEventListener('blur', event => this.handleSurfaceBlur(event), true);
+      this._el.addEventListener('dragenter', event => this.handleEmailDragEnter(event));
+      this._el.addEventListener('dragover', event => this.handleEmailDragOver(event));
+      this._el.addEventListener('dragleave', event => this.handleEmailDragLeave(event));
+      this._el.addEventListener('drop', event => this.handleEmailDrop(event));
       document.addEventListener('click', event => {
         // Stage menu outside click
         if (this.activeStageMenuId) {
@@ -2530,6 +2536,172 @@ function _createBoard() {
     },
 
     // Tasks
+    isPotentialEmailDrag(dataTransfer) {
+      const types = Array.from(dataTransfer?.types || []).map(type => String(type).toLowerCase());
+      const hasEmailFlavor = types.some(type => [
+        'files',
+        'message/rfc822',
+        'application/x-moz-file',
+        'application/x-moz-file-promise',
+        'application/x-moz-file-promise-url',
+        'application/x-moz-file-promise-dest-filename',
+        'text/x-moz-message',
+        'text/x-moz-url',
+        'text/x-moz-url-data',
+      ].includes(type));
+      if (hasEmailFlavor) return true;
+      return types.includes('text/plain') && !(typeof Sortable !== 'undefined' && Sortable.dragged);
+    },
+
+    emailDropStage(target) {
+      if (!target?.closest) return null;
+      const column = target.closest('[data-stage-column-id]');
+      if (!column || !this.stagesViewEl?.contains(column)) return null;
+      const stageId = parseInt(column.dataset.stageColumnId || '0', 10);
+      return this.stages.find(stage => stage.id === stageId) || null;
+    },
+
+    setEmailDropTarget(stageId) {
+      if (this._emailDropTargetId === stageId) return;
+      this.clearEmailDropTarget();
+      const column = this._el.querySelector(`[data-stage-column-id="${stageId}"]`);
+      column?.classList.add('email-drop-active');
+      this._emailDropTargetId = stageId;
+    },
+
+    clearEmailDropTarget() {
+      if (this._emailDropTargetId === null) return;
+      this._el.querySelector(`[data-stage-column-id="${this._emailDropTargetId}"]`)
+        ?.classList.remove('email-drop-active');
+      this._emailDropTargetId = null;
+    },
+
+    handleEmailDragEnter(event) {
+      if (!this.isStagesView || !this.isPotentialEmailDrag(event.dataTransfer)) return;
+      const stage = this.emailDropStage(event.target);
+      if (!stage) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+      if (this.canEditBoard && !stage.is_log && !this._emailDropBusy) {
+        this.setEmailDropTarget(stage.id);
+      }
+    },
+
+    handleEmailDragOver(event) {
+      if (!this.isStagesView || !this.isPotentialEmailDrag(event.dataTransfer)) return;
+      const stage = this.emailDropStage(event.target);
+      if (!stage) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+      if (this.canEditBoard && !stage.is_log && !this._emailDropBusy) {
+        this.setEmailDropTarget(stage.id);
+      }
+    },
+
+    handleEmailDragLeave(event) {
+      if (!this.isPotentialEmailDrag(event.dataTransfer)) return;
+      const stage = this.emailDropStage(event.target);
+      if (!stage || stage.id !== this._emailDropTargetId) return;
+      const column = this._el.querySelector(`[data-stage-column-id="${stage.id}"]`);
+      if (!event.relatedTarget || !column?.contains(event.relatedTarget)) {
+        this.clearEmailDropTarget();
+      }
+    },
+
+    emailFileFromTransfer(dataTransfer) {
+      const files = Array.from(dataTransfer?.files || []);
+      if (!files.length) {
+        for (const item of Array.from(dataTransfer?.items || [])) {
+          if (item.kind !== 'file') continue;
+          const file = item.getAsFile();
+          if (file) files.push(file);
+        }
+      }
+      if (files.length > 1) {
+        throw new Error('Drop one email at a time.');
+      }
+      if (!files.length) return null;
+      const file = files[0];
+      if (!/\.eml$/i.test(file.name || '') && file.type.toLowerCase() !== 'message/rfc822') {
+        throw new Error('Drop an .eml email file.');
+      }
+      return file;
+    },
+
+    rawEmailFromTransfer(dataTransfer) {
+      for (const type of ['text/x-moz-message', 'text/plain']) {
+        let value = '';
+        try {
+          value = dataTransfer?.getData(type) || '';
+        } catch {
+          value = '';
+        }
+        const headerBlock = value.split(/\r?\n\r?\n/, 1)[0];
+        if (
+          /^(?:from|to|date|subject|message-id|mime-version):/im.test(headerBlock)
+          && /\r?\n\r?\n/.test(value)
+        ) {
+          return value;
+        }
+      }
+      return '';
+    },
+
+    async handleEmailDrop(event) {
+      if (!this.isStagesView || !this.isPotentialEmailDrag(event.dataTransfer)) return;
+      const stage = this.emailDropStage(event.target);
+      if (!stage) return;
+      event.preventDefault();
+      event.stopPropagation();
+      this.clearEmailDropTarget();
+
+      if (!this.canEditBoard) {
+        alert('You need editor access to add an email to this hub.');
+        return;
+      }
+      if (stage.is_log) {
+        alert('Emails cannot be dropped into a filter log stage.');
+        return;
+      }
+      if (this._emailDropBusy) return;
+
+      try {
+        let file = this.emailFileFromTransfer(event.dataTransfer);
+        if (!file) {
+          const rawEmail = this.rawEmailFromTransfer(event.dataTransfer);
+          if (!rawEmail) {
+            throw new Error('Thunderbird did not provide the email file. Save the message as an .eml file and drop that file onto the stage.');
+          }
+          file = new File([rawEmail], 'dropped-email.eml', {type: 'message/rfc822'});
+        }
+        await this.importEmailToStage(stage.id, file);
+      } catch (error) {
+        alert(error.message || 'Unable to import this email.');
+      }
+    },
+
+    async importEmailToStage(stageId, file) {
+      if (file.size > TASK_ATTACHMENT_MAX_SIZE) {
+        throw new Error('Emails must be 10 MiB or smaller.');
+      }
+      this._emailDropBusy = true;
+      try {
+        const response = await apiImportEmailTask(stageId, file);
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || 'Unable to import this email.');
+
+        await this.loadStages();
+        const importedTask = this.stages
+          .flatMap(stage => stage.tasks)
+          .find(task => task.id === payload.id) || payload;
+        this.openTask(importedTask);
+        this.renderBoardSurface();
+      } finally {
+        this._emailDropBusy = false;
+        this.clearEmailDropTarget();
+      }
+    },
+
     async createTask(stageId) {
       if (!this.canEditBoard) return;
       const title = (this.newTaskTitles[stageId] || '').trim();
