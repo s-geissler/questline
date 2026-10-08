@@ -25,7 +25,34 @@ Questline includes several advanced features to help you manage complex workflow
 *   **Flexible Custom Fields**: Extend your objectives by adding specialized data fields like text, numbers, dates, or dropdown menus based on the objective type.
 *   **Automation Engine**: Create rules that automatically perform actions based on specific triggers. For example, you can set a rule to move an objective to a specific Stage whenever it is marked as completed.
 *   **Checklist Spawning**: Break down Quests into smaller objectives using checklists. Checklist items can be converted into standalone objectives that remain linked to their parent Quest.
+*   **Task Attachments**: Attach up to five files of 10 MiB each to an objective. Files are stored in the configured database and can be downloaded by board viewers.
 *   **Dynamic UI**: A responsive design with drag-and-drop capabilities and rich browser-side interactions for a smooth management experience.
+
+### Moving stages
+
+Drag a stage by its header grip to move it, independently of the objectives inside it.
+Drop onto a stage slot to use the existing placement/displacement behavior, or onto
+one of the vertical guides between columns to insert a new column and shift the
+columns to its right. Both rows of a shifted column stay together. When a top stage
+moves away, the stage beneath it is promoted; empty columns are removed. Guides
+also allow insertion before the first column or after the last column.
+
+### Collapsing stages
+
+Double-click a stage's header grip to collapse its column into narrow, vertical
+headers showing the title and task count (for example, `Title (7)`); double-click
+again to expand it. Counts include completed tasks. If both slots are occupied, both stages
+toggle together. You can also focus the grip and press Enter or Space. Viewers can
+collapse columns too, without changing the shared board.
+
+Collapsed stages hide their objectives, menus, and creation controls; expand them
+to edit or drop objectives into them. Editors can still drag collapsed stages.
+Collapse follows a stage when it moves, also collapsing its new column companion.
+This is local viewing state, saved per board in your browser's local storage. It
+survives page reloads and browser restarts, but does not sync across browsers or
+devices. Clearing site data resets it. If browser storage is unavailable, collapse
+still works for the current page. No board data is changed by collapsing or
+expanding.
 
 ## Technology Stack
 
@@ -65,6 +92,14 @@ To run this project, you will need:
 *   `templates/`: Stores the Jinja2 HTML templates for the frontend.
 *   `static/`: Contains static assets, including CSS and client-side logic.
 *   `tests/`: Includes the suite of unit and integration tests to ensure application stability.
+
+### Drag-and-drop regression checks
+
+Run placement and persistence tests with `python -m pytest tests/test_stage_placements.py`.
+The optional browser suite runs with `node tests/browser_stage_drag.cjs`; it requires
+the `playwright` Node package and its Chromium browser to be installed. It serves an
+isolated in-memory board fixture using the real frontend, without touching your app
+database, and fetches the same pinned SortableJS CDN asset as the application.
 
 ## Deployment Notes
 

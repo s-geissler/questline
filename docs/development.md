@@ -66,6 +66,12 @@ To run a specific test file:
 pytest tests/test_auth.py -v
 ```
 
+The real-browser attachment upload regression check requires Playwright and Chromium:
+
+```bash
+node tests/browser_task_attachments.cjs
+```
+
 ## Logging
 
 Questline uses Python's standard `logging` module. Loggers:

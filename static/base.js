@@ -89,6 +89,12 @@ window.fetch = function(input, init = {}) {
   const headers = new Headers(request.headers);
   headers.set('X-Requested-With', 'XMLHttpRequest');
 
+  // A temporary Request derives a multipart boundary from FormData. The actual
+  // fetch below encodes that FormData again, so let fetch generate a matching header.
+  if (!(input instanceof Request) && typeof FormData !== 'undefined' && init.body instanceof FormData) {
+    headers.delete('Content-Type');
+  }
+
   if (!['/api/auth/login', '/api/auth/register'].includes(url.pathname)) {
     const csrfToken = getCookie('questline_csrf');
     if (csrfToken) {

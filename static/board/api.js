@@ -65,6 +65,23 @@ async function apiGetTask(taskId) {
   return fetch(`/api/tasks/${taskId}`);
 }
 
+async function apiGetTaskAttachments(taskId) {
+  return fetch(`/api/tasks/${taskId}/attachments`);
+}
+
+async function apiUploadTaskAttachment(taskId, file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  return fetch(`/api/tasks/${taskId}/attachments`, {
+    method: 'POST',
+    body: formData,
+  });
+}
+
+async function apiDeleteTaskAttachment(taskId, attachmentId) {
+  return fetch(`/api/tasks/${taskId}/attachments/${attachmentId}`, {method: 'DELETE'});
+}
+
 async function apiUpdateTask(taskId, payload) {
   return fetch(`/api/tasks/${taskId}`, {
     method: 'PUT',

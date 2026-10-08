@@ -152,6 +152,7 @@ def _task_to_dict(task: models.Task) -> dict:
         "done": task.done,
         "custom_field_values": custom_values,
         "checklist": checklist,
+        "attachment_count": len(task.attachments),
         "recurrence": recurrence_to_dict(task.recurrence),
     }
 

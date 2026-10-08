@@ -65,7 +65,11 @@ Suggested baseline responsibilities for nginx:
 - HTTP to HTTPS redirect
 - HSTS header
 - forwarding `Host`, `X-Forwarded-Proto`, and `X-Forwarded-For`
-- request size and timeout limits appropriate for your environment
+- request size and timeout limits appropriate for your environment; allow at least 10 MiB plus 64 KiB of multipart overhead for task attachment uploads
+
+## Database Backups
+
+Task attachments are stored as BLOBs in the configured database. Questline enables SQLite WAL mode, so do not back up a running instance by copying only the main `.db` file; committed data may still be in the WAL file. Use SQLite's online backup API or stop Questline and checkpoint the WAL before copying the database.
 
 ## Audit Logs
 
