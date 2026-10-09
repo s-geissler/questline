@@ -478,7 +478,7 @@ Create an objective by importing one RFC 822 `.eml` message dropped onto a stage
 - `stage_id`: target stage ID; filter log stages are not allowed.
 - `file`: the `.eml` email file, up to 10 MiB.
 
-Questline uses the email subject as the objective title, adds sender/recipient/date and the plain-text body to its description, and stores the original message as an attachment. The body description is capped at 10,000 characters. After creation, both `task_created` and `email_dropped` automations run. Stage filters for both events use the stage where the email was dropped.
+Questline prefixes the subject with the sender's display name when available (`Sender Name: Subject`). Without a display name, it uses the subject alone. It adds sender/recipient/date and the plain-text body to the description, and stores the original message as an attachment. The body description is capped at 10,000 characters. After creation, both `task_created` and `email_dropped` automations run. Stage filters for both events use the stage where the email was dropped.
 
 Direct Thunderbird dragging depends on the browser exposing an `.eml` file or RFC 822 message text to the page. If it exposes only an opaque Thunderbird message reference, save the message as `.eml` and drop that file instead.
 

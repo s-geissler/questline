@@ -13,6 +13,8 @@ from pathlib import PurePosixPath
 
 MAX_IMPORTED_DESCRIPTION_LENGTH = 10_000
 MAX_IMPORTED_HEADER_LENGTH = 500
+MAX_IMPORTED_TITLE_LENGTH = 200
+MAX_IMPORTED_SENDER_NAME_LENGTH = 80
 _TRUNCATION_NOTE = "\n\n[Email body truncated. The original email is attached.]"
 
 
@@ -65,6 +67,15 @@ def _clean_header(value: object) -> str:
         if not unicodedata.category(character).startswith("C")
     )
     return re.sub(r"\s+", " ", text).strip()
+
+
+def _sender_display_name(message: Message) -> str:
+    from_header = message.get("from")
+    for address in getattr(from_header, "addresses", ()):
+        name = _clean_header(getattr(address, "display_name", ""))
+        if name:
+            return name
+    return ""
 
 
 def _part_text(part: Message) -> str:
@@ -127,7 +138,14 @@ def parse_eml_message(content: bytes, filename: str = "email.eml") -> EmailTaskD
 
     subject = _clean_header(message.get("subject"))
     fallback = PurePosixPath((filename or "").replace("\\", "/")).stem
-    title = (subject or _clean_header(fallback) or "Email without a subject")[:200]
+    subject_title = subject or _clean_header(fallback) or "Email without a subject"
+    sender_name = _sender_display_name(message)
+    if sender_name:
+        sender_name = sender_name[:MAX_IMPORTED_SENDER_NAME_LENGTH].rstrip()
+        title_prefix = f"{sender_name}: "
+        title = f"{title_prefix}{subject_title[:MAX_IMPORTED_TITLE_LENGTH - len(title_prefix)]}"
+    else:
+        title = subject_title[:MAX_IMPORTED_TITLE_LENGTH]
 
     metadata = []
     for label, header in (("From", "from"), ("To", "to"), ("Date", "date")):
