@@ -14,6 +14,7 @@ def _load_modules(tmp_path, monkeypatch):
     monkeypatch.setenv("QUESTLINE_DATABASE_URL", f"sqlite:///{db_path}")
     monkeypatch.setenv("QUESTLINE_ENV", "development")
     monkeypatch.setenv("QUESTLINE_ALLOW_INSECURE_COOKIES", "true")
+    monkeypatch.delenv("QUESTLINE_PUBLIC_BASE_URL", raising=False)
 
     for module_name in (
         "main",
@@ -31,6 +32,7 @@ def _load_modules(tmp_path, monkeypatch):
         "routes.pages",
         "routes.admin",
         "routes.api_tokens",
+        "routes.calendar",
         "routes.notifications",
         "routes.automations",
         "routes.task_types",
@@ -40,6 +42,7 @@ def _load_modules(tmp_path, monkeypatch):
         "services.audit",
         "services.settings",
         "services.tasks",
+        "services.calendar",
         "services.notifications",
         "services.automation",
         "services.recurrence",

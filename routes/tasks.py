@@ -8,7 +8,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 import models
@@ -31,6 +31,7 @@ from services.tasks import (
     _sync_spawned_task_title_from_checklist_item,
     collect_descendant_task_ids,
     delete_tasks_by_ids,
+    normalize_due_date,
 )
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
@@ -47,17 +48,24 @@ MAX_TASK_ATTACHMENT_COUNT = 5
 MAX_TASK_ATTACHMENT_FILENAME_LENGTH = 255
 
 
-class TaskCreate(BaseModel):
+class _TaskDeadlineInput(BaseModel):
+    due_date: Optional[str] = None
+
+    @field_validator("due_date")
+    @classmethod
+    def validate_due_date(cls, value):
+        return normalize_due_date(value)
+
+
+class TaskCreate(_TaskDeadlineInput):
     title: str = Field(max_length=MAX_TASK_TITLE_LENGTH)
     stage_id: int
     task_type_id: Optional[int] = None
-    due_date: Optional[str] = None
 
 
-class TaskUpdate(BaseModel):
+class TaskUpdate(_TaskDeadlineInput):
     title: Optional[str] = Field(default=None, max_length=MAX_TASK_TITLE_LENGTH)
     description: Optional[str] = Field(default=None, max_length=MAX_DESCRIPTION_LENGTH)
-    due_date: Optional[str] = None
     task_type_id: Optional[int] = None
     assignee_user_id: Optional[int] = None
     color: Optional[str] = Field(default=None, max_length=7)

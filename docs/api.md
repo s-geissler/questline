@@ -116,6 +116,22 @@ Revoke a token owned by the current user. Returns `{"ok": true}`. Subsequent req
 
 ---
 
+## Calendar Subscriptions
+
+Manage private, read-only calendar subscriptions through `/api/calendar-feeds`.
+Creation accepts `name`, optional `board_id`, `assigned_only`, and `stage_ids`
+(`null` for all stages or a nonempty list of selected stage IDs). Use
+`GET /api/calendar-feeds/stages` for available choices and
+`PATCH /api/calendar-feeds/{id}` to update `stage_ids` at the existing URL.
+Creation and rotation return a subscription URL once. Listing never exposes the secret.
+
+Calendar apps fetch `/calendar/{id}.ics?token={secret}` using `GET` or `HEAD`.
+This endpoint returns iCalendar rather than JSON and uses a dedicated feed secret
+instead of session or bearer authentication. See [calendar.md](calendar.md#api)
+for all endpoints, authorization rules, and caching behavior.
+
+---
+
 ## Admin: Agents
 
 The agent endpoints let an admin create a non-human User (`role="agent"`) for use by external automation, and mint/revoke API tokens on its behalf. Agents never use passwords — they authenticate exclusively via API tokens.

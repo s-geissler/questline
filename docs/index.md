@@ -24,6 +24,7 @@ The first registered account is automatically promoted to admin.
 | Variable | Default | Description |
 |---|---|---|
 | `QUESTLINE_DATABASE_URL` | `sqlite:///./questline.db` | SQLAlchemy database URL |
+| `QUESTLINE_PUBLIC_BASE_URL` | request base URL | Public origin for calendar subscriptions and objective links |
 | `QUESTLINE_SLOW_QUERY_MS` | `200` | Log threshold for slow SQL queries (ms) |
 | `QUESTLINE_ENV` | `production` | Runtime mode; production requires secure session cookies |
 | `QUESTLINE_ALLOW_INSECURE_COOKIES` | unset | Set to `1` or `true` in development to allow non-`Secure` cookies |
@@ -53,6 +54,7 @@ The first registered account is automatically promoted to admin.
 - [architecture.md](architecture.md) — Data model, module overview, ER diagram
 - [auth.md](auth.md) — Authentication, sessions, and role-based access control
 - [api.md](api.md) — REST API reference
+- [calendar.md](calendar.md) — Private deadline calendar subscriptions and Thunderbird setup
 - [automations.md](automations.md) — Automation engine: triggers, conditions, actions
 - [custom-fields.md](custom-fields.md) — Custom field types and usage
 - [deployment.md](deployment.md) — HTTPS, reverse proxy, HSTS, and recommended production settings

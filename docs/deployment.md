@@ -67,6 +67,45 @@ Suggested baseline responsibilities for nginx:
 - forwarding `Host`, `X-Forwarded-Proto`, and `X-Forwarded-For`
 - request size and timeout limits appropriate for your environment; allow at least 10 MiB plus 64 KiB of multipart overhead for task attachment uploads and `.eml` imports
 
+## Calendar Subscriptions
+
+Set the externally reachable URL so subscription URLs and links to objectives use
+your public HTTPS origin, even when the app runs behind a reverse proxy:
+
+```bash
+QUESTLINE_PUBLIC_BASE_URL=https://questline.example
+```
+
+The URL must have no username, password, query string, or fragment. Production requires
+HTTPS. When unset, URLs derive from the incoming request's base URL; ensure your proxy
+forwards the correct host and scheme. This setting does not change proxy trust or
+cookie behavior. For local development, `http://localhost:8000` is supported with
+`QUESTLINE_ENV=development`.
+
+Subscription secrets are query parameters. Questline redacts query strings for
+calendar URLs in Uvicorn's access logger, and the app's timing logs contain only paths.
+Configure nginx and any other proxy or monitoring service to avoid recording calendar
+query strings. For example, define a format that uses `$uri` instead of `$request` or
+`$request_uri`, then select it for the calendar location (adapt upstream settings):
+
+```nginx
+# In the http context:
+log_format questline_calendar '$remote_addr "$request_method $uri $server_protocol" $status';
+
+# In the HTTPS server context:
+location /calendar/ {
+    access_log /var/log/nginx/questline-calendar.log questline_calendar;
+    proxy_pass http://127.0.0.1:8000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
+```
+
+Allow `GET` and `HEAD` for these URLs and preserve query parameters when proxying.
+Keep them out of shared caches. Errors must not redirect calendar clients to an HTML
+login page. See [calendar.md](calendar.md) for subscription setup and revocation.
+
 ## Database Backups
 
 Task attachments are stored as BLOBs in the configured database. Questline enables SQLite WAL mode, so do not back up a running instance by copying only the main `.db` file; committed data may still be in the WAL file. Use SQLite's online backup API or stop Questline and checkpoint the WAL before copying the database.

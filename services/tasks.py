@@ -1,10 +1,25 @@
 """Business logic for task and checklist operations."""
 from __future__ import annotations
 
+from datetime import date
+
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 import models
+
+
+def normalize_due_date(value: str | None) -> str | None:
+    if value is None or not value.strip():
+        return None
+    value = value.strip()
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError:
+        raise ValueError("Due date must be a valid date in YYYY-MM-DD format") from None
+    if parsed.isoformat() != value:
+        raise ValueError("Due date must be a valid date in YYYY-MM-DD format")
+    return value
 
 
 def collect_descendant_task_ids(root_task_ids: list[int], db: Session) -> set[int]:

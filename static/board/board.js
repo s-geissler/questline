@@ -1108,6 +1108,7 @@ function _createBoard() {
           <div class="px-4 py-2 rounded-xl bg-white/90 text-sm font-semibold text-slate-700 shadow-sm min-w-[12rem] text-center">${_escapeBoardHtml(this.calendarMonthLabel)}</div>
           <button type="button" data-action="calendar-next" class="px-3 py-2 rounded-xl bg-white/85 text-slate-600 hover:bg-white shadow-sm transition-colors" aria-label="Next month">→</button>
           <button type="button" data-action="calendar-today" class="px-3 py-2 rounded-xl bg-white/85 text-sm text-slate-600 hover:bg-white shadow-sm transition-colors">Today</button>
+          <button type="button" data-open-calendar-feeds data-board-id="${this.boardId}" class="px-3 py-2 rounded-xl bg-white/85 text-slate-600 hover:bg-white shadow-sm transition-colors" aria-label="Calendar subscriptions" title="Calendar subscriptions">↗</button>
         </div>
       ` : '';
     },

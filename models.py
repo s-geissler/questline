@@ -1,3 +1,6 @@
+from datetime import UTC, datetime
+from uuid import uuid4
+
 from sqlalchemy import (
     Boolean,
     Column,
@@ -7,12 +10,17 @@ from sqlalchemy import (
     Integer,
     LargeBinary,
     String,
+    Table,
     Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import deferred, relationship
 from sqlalchemy.sql import func
 from database import Base
+
+
+def _utcnow():
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class Board(Base):
@@ -125,6 +133,9 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    calendar_feeds = relationship(
+        "CalendarFeed", back_populates="user", cascade="all, delete-orphan"
+    )
     notifications = relationship(
         "Notification",
         back_populates="user",
@@ -168,6 +179,33 @@ class ApiToken(Base):
     last_used_at = Column(DateTime, nullable=True)
     revoked_at = Column(DateTime, nullable=True)
     user = relationship("User", back_populates="api_tokens")
+
+
+calendar_feed_stages = Table(
+    "calendar_feed_stages",
+    Base.metadata,
+    Column("feed_id", String(36), ForeignKey("calendar_feeds.id", ondelete="CASCADE"), primary_key=True),
+    Column("stage_id", Integer, ForeignKey("lists.id", ondelete="CASCADE"), primary_key=True, index=True),
+)
+
+
+class CalendarFeed(Base):
+    __tablename__ = "calendar_feeds"
+    __table_args__ = (Index("ix_calendar_feeds_user_id", "user_id"),)
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    board_id = Column(Integer, ForeignKey("boards.id", ondelete="CASCADE"), nullable=True)
+    name = Column(String(80), nullable=False)
+    assigned_only = Column(Boolean, nullable=False, default=False)
+    all_stages = Column(Boolean, nullable=False, default=True, server_default="1")
+    token_hash = Column(String(64), nullable=False, unique=True)
+    last_four = Column(String(4), nullable=False)
+    created_at = Column(DateTime, default=_utcnow, nullable=False)
+    revoked_at = Column(DateTime, nullable=True)
+
+    user = relationship("User", back_populates="calendar_feeds")
+    stages = relationship("Stage", secondary=calendar_feed_stages, passive_deletes=True)
 
 
 class BoardMembership(Base):
@@ -257,6 +295,7 @@ class Task(Base):
         Index("ix_tasks_done", "done"),
         Index("ix_tasks_due_date", "due_date"),
         Index("ix_tasks_created_at", "created_at"),
+        Index("uq_tasks_calendar_uid", "calendar_uid", unique=True),
     )
     id = Column(Integer, primary_key=True)
     title = Column(String, nullable=False)
@@ -272,6 +311,8 @@ class Task(Base):
     position = Column(Integer, default=0)
     done = Column(Boolean, default=False)
     created_at = Column(DateTime, server_default=func.now())
+    calendar_uid = Column(String(36), nullable=False, default=lambda: str(uuid4()))
+    updated_at = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
 
     stage = relationship("Stage", back_populates="tasks", foreign_keys=[stage_id])
     task_type = relationship("TaskType", back_populates="tasks")

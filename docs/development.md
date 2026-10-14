@@ -72,6 +72,12 @@ The real-browser attachment upload regression check requires Playwright and Chro
 node tests/browser_task_attachments.cjs
 ```
 
+The calendar subscription browser check uses the same Playwright/Chromium setup:
+
+```bash
+node tests/browser_calendar_feeds.cjs
+```
+
 ## Logging
 
 Questline uses Python's standard `logging` module. Loggers:

@@ -137,6 +137,12 @@ from routes.api_tokens import (
     router as api_tokens_router,
 )
 from routes.pages import router as pages_router
+from routes.calendar import router as calendar_router, feed_router as calendar_feed_router
+from services.calendar import (
+    backfill_calendar_metadata,
+    configure_calendar_access_logging,
+    validate_public_base_url,
+)
 from routes.task_types import (
     CustomFieldCreate,
     TaskTypeCreate,
@@ -299,6 +305,9 @@ def _run_column_migrations():
         ("lists",            "filter_id", "INTEGER REFERENCES saved_filters(id)"),
         ("tasks",            "color",   "VARCHAR"),
         ("tasks",            "due_date", "VARCHAR"),
+        ("tasks",            "calendar_uid", "VARCHAR(36)"),
+        ("tasks",            "updated_at", "DATETIME"),
+        ("calendar_feeds",   "all_stages", "BOOLEAN NOT NULL DEFAULT 1"),
         ("tasks",            "parent_task_id", "INTEGER REFERENCES tasks(id)"),
         ("tasks",            "assignee_user_id", "INTEGER REFERENCES users(id)"),
         ("tasks",            "show_description_on_card", "BOOLEAN"),
@@ -350,6 +359,7 @@ def _run_index_migrations():
         ("ix_tasks_done", "CREATE INDEX IF NOT EXISTS ix_tasks_done ON tasks(done)"),
         ("ix_tasks_due_date", "CREATE INDEX IF NOT EXISTS ix_tasks_due_date ON tasks(due_date)"),
         ("ix_tasks_created_at", "CREATE INDEX IF NOT EXISTS ix_tasks_created_at ON tasks(created_at)"),
+        ("uq_tasks_calendar_uid", "CREATE UNIQUE INDEX IF NOT EXISTS uq_tasks_calendar_uid ON tasks(calendar_uid)"),
         ("ix_custom_field_values_task_field", "CREATE INDEX IF NOT EXISTS ix_custom_field_values_task_field ON custom_field_values(task_id, field_def_id)"),
         ("ix_custom_field_values_field_def_id", "CREATE INDEX IF NOT EXISTS ix_custom_field_values_field_def_id ON custom_field_values(field_def_id)"),
         ("ix_checklist_items_task_id", "CREATE INDEX IF NOT EXISTS ix_checklist_items_task_id ON checklist_items(task_id)"),
@@ -495,6 +505,7 @@ def _dedupe_board_memberships():
 
 models.Base.metadata.create_all(bind=engine)
 _run_column_migrations()
+backfill_calendar_metadata(engine)
 _migrate_orphan_data()
 _migrate_board_memberships()
 _migrate_admin_role()
@@ -502,6 +513,7 @@ _dedupe_board_memberships()
 _run_index_migrations()
 _backfill_session_expirations()
 _configure_audit_logger()
+configure_calendar_access_logging()
 
 app = FastAPI()
 
@@ -613,6 +625,8 @@ app.include_router(automations_router)
 app.include_router(notifications_router)
 app.include_router(admin_router)
 app.include_router(api_tokens_router)
+app.include_router(calendar_router)
+app.include_router(calendar_feed_router)
 app.include_router(pages_router)
 SESSION_COOKIE = "questline_session"
 PASSWORD_HASH_ITERATIONS = 120_000
@@ -702,6 +716,7 @@ async def log_request_timing(request: Request, call_next):
 def start_recurrence_worker():
     global recurrence_worker_thread
     validate_runtime_security_config()
+    validate_public_base_url()
     recurrence_worker_stop_event.clear()
     if recurrence_worker_thread and recurrence_worker_thread.is_alive():
         return

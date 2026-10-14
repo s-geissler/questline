@@ -1,0 +1,60 @@
+<div id="calendar-feeds-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="calendar-feeds-title">
+  <div class="w-full max-w-xl bg-white rounded-2xl shadow-2xl p-6 max-h-[90vh] overflow-y-auto">
+    <div class="flex items-start justify-between gap-4">
+      <div>
+        <h2 id="calendar-feeds-title" class="text-lg font-semibold text-gray-900">Calendar subscriptions</h2>
+        <p class="text-sm text-gray-500 mt-1">Show objective deadlines in Thunderbird or another calendar app. Updates appear when your calendar refreshes.</p>
+      </div>
+      <button id="calendar-feeds-close" type="button" class="text-gray-400 hover:text-gray-600 text-xl" aria-label="Close calendar subscriptions">&times;</button>
+    </div>
+    <p class="text-xs text-gray-500 mt-3">Unfinished objectives appear as all-day entries. Edit deadlines in Questline. Anyone with a subscription URL can read its calendar.</p>
+
+    <div id="calendar-feed-created" class="hidden mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+      <p class="text-sm font-medium text-amber-800">Save this subscription URL</p>
+      <p class="text-xs text-amber-700 mt-1">It is shown only once. If you lose it, regenerate the URL below.</p>
+      <label for="calendar-feed-url" class="sr-only">Subscription URL</label>
+      <textarea id="calendar-feed-url" readonly rows="3" class="mt-3 w-full border rounded-lg px-3 py-2 text-xs font-mono bg-white" spellcheck="false"></textarea>
+      <div class="flex justify-end gap-2 mt-2">
+        <button id="calendar-feed-copy" type="button" class="px-3 py-2 rounded-lg bg-amber-600 text-white text-sm font-medium">Copy URL</button>
+        <button id="calendar-feed-saved" type="button" class="px-3 py-2 rounded-lg border border-amber-200 text-sm">I've saved it</button>
+      </div>
+      <p class="text-xs text-gray-600 mt-3">In Thunderbird, create a calendar → On the Network → paste this URL. Choose “This location doesn't require credentials”, then Find Calendars and Subscribe.</p>
+    </div>
+
+    <p id="calendar-feeds-feedback" class="text-sm text-gray-500 mt-3" role="status" aria-live="polite"></p>
+    <p id="calendar-feeds-error" class="hidden text-sm text-red-500 mt-3" role="alert"></p>
+    <div id="calendar-feeds-list" class="mt-4 space-y-2"></div>
+
+    <form id="calendar-feed-edit-form" class="hidden mt-5 p-4 border border-gray-200 rounded-lg bg-gray-50">
+      <fieldset id="calendar-feed-edit-fields" class="space-y-3">
+        <legend id="calendar-feed-edit-title" class="text-sm font-semibold text-gray-800 mb-3">Edit stages</legend>
+        <p class="text-xs text-gray-500">Save updates the calendar at its existing URL. Changes appear on the next refresh.</p>
+        <div id="calendar-feed-edit-stages" role="group" aria-label="Included stages"></div>
+        <div class="flex justify-end gap-2">
+          <button id="calendar-feed-edit-cancel" type="button" class="px-3 py-2 rounded-lg border border-gray-300 text-sm">Cancel</button>
+          <button type="submit" class="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium disabled:opacity-60">Save stages</button>
+        </div>
+      </fieldset>
+    </form>
+
+    <form id="calendar-feed-form" class="mt-5 p-4 border border-gray-200 rounded-lg bg-gray-50">
+      <fieldset id="calendar-feed-fields" class="space-y-3">
+        <legend class="text-sm font-semibold text-gray-800 mb-3">New subscription</legend>
+        <label class="block text-sm text-gray-700" for="calendar-feed-name">Name</label>
+        <input id="calendar-feed-name" type="text" required maxlength="80" value="Thunderbird" autocomplete="off" class="w-full border rounded-lg px-3 py-2 text-sm">
+        <label class="block text-sm text-gray-700" for="calendar-feed-board">Objectives from</label>
+        <select id="calendar-feed-board" class="w-full border rounded-lg px-3 py-2 text-sm"><option value="">All accessible hubs</option></select>
+        <fieldset class="space-y-2">
+          <legend class="text-sm font-medium text-gray-700 mb-2">Stages</legend>
+          <div id="calendar-feed-stages" role="group" aria-label="Included stages"></div>
+        </fieldset>
+        <label class="flex items-center gap-2 text-sm text-gray-700">
+          <input id="calendar-feed-assigned" type="checkbox"> Only objectives assigned to me
+        </label>
+        <div class="flex justify-end">
+          <button id="calendar-feed-submit" type="submit" class="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium disabled:opacity-60">Create subscription</button>
+        </div>
+      </fieldset>
+    </form>
+  </div>
+</div>
