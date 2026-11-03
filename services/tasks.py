@@ -1,7 +1,9 @@
 """Business logic for task and checklist operations."""
 from __future__ import annotations
 
-from datetime import date
+import re
+from datetime import UTC, date, datetime, time
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -20,6 +22,62 @@ def normalize_due_date(value: str | None) -> str | None:
     if parsed.isoformat() != value:
         raise ValueError("Due date must be a valid date in YYYY-MM-DD format")
     return value
+
+
+def normalize_due_time(value: str | None) -> str | None:
+    if value is None or not value.strip():
+        return None
+    value = value.strip()
+    if not re.fullmatch(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]", value):
+        raise ValueError("Due time must be a valid time in HH:MM format")
+    return value
+
+
+def normalize_due_timezone(value: str | None) -> str | None:
+    if value is None or not value.strip():
+        return None
+    value = value.strip()
+    try:
+        ZoneInfo(value)
+    except (ValueError, ZoneInfoNotFoundError):
+        raise ValueError("Due timezone must be a valid IANA timezone, such as Europe/Berlin") from None
+    return value
+
+
+def deadline_datetime(due_date: str | None, due_time: str | None, due_timezone: str | None) -> datetime | None:
+    """Resolve a timed deadline to UTC; date-only deadlines have no instant.
+
+    Like iCalendar, use the first occurrence of an ambiguous local time and the
+    pre-transition offset for a missing time (moving it forward across the gap).
+    Keep the local time and zone so recurrence retains wall time across DST.
+    """
+    due_time = normalize_due_time(due_time)
+    if due_time is None:
+        return None
+    due_date = normalize_due_date(due_date)
+    due_timezone = normalize_due_timezone(due_timezone)
+    if due_date is None:
+        raise ValueError("A due time requires a due date")
+    if due_timezone is None:
+        raise ValueError("A due time requires a timezone")
+    local = datetime.combine(date.fromisoformat(due_date), time.fromisoformat(due_time), ZoneInfo(due_timezone))
+    try:
+        return local.astimezone(UTC)
+    except OverflowError:
+        raise ValueError("Timed deadline is outside the supported date range") from None
+
+
+def task_deadline_to_dict(task: models.Task) -> dict:
+    try:
+        due_at = deadline_datetime(task.due_date, task.due_time, task.due_timezone)
+    except ValueError:
+        due_at = None  # Keep malformed legacy rows readable.
+    return {
+        "due_date": task.due_date,
+        "due_time": task.due_time,
+        "due_timezone": task.due_timezone,
+        "due_at": due_at.isoformat().replace("+00:00", "Z") if due_at else None,
+    }
 
 
 def collect_descendant_task_ids(root_task_ids: list[int], db: Session) -> set[int]:

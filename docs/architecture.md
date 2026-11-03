@@ -66,7 +66,7 @@ custom_field_defs
 tasks
   id, title, description, stage_id → lists, task_type_id → task_types,
   parent_task_id → tasks, assignee_user_id → users,
-  position, color, due_date, done, show_description_on_card, show_checklist_on_card,
+  position, color, due_date, due_time, due_timezone, done, show_description_on_card, show_checklist_on_card,
   created_at
 
 task_recurrences
@@ -90,6 +90,9 @@ notifications
   link_url, board_id, task_id, read_at, created_at, dedupe_key (UNIQUE)
 
 Operational note:
+- Existing databases receive nullable `tasks.due_time` and `tasks.due_timezone`
+  columns through the idempotent startup migrations. Existing date strings and
+  calendar identities are preserved; a null time retains date-only behavior.
 - `boards.owner_user_id` may be `NULL`, which represents an orphaned hub.
 - The admin UI exposes orphan discovery, manual deletion, bulk orphan cleanup, and explicit ownership assignment.
 

@@ -31,7 +31,11 @@ from services.tasks import (
     _sync_spawned_task_title_from_checklist_item,
     collect_descendant_task_ids,
     delete_tasks_by_ids,
+    deadline_datetime,
     normalize_due_date,
+    normalize_due_time,
+    normalize_due_timezone,
+    task_deadline_to_dict,
 )
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
@@ -50,11 +54,39 @@ MAX_TASK_ATTACHMENT_FILENAME_LENGTH = 255
 
 class _TaskDeadlineInput(BaseModel):
     due_date: Optional[str] = None
+    due_time: Optional[str] = None
+    due_timezone: Optional[str] = None
 
     @field_validator("due_date")
     @classmethod
     def validate_due_date(cls, value):
         return normalize_due_date(value)
+
+    @field_validator("due_time")
+    @classmethod
+    def validate_due_time(cls, value):
+        return normalize_due_time(value)
+
+    @field_validator("due_timezone")
+    @classmethod
+    def validate_due_timezone(cls, value):
+        return normalize_due_timezone(value)
+
+
+def _deadline_values(data: _TaskDeadlineInput, task: models.Task | None = None) -> dict:
+    values = {
+        field: getattr(data, field) if field in data.model_fields_set else getattr(task, field, None)
+        for field in ("due_date", "due_time", "due_timezone")
+    }
+    if "due_date" in data.model_fields_set and values["due_date"] is None and "due_time" not in data.model_fields_set:
+        values["due_time"] = None
+    if values["due_time"] is None:
+        values["due_timezone"] = None
+    try:
+        deadline_datetime(**values)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return values
 
 
 class TaskCreate(_TaskDeadlineInput):
@@ -201,7 +233,7 @@ def task_to_dict(task: models.Task) -> dict:
         "id": task.id,
         "title": task.title,
         "description": task.description or "",
-        "due_date": task.due_date,
+        **task_deadline_to_dict(task),
         "board_id": task.stage.board_id if task.stage else None,
         "board_name": task.stage.board.name if task.stage and task.stage.board else None,
         "stage_name": task.stage.name if task.stage else None,
@@ -359,7 +391,7 @@ def create_task(data: TaskCreate, db: Session = Depends(get_db), request: Reques
         title=data.title,
         stage_id=data.stage_id,
         task_type_id=data.task_type_id,
-        due_date=data.due_date,
+        **_deadline_values(data),
         position=pos,
     )
     db.add(task)
@@ -588,6 +620,7 @@ def update_task(task_id: int, data: TaskUpdate, db: Session = Depends(get_db), r
     task = db.query(models.Task).filter(models.Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
+    deadline_values = _deadline_values(data, task) if {"due_date", "due_time", "due_timezone"} & data.model_fields_set else {}
     if "task_type_id" in data.model_fields_set and data.task_type_id is not None:
         _require_task_type_in_board(data.task_type_id, task.stage.board_id, db)
     if "assignee_user_id" in data.model_fields_set:
@@ -601,8 +634,8 @@ def update_task(task_id: int, data: TaskUpdate, db: Session = Depends(get_db), r
         _sync_checklist_item_title_from_spawned_task(task, db)
     if data.description is not None:
         task.description = data.description
-    if "due_date" in data.model_fields_set:
-        task.due_date = data.due_date or None
+    for field, value in deadline_values.items():
+        setattr(task, field, value)
     if "task_type_id" in data.model_fields_set:
         task.task_type_id = data.task_type_id
     if "assignee_user_id" in data.model_fields_set:

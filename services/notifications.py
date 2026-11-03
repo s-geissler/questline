@@ -1,12 +1,14 @@
 """Notification creation, due-date alert generation, and serialisers."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
 import models
+from services.tasks import deadline_datetime
 
 
 def notification_to_dict(notification: models.Notification) -> dict:
@@ -73,6 +75,7 @@ def create_notification(
 
 def generate_due_notifications_for_user(user: models.User, db: Session):
     today = date.today().isoformat()
+    now = datetime.now(UTC)
     query = (
         db.query(models.Task)
         .join(models.Stage, models.Task.stage_id == models.Stage.id)
@@ -94,13 +97,24 @@ def generate_due_notifications_for_user(user: models.User, db: Session):
         if not task.stage or not task.stage.board:
             continue
         notification_type = None
-        if task.due_date == today:
+        notification_day = today
+        try:
+            due_at = deadline_datetime(task.due_date, task.due_time, task.due_timezone)
+        except ValueError:
+            continue
+        if due_at is not None:
+            notification_day = now.astimezone(ZoneInfo(task.due_timezone)).date().isoformat()
+            if due_at <= now:
+                notification_type = "task_overdue"
+            elif task.due_date == notification_day:
+                notification_type = "task_due_today"
+        elif task.due_date == today:
             notification_type = "task_due_today"
         elif task.due_date < today:
             notification_type = "task_overdue"
         if not notification_type:
             continue
-        dedupe_key = f"{notification_type}:task:{task.id}:user:{user.id}:date:{today}"
+        dedupe_key = f"{notification_type}:task:{task.id}:user:{user.id}:date:{notification_day}"
         title = "Task due today" if notification_type == "task_due_today" else "Task overdue"
         body = task.title
         create_notification(

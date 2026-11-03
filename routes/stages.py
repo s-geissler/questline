@@ -14,7 +14,7 @@ from authz import _authorize_board_request, _board_id_for_stage, _require_stage_
 from filters_logic import get_stage_tasks, stage_to_dict
 from routes._deps import get_db
 from services.notifications import recurrence_to_dict
-from services.tasks import collect_descendant_task_ids, delete_tasks_by_ids
+from services.tasks import collect_descendant_task_ids, delete_tasks_by_ids, task_deadline_to_dict
 
 router = APIRouter(prefix="/api/stages", tags=["stages"])
 
@@ -133,7 +133,7 @@ def _task_to_dict(task: models.Task) -> dict:
         "id": task.id,
         "title": task.title,
         "description": task.description or "",
-        "due_date": task.due_date,
+        **task_deadline_to_dict(task),
         "board_id": task.stage.board_id if task.stage else None,
         "board_name": task.stage.board.name if task.stage and task.stage.board else None,
         "stage_name": task.stage.name if task.stage else None,

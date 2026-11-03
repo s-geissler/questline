@@ -222,10 +222,16 @@ A **Log Stage** (`is_log: true`) is read-only. Created by assigning a `filter_id
 | Action | Method | Path | Notes |
 |--------|--------|------|-------|
 | List Objectives in a Stage | `GET` | `/api/tasks?stage_id=N` | Returns array of task objects. |
-| Create an Objective | `POST` | `/api/tasks` | Body: `{ title: str, stage_id: int, task_type_id?: int, due_date?: str }`. Requires `editor` on the board. Cannot target a Log Stage. |
-| Update an Objective | `PUT` | `/api/tasks/{id}` | Body: partial update with any of `title`, `description`, `due_date`, `task_type_id`, `assignee_user_id`, `color`, `done`, `custom_fields`. Setting `done: true` fires `task_done` automations. |
+| Create an Objective | `POST` | `/api/tasks` | Body: `{ title: str, stage_id: int, task_type_id?: int, due_date?: str, due_time?: str, due_timezone?: str }`. Requires `editor` on the board. Cannot target a Log Stage. |
+| Update an Objective | `PUT` | `/api/tasks/{id}` | Body: partial update with any of `title`, `description`, `due_date`, `due_time`, `due_timezone`, `task_type_id`, `assignee_user_id`, `color`, `done`, `custom_fields`. Setting `done: true` fires `task_done` automations. |
 | Move an Objective | `PUT` | `/api/tasks/{id}/move` | Body: `{ stage_id: int, position?: int }`. Target cannot be a Log Stage. |
 | Delete an Objective | `DELETE` | `/api/tasks/{id}` | — |
+
+Deadlines default to date-only (`due_date`: `YYYY-MM-DD`). An optional `due_time`
+(`HH:MM`, 24-hour) requires a date and an IANA `due_timezone` (e.g. `Europe/Berlin`).
+Responses include read-only `due_at`, the UTC timestamp or `null`. Date-only updates
+preserve an existing time/timezone. Set `due_time: null` to return to date-only;
+clearing `due_date` also clears time/timezone. Date filters still compare the date.
 
 ### Setting custom field values
 

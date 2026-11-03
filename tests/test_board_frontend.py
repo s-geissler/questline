@@ -17,6 +17,131 @@ def run_board_js(script: str):
     assert result.returncode == 0, result.stderr
 
 
+def test_deadline_time_controls_render_defaults_and_viewer_permissions():
+    script = """
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const context = {document: {addEventListener() {}}, renderMarkdown: value => value || '', PRESET_COLORS: []};
+vm.createContext(context);
+vm.runInContext(fs.readFileSync('static/board/board.js', 'utf8'), context);
+const board = context._createBoard();
+board.currentBoardRole = 'owner';
+board.taskModalEl = {innerHTML: ''};
+board.showModal = true;
+board.selectedTask = {id: 1, title: 'Deadline', stage_id: 1, checklist: [], due_date: null};
+board.renderTaskModal();
+let html = board.taskModalEl.innerHTML;
+assert(html.includes('No time · all-day deadline'));
+assert(/data-field="modal-due-time"[^>]*disabled/.test(html));
+board.selectedTask.due_date = '2026-11-03';
+board.renderTaskModal();
+assert(!/data-field="modal-due-time"[^>]*disabled/.test(board.taskModalEl.innerHTML));
+Object.assign(board.selectedTask, {due_time: '14:30', due_timezone: 'Europe/Berlin', due_at: '2026-11-03T13:30:00Z'});
+board.renderTaskModal();
+assert(board.taskModalEl.innerHTML.includes('modal-clear-due-time'));
+assert(board.taskModalEl.innerHTML.includes('Europe/Berlin'));
+assert(board.renderTaskCard(board.selectedTask, {id: 1}).includes('14:30 (Europe/Berlin)'));
+assert(board.renderCalendarEntry(board.selectedTask, '2026-11-03').includes('14:30 (Europe/Berlin)'));
+board.currentBoardRole = 'viewer';
+board.renderTaskModal();
+html = board.taskModalEl.innerHTML;
+assert(/data-field="modal-due-time"[^>]*disabled/.test(html));
+assert(/data-field="modal-due-date"[^>]*disabled/.test(html));
+assert(!html.includes('modal-clear-due-time'));
+"""
+    run_board_js(script)
+
+
+def test_deadline_updates_capture_timezone_clear_time_and_recover_from_failure():
+    script = """
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const writes = [], alerts = [];
+let fail = false;
+const task = {id: 1, stage_id: 1, title: 'Deadline', due_date: '2026-11-03', due_time: null};
+const context = {
+  document: {addEventListener() {}}, alert: message => alerts.push(message),
+  apiUpdateTask: async (id, body) => {
+    writes.push({id, body});
+    if (fail) return {ok: false, json: async () => ({detail: 'Rejected deadline'})};
+    return {ok: true, json: async () => ({...task, ...body})};
+  },
+};
+vm.createContext(context);
+vm.runInContext(fs.readFileSync('static/board/board.js', 'utf8'), context);
+const board = context._createBoard();
+board.currentBoardRole = 'owner';
+board.selectedTask = {...task};
+board.stages = [{id: 1, tasks: [{...task}]}];
+board.renderBoardSurface = () => {};
+board.renderTaskModal = () => {};
+board.browserTimezone = () => 'Europe/Berlin';
+(async () => {
+  const update = board.updateTaskDeadline.bind(board);
+  let pending;
+  board.updateTaskDeadline = body => (pending = update(body));
+  board.handleSurfaceChange({target: {dataset: {field: 'modal-due-time'}, value: '14:30'}});
+  await pending;
+  assert.deepEqual(JSON.parse(JSON.stringify(writes[0])), {id: 1, body: {due_time: '14:30', due_timezone: 'Europe/Berlin'}});
+  assert.equal(board.stages[0].tasks[0].due_time, '14:30');
+  // Editing from another timezone retains the deadline's original timezone.
+  board.browserTimezone = () => 'America/New_York';
+  board.handleSurfaceChange({target: {dataset: {field: 'modal-due-time'}, value: '15:00'}});
+  await pending;
+  assert.equal(writes[1].body.due_timezone, 'Europe/Berlin');
+  await board.updateTaskDeadline({due_time: null});
+  assert.equal(board.selectedTask.due_time, null);
+  fail = true;
+  await board.updateTaskDeadline({due_date: '2026-11-04'});
+  assert.equal(board.selectedTask.due_date, '2026-11-03');
+  assert.deepEqual(alerts, ['Rejected deadline']);
+  board.currentBoardRole = 'viewer';
+  await board.updateTaskDeadline({due_time: '16:00'});
+  assert.equal(writes.length, 4);
+})().catch(error => {console.error(error); process.exitCode = 1;});
+"""
+    run_board_js(script)
+
+
+def test_timed_deadline_overdue_and_ordering_use_the_deadline_timezone():
+    script = """
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const now = Date.parse('2026-11-03T00:15:00Z');
+class FixedDate extends Date {
+  constructor(...args) {super(...(args.length ? args : [now]));}
+  static now() {return now;}
+}
+const context = {Date: FixedDate, document: {addEventListener() {}}};
+vm.createContext(context);
+vm.runInContext(fs.readFileSync('static/board/board.js', 'utf8'), context);
+const board = context._createBoard();
+const task = {due_date: '2026-11-02', due_time: '18:00', due_timezone: 'America/Los_Angeles', due_at: '2026-11-03T02:00:00Z'};
+assert.equal(board.dueDateClass(task.due_date, task), 'due-date-today');
+assert.equal(board.dueDateClass(task.due_date, {...task, due_at: '2026-11-03T00:00:00Z'}), 'due-date-overdue');
+assert.equal(board.dueDateClass('2026-11-02'), 'due-date-overdue');
+const dateOnly = {id: 1, due_date: '2026-11-03'};
+const berlin = {id: 2, due_date: '2026-11-03', due_time: '14:30', due_at: '2026-11-03T13:30:00Z'};
+const utc = {id: 3, due_date: '2026-11-03', due_time: '14:00', due_at: '2026-11-03T14:00:00Z'};
+const undated = {id: 4};
+const ordered = [undated, utc, berlin, dateOnly].sort((a, b) => board.compareTaskDeadlines(a, b));
+assert.deepEqual(ordered.map(task => task.id), [1, 2, 3, 4]);
+// Calendar moves send only a new date so the API preserves optional time fields.
+board.stages = [{id: 1, tasks: [{...berlin, title: 'Timed'}]}];
+board.loadStages = async () => {};
+let payload;
+context.apiUpdateTask = async (id, body) => {payload = body; return {ok: true};};
+(async () => {
+  await board.handleCalendarTaskDrop(2, '2026-11-05');
+  assert.deepEqual(JSON.parse(JSON.stringify(payload)), {due_date: '2026-11-05'});
+})().catch(error => {console.error(error); process.exitCode = 1;});
+"""
+    run_board_js(script)
+
+
 def test_task_card_custom_field_chip_uses_loaded_task_type_option_color():
     board_js = ROOT / "static" / "board" / "board.js"
     script = f"""

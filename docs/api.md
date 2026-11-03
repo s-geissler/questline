@@ -466,6 +466,9 @@ Returns a single task. Requires `viewer` on the task's board.
   "done": false,
   "color": null,
   "due_date": "2024-06-01",
+  "due_time": null,
+  "due_timezone": null,
+  "due_at": null,
   "parent_task": null,
   "assignee": null,
   "assignee_user_id": null,
@@ -528,11 +531,21 @@ Create a task. Requires `editor`.
   "title": "My task",
   "stage_id": 2,
   "task_type_id": 1,
-  "due_date": "2024-06-01"
+  "due_date": "2024-06-01",
+  "due_time": "14:30",
+  "due_timezone": "Europe/Berlin"
 }
 ```
 
 Fires `task_created` automations after creation.
+
+`due_date` remains a nullable `YYYY-MM-DD` date. Optional `due_time` uses `HH:MM`
+(24-hour, minute precision) and requires both a date and an IANA `due_timezone`,
+such as `Europe/Berlin` or `UTC`. Omit the time or set it to `null` for a date-only
+deadline. Task responses also include `due_time`, `due_timezone`, and read-only
+`due_at`, the resolved UTC ISO timestamp or `null` for date-only deadlines. Midnight
+(`00:00`) is an explicit time. Invalid date, time, timezone, or incomplete timed
+deadlines return `422`. Existing date-only clients remain compatible.
 
 ---
 
@@ -574,6 +587,14 @@ Update a task. Requires `editor`. All fields are optional.
 ```
 
 Setting `done: true` fires `task_done` automations.
+
+Deadline updates are partial: changing only `due_date` preserves an existing time
+and timezone; changing only `due_time` preserves its existing timezone. Setting a
+time for the first time requires `due_timezone`. Setting `due_time: null` clears
+the time and timezone while retaining the date. Clearing `due_date` also clears
+the time and timezone. `due_at` is computed, never a writable deadline input.
+Date filters continue to match `due_date`, independently of time. See
+[calendar.md](calendar.md#optional-deadline-times) for timezone and DST behavior.
 
 ---
 

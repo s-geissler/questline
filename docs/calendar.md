@@ -16,8 +16,9 @@ appear on their next refresh. Deadline edits are made in Questline.
 5. Click **Create subscription**, then copy and save the URL. The full URL is shown
    only at creation or regeneration.
 
-Every unfinished objective with a valid built-in due date appears once, as an all-day
-entry on its deadline. Entries include the objective title, description, and a link
+Every unfinished objective with a valid built-in due date appears once. A deadline
+with **No time** is an all-day entry; a deadline with an explicit time appears at
+that instant. Timed entries have no duration. Entries include the objective title, description, and a link
 back to Questline. They do not mark you as busy. Completed objectives, objectives
 without deadlines, and custom date fields are excluded. Clearing a deadline,
 completing an objective, or deleting it removes its entry on the next refresh.
@@ -26,6 +27,28 @@ The all-hubs option follows your current access, including admin access to all h
 Gaining or losing hub access changes the feed on its next fetch. A single-hub
 subscription stops working if you lose access to that hub. Deactivating or deleting
 the owning user also disables their subscriptions.
+
+## Optional deadline times
+
+In an Objective's details, choose a **Due Date**, then optionally set **Time**.
+The default is **No time**, including for existing Objectives. Use **No time** next
+to a set time to return to an all-day deadline. Clearing the date also clears its
+time and timezone.
+
+Setting a time captures your browser's IANA timezone, displayed under the control
+and with the deadline. Editing an existing timed deadline retains its timezone,
+including when another user edits it. Calendar apps receive a UTC timestamp and
+display it in their configured timezone. Date-only deadlines never undergo timezone
+conversion. Moving an Objective to another calendar day, date-setting automations,
+and both recurrence modes preserve its optional local time and timezone.
+
+Timezone rules account for daylight-saving transitions: repeated local times use
+their first occurrence; nonexistent local times move forward by the transition gap
+(for example, 02:30 becomes 03:30 during Berlin's spring transition). Recurrences
+retain the requested wall time for subsequent dates. Timed deadlines become overdue
+at the resolved instant; date-only deadlines retain the existing day-based behavior.
+Date filters continue to compare the stored calendar date. Sorting places date-only
+Objectives first on a day, followed by timed Objectives in deadline order.
 
 ## Stage selection
 
@@ -78,8 +101,9 @@ Subscriptions export stored objective deadlines. They do not export the in-app
 calendar's next-run previews or project an iCalendar recurrence rule. When recurrence
 creates a new objective, it receives a new event identity. When recurrence reuses an
 objective, its existing calendar entry moves to the new deadline. Invalid legacy
-deadline strings are skipped and logged by objective ID; new deadline inputs require
-`YYYY-MM-DD`.
+deadline strings are skipped and logged by objective ID. Dates use `YYYY-MM-DD`;
+optional times use `HH:MM` with an IANA timezone. Trello imports continue to import
+date-only deadlines.
 
 ## API
 

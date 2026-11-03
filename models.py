@@ -301,6 +301,8 @@ class Task(Base):
     title = Column(String, nullable=False)
     description = Column(Text, default="")
     due_date = Column(String, nullable=True)
+    due_time = Column(String(5), nullable=True)
+    due_timezone = Column(String, nullable=True)
     parent_task_id = Column(Integer, ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True)
     assignee_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     show_description_on_card = Column(Boolean, nullable=True)

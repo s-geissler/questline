@@ -91,6 +91,8 @@ def _clone_task_from_recurrence(
         title=source_task.title,
         description=source_task.description,
         due_date=occurrence_date.isoformat(),
+        due_time=source_task.due_time,
+        due_timezone=source_task.due_timezone,
         stage_id=target_stage.id,
         task_type_id=source_task.task_type_id,
         assignee_user_id=source_task.assignee_user_id,

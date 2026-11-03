@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session, contains_eager
 
 import models
 from authz import get_accessible_boards, require_board_access
-from services.tasks import normalize_due_date
+from services.tasks import deadline_datetime, normalize_due_date
 
 log = logging.getLogger("questline.calendar")
 TOKEN_PREFIX = "qlcal_"
@@ -182,6 +182,7 @@ def render_calendar(feed: models.CalendarFeed, db: Session, base_url: str) -> by
             if not normalized:
                 continue
             due = date.fromisoformat(normalized)
+            due_at = deadline_datetime(task.due_date, task.due_time, task.due_timezone)
         except ValueError:
             # Do not log titles, descriptions, or the invalid value itself.
             log.warning("skipped_invalid_calendar_deadline task_id=%s", task.id)
@@ -193,8 +194,8 @@ def render_calendar(feed: models.CalendarFeed, db: Session, base_url: str) -> by
         event.add("last-modified", modified)
         if task.created_at:
             event.add("created", _as_utc(task.created_at))
-        event.add("dtstart", due)
-        if due < date.max:
+        event.add("dtstart", due_at or due)
+        if due_at is None and due < date.max:
             event.add("dtend", due + timedelta(days=1))
         event.add("summary", task.title)
         if task.description:

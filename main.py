@@ -188,6 +188,7 @@ from services.tasks import (
     _sync_spawned_task_title_from_checklist_item,
     collect_descendant_task_ids,
     delete_tasks_by_ids,
+    task_deadline_to_dict,
 )
 from authz import (
     CSRF_COOKIE,
@@ -306,6 +307,8 @@ def _run_column_migrations():
         ("lists",            "filter_id", "INTEGER REFERENCES saved_filters(id)"),
         ("tasks",            "color",   "VARCHAR"),
         ("tasks",            "due_date", "VARCHAR"),
+        ("tasks",            "due_time", "VARCHAR(5)"),
+        ("tasks",            "due_timezone", "VARCHAR"),
         ("tasks",            "calendar_uid", "VARCHAR(36)"),
         ("tasks",            "updated_at", "DATETIME"),
         ("calendar_feeds",   "all_stages", "BOOLEAN NOT NULL DEFAULT 1"),
@@ -828,7 +831,7 @@ def task_to_dict(task: models.Task) -> dict:
         "id": task.id,
         "title": task.title,
         "description": task.description or "",
-        "due_date": task.due_date,
+        **task_deadline_to_dict(task),
         "board_id": task.stage.board_id if task.stage else None,
         "board_name": task.stage.board.name if task.stage and task.stage.board else None,
         "stage_name": task.stage.name if task.stage else None,

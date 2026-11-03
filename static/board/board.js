@@ -366,6 +366,8 @@ function _createBoard() {
         entries.sort((a, b) => {
           if (!!a.is_calendar_preview !== !!b.is_calendar_preview) return a.is_calendar_preview ? 1 : -1;
           if (!!a.done !== !!b.done) return a.done ? 1 : -1;
+          const byDeadline = this.compareTaskDeadlines(a, b);
+          if (byDeadline !== 0) return byDeadline;
           return String(a.title || '').localeCompare(String(b.title || ''));
         });
       }
@@ -639,6 +641,10 @@ function _createBoard() {
         this.toggleDone();
         return;
       }
+      if (action === 'modal-clear-due-time') {
+        this.updateTaskDeadline({due_time: null});
+        return;
+      }
       if (action === 'modal-toggle-action-menu') {
         this.toggleTaskActionMenu();
         return;
@@ -855,8 +861,15 @@ function _createBoard() {
         return;
       }
       if (field === 'modal-due-date') {
-        if (this.selectedTask) this.selectedTask.due_date = event.target.value;
-        this.updateTaskField('due_date', event.target.value || null);
+        this.updateTaskDeadline({due_date: event.target.value || null});
+        return;
+      }
+      if (field === 'modal-due-time') {
+        const time = event.target.value || null;
+        this.updateTaskDeadline({
+          due_time: time,
+          due_timezone: time ? (this.selectedTask?.due_timezone || this.browserTimezone()) : null,
+        });
         return;
       }
       if (field === 'modal-task-type') {
@@ -1356,7 +1369,7 @@ function _createBoard() {
       const parentBadge = task.parent_task ? `<span class="text-xs px-2 py-0.5 rounded font-medium bg-violet-100 text-violet-700">${_escapeBoardHtml(task.parent_task.title)}</span>` : '';
       const assigneeBadge = task.assignee ? `<span class="text-xs px-2 py-0.5 rounded font-medium bg-slate-100 text-slate-700">${_escapeBoardHtml(this.assigneeChipLabel(task))}</span>` : '';
       const recurrenceBadge = task.recurrence ? '<span class="text-xs px-2 py-0.5 rounded font-medium bg-blue-100 text-blue-700">↻ Recurring</span>' : '';
-      const dueDateBadge = this.hasDueDate(task.due_date) ? `<span class="text-xs px-2 py-0.5 rounded font-medium ${this.dueDateClass(task.due_date)}">${_escapeBoardHtml(this.dueDateLabel(task.due_date))}</span>` : '';
+      const dueDateBadge = this.hasDueDate(task.due_date) ? `<span class="text-xs px-2 py-0.5 rounded font-medium ${this.dueDateClass(task.due_date, task)}">${_escapeBoardHtml(this.dueDateLabel(task.due_date, task))}</span>` : '';
       const checklistBadge = this.showChecklistSummary(task) ? `<span class="text-xs text-gray-400 flex items-center gap-0.5"><span>☑</span><span>${_escapeBoardHtml(this.checklistProgress(task))}</span></span>` : '';
       const attachmentBadge = Number(task.attachment_count) > 0 ? `
         <span class="task-card-attachment-indicator inline-flex flex-shrink-0 items-center text-gray-400" role="img" aria-label="Has attachments" title="Has attachments">
@@ -1721,7 +1734,7 @@ function _createBoard() {
                 <button data-action="close-task-modal" class="text-gray-400 hover:text-gray-600 text-xl leading-none flex-shrink-0">×</button>
               </div>
 
-              <div class="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-4 mb-5 items-end">
+              <div class="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-4 mb-5 items-start">
                 <div>
                   <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Assignee</label>
                   <select data-field="modal-assignee" ${dis} class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
@@ -1730,14 +1743,29 @@ function _createBoard() {
                   </select>
                 </div>
                 <div>
-                  <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Due Date</label>
+                  <label for="objective-due-date" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Due Date</label>
                   <input
+                    id="objective-due-date"
                     type="date"
                     data-field="modal-due-date"
                     value="${_escapeBoardHtml(task.due_date || '')}"
                     ${dis}
                     class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                   >
+                  <label for="objective-due-time" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mt-2 mb-1">Time (optional)</label>
+                  <div class="flex items-center gap-2">
+                    <input
+                      id="objective-due-time"
+                      type="time"
+                      step="60"
+                      data-field="modal-due-time"
+                      value="${_escapeBoardHtml(task.due_time || '')}"
+                      ${canEdit && task.due_date ? '' : 'disabled'}
+                      class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    >
+                    ${canEdit && task.due_time ? '<button data-action="modal-clear-due-time" class="text-xs text-gray-500 hover:text-gray-700 flex-shrink-0">No time</button>' : ''}
+                  </div>
+                  <p class="text-xs text-gray-500 mt-1" data-role="deadline-timezone">${_escapeBoardHtml(task.due_time ? task.due_timezone : 'No time · all-day deadline')}</p>
                 </div>
                 <div class="relative pb-0.5" data-role="modal-color-picker-anchor">
                   <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Color</label>
@@ -2151,6 +2179,7 @@ function _createBoard() {
             ${entry.recurrence ? '<span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">↻</span>' : ''}
           </div>
           <div class="mt-1.5 flex items-center gap-1.5 flex-wrap">
+            ${entry.due_time ? `<span class="text-[11px] font-medium">${_escapeBoardHtml(this.deadlineTimeLabel(entry))}</span>` : ''}
             ${entry.task_type ? `<span class="text-[11px] px-1.5 py-0.5 rounded font-medium ${this.taskTypeBadgeClass(entry.task_type)}">${_escapeBoardHtml(entry.task_type.name)}</span>` : ''}
             <span class="text-[11px] px-1.5 py-0.5 rounded font-medium bg-slate-100 text-slate-600">${_escapeBoardHtml(this.calendarStageLabel(entry))}</span>
             ${entry.is_calendar_preview ? '<span class="text-[11px] text-blue-600 font-medium">Next occurrence</span>' : ''}
@@ -2988,6 +3017,29 @@ function _createBoard() {
       }
     },
 
+    browserTimezone() {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    },
+
+    async updateTaskDeadline(body) {
+      if (!this.canEditBoard || !this.selectedTask) return;
+      const taskId = this.selectedTask.id;
+      try {
+        const res = await apiUpdateTask(taskId, body);
+        const updated = await res.json();
+        if (!res.ok) {
+          const detail = Array.isArray(updated.detail) ? updated.detail.map(error => error.msg).join('; ') : updated.detail;
+          throw new Error(detail || 'Unable to update deadline');
+        }
+        if (this.selectedTask?.id === taskId) this.selectedTask = this._normalizeSelectedTask(updated);
+        this._syncTaskInStages(updated);
+      } catch (error) {
+        alert(error.message || 'Unable to update deadline');
+      } finally {
+        this.renderTaskModal();
+      }
+    },
+
     async updateTaskType() {
       if (!this.canEditBoard) return;
       const typeId = this.selectedTask.task_type_id ? parseInt(this.selectedTask.task_type_id) : null;
@@ -3153,14 +3205,8 @@ function _createBoard() {
 
       const originalTasks = [...stage.tasks];
       const sortedTasks = [...stage.tasks].sort((a, b) => {
-        const aHasDueDate = this.hasDueDate(a?.due_date);
-        const bHasDueDate = this.hasDueDate(b?.due_date);
-        if (aHasDueDate && bHasDueDate) {
-          const byDueDate = a.due_date.localeCompare(b.due_date);
-          if (byDueDate !== 0) return byDueDate;
-        } else if (aHasDueDate !== bHasDueDate) {
-          return aHasDueDate ? -1 : 1;
-        }
+        const byDueDate = this.compareTaskDeadlines(a, b);
+        if (byDueDate !== 0) return byDueDate;
         return (a.position ?? 0) - (b.position ?? 0);
       });
 
@@ -3362,9 +3408,34 @@ function _createBoard() {
       return !!(value && String(value).trim());
     },
 
-    dueDateLabel(value) {
+    deadlineTimeLabel(task) {
+      if (!task?.due_time) return '';
+      let time = task.due_time;
+      if (task.due_at && task.due_timezone && !task.is_calendar_preview) {
+        time = new Intl.DateTimeFormat(undefined, {
+          timeZone: task.due_timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+        }).format(new Date(task.due_at));
+      }
+      return `${time} (${task.due_timezone || 'UTC'})`;
+    },
+
+    dueDateLabel(value, task = null) {
       if (!this.hasDueDate(value)) return '';
-      return 'Due ' + this.formatDueDate(value);
+      return 'Due ' + this.formatDueDate(value) + (task?.due_time ? ', ' + this.deadlineTimeLabel(task) : '');
+    },
+
+    compareTaskDeadlines(a, b) {
+      const aHas = this.hasDueDate(a?.due_date);
+      const bHas = this.hasDueDate(b?.due_date);
+      if (aHas !== bHas) return aHas ? -1 : 1;
+      if (!aHas) return 0;
+      const byDate = a.due_date.localeCompare(b.due_date);
+      if (byDate !== 0) return byDate;
+      if (!!a.due_time !== !!b.due_time) return a.due_time ? 1 : -1;
+      if (a.due_at && b.due_at && !a.is_calendar_preview && !b.is_calendar_preview) {
+        return new Date(a.due_at).getTime() - new Date(b.due_at).getTime();
+      }
+      return (a.due_time || '').localeCompare(b.due_time || '');
     },
 
     contrastTextClass(color) {
@@ -3392,8 +3463,21 @@ function _createBoard() {
       return `${this.colorSwatchClass(color)} ${this.contrastTextClass(color)}`.trim();
     },
 
-    dueDateClass(value) {
+    dueDateClass(value, task = null) {
       if (!this.hasDueDate(value)) return '';
+
+      if (task?.due_at) {
+        if (new Date(task.due_at).getTime() <= Date.now()) return 'due-date-overdue';
+        const parts = new Intl.DateTimeFormat('en', {
+          timeZone: task.due_timezone || 'UTC', year: 'numeric', month: '2-digit', day: '2-digit',
+        }).formatToParts(new Date());
+        const day = Object.fromEntries(parts.map(part => [part.type, part.value]));
+        const today = `${day.year}-${day.month}-${day.day}`;
+        const diffDays = Math.round((Date.parse(value + 'T00:00:00Z') - Date.parse(today + 'T00:00:00Z')) / 86400000);
+        if (diffDays === 0) return 'due-date-today';
+        if (diffDays <= 7) return 'due-date-soon';
+        return 'due-date-future';
+      }
 
       const due = new Date(value + 'T00:00:00');
       if (Number.isNaN(due.getTime())) {
