@@ -138,6 +138,7 @@ from routes.api_tokens import (
 )
 from routes.pages import router as pages_router
 from routes.calendar import router as calendar_router, feed_router as calendar_feed_router
+from services.trello_import import MAX_TRELLO_IMPORT_REQUEST_SIZE
 from services.calendar import (
     backfill_calendar_metadata,
     configure_calendar_access_logging,
@@ -518,7 +519,7 @@ configure_calendar_access_logging()
 app = FastAPI()
 
 
-class _AttachmentUploadBodyLimitMiddleware:
+class _UploadBodyLimitMiddleware:
     def __init__(self, app: ASGIApp):
         self.app = app
 
@@ -526,16 +527,21 @@ class _AttachmentUploadBodyLimitMiddleware:
         if (
             scope["type"] != "http"
             or scope["method"] != "POST"
-            or not re.fullmatch(r"/api/tasks/(?:\d+/attachments|import-email)", scope["path"])
+            or not re.fullmatch(r"/api/(?:tasks/(?:\d+/attachments|import-email)|boards/import-trello(?:/preview)?)", scope["path"])
         ):
             await self.app(scope, receive, send)
             return
 
-        error_detail = (
-            "Email upload request is too large"
-            if scope["path"] == "/api/tasks/import-email"
-            else "Attachment upload request is too large"
-        )
+        if scope["path"].startswith("/api/boards/import-trello"):
+            error_detail = "Trello export upload request is too large"
+            request_limit = MAX_TRELLO_IMPORT_REQUEST_SIZE
+        else:
+            error_detail = (
+                "Email upload request is too large"
+                if scope["path"] == "/api/tasks/import-email"
+                else "Attachment upload request is too large"
+            )
+            request_limit = MAX_TASK_ATTACHMENT_REQUEST_SIZE
 
         content_length = next(
             (
@@ -549,7 +555,7 @@ class _AttachmentUploadBodyLimitMiddleware:
             declared_length = int(content_length) if content_length is not None else None
         except ValueError:
             declared_length = None
-        if declared_length is not None and declared_length > MAX_TASK_ATTACHMENT_REQUEST_SIZE:
+        if declared_length is not None and declared_length > request_limit:
             await self._send_too_large(scope, receive, send, error_detail)
             return
 
@@ -563,7 +569,7 @@ class _AttachmentUploadBodyLimitMiddleware:
             message = await receive()
             if message["type"] == "http.request":
                 received_bytes += len(message.get("body", b""))
-                if received_bytes > MAX_TASK_ATTACHMENT_REQUEST_SIZE:
+                if received_bytes > request_limit:
                     request_too_large = True
                     return {"type": "http.request", "body": b"", "more_body": False}
             return message
@@ -612,7 +618,7 @@ class _AttachmentUploadBodyLimitMiddleware:
             media_type="application/json",
         )
         await response(scope, receive, send)
-app.add_middleware(_AttachmentUploadBodyLimitMiddleware)
+app.add_middleware(_UploadBodyLimitMiddleware)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.state.trusted_proxy_networks = TRUSTED_PROXY_NETWORKS
 app.include_router(auth_router)

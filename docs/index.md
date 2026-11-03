@@ -55,6 +55,7 @@ The first registered account is automatically promoted to admin.
 - [auth.md](auth.md) — Authentication, sessions, and role-based access control
 - [api.md](api.md) — REST API reference
 - [calendar.md](calendar.md) — Private deadline calendar subscriptions and Thunderbird setup
+- [trello-import.md](trello-import.md) — Import Trello board exports as new Hubs or replace existing content
 - [automations.md](automations.md) — Automation engine: triggers, conditions, actions
 - [custom-fields.md](custom-fields.md) — Custom field types and usage
 - [deployment.md](deployment.md) — HTTPS, reverse proxy, HSTS, and recommended production settings

@@ -233,6 +233,10 @@ class HomePageController {
     const action = actionTarget.dataset.action;
     const boardId = Number.parseInt(actionTarget.dataset.boardId || '', 10);
 
+    if (action === 'import-trello') {
+      openTrelloImport();
+      return;
+    }
     if (action === 'open-create') {
       this.openCreateForm();
       return;

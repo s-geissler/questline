@@ -251,6 +251,55 @@ Create a hub. Creator is automatically added as owner.
 
 ---
 
+### `POST /api/boards/import-trello/preview`
+
+Validate a Trello board JSON export and return counts without changing Hub content.
+Requires authentication; specifying a target Hub additionally requires `owner`
+access (administrators also qualify).
+
+**Multipart form fields**
+
+- `file`: a single-board UTF-8 JSON export, maximum 10 MiB.
+- `board_id`: optional existing Hub to replace; omit to create a new Hub on import.
+
+**Returns**
+
+```json
+{
+  "name": "Exported board name",
+  "stage_count": 12,
+  "task_count": 143,
+  "checklist_item_count": 6,
+  "skipped_archived_card_count": 161,
+  "target_board": null
+}
+```
+
+For replacement, `target_board` contains the existing Hub's `id`, `name`,
+`stage_count`, `task_count`, and `automation_count`.
+
+### `POST /api/boards/import-trello`
+
+Import the same multipart `file` and optional `board_id`. When replacing a Hub,
+`confirm_replace=true` is also required. The file is validated again on import.
+
+Returns `201` for a new Hub or `200` for replacement, with `board_id`, `replaced`
+(boolean), and the counts/name from the preview (without `target_board`). A new
+Hub is owned by the importing user and uses the instance's default color.
+
+Only base Objectives are imported. Archived cards and Trello customization are
+skipped; assignees and attachment links become Markdown description notes.
+Replacement removes all current Stages, Objectives and associated data, and all
+automations in one transaction. Hub identity, settings, and memberships are
+preserved. See [Trello import](trello-import.md) for mapping details and effects on
+Quest/calendar Stage references.
+
+Invalid exports return `400`; missing replacement confirmation also returns
+`400`. Oversized files or multipart bodies return `413`. Multipart bodies are
+capped at 10 MiB plus 64 KiB of overhead, including streamed requests.
+
+---
+
 ### `PUT /api/boards/{board_id}`
 
 Update hub name and/or color. Requires `owner` role.

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -23,6 +23,8 @@ from authz import (
 from routes._deps import get_db
 from services.notifications import create_notification
 from services.settings import get_instance_settings
+from services.audit import _audit_log
+from services.trello_import import MAX_TRELLO_IMPORT_SIZE, import_trello_content, parse_trello_export
 
 router = APIRouter(prefix="/api/boards", tags=["boards"])
 
@@ -114,6 +116,80 @@ def create_board(request: Request = None, data: BoardCreate = None, db: Session 
         "role": "owner" if owner_user else None,
         "is_shared": False,
     }
+
+
+def _trello_import_draft(request: Request, file: UploadFile, board_id: Optional[int], db: Session):
+    user = require_current_user(request, db)
+    board = None
+    if board_id is not None:
+        _authorize_board_request(request, db, board_id, "owner")
+        board = db.get(models.Board, board_id)
+        if board is None:
+            raise HTTPException(status_code=404, detail="Hub not found")
+    content = file.file.read(MAX_TRELLO_IMPORT_SIZE + 1)
+    if len(content) > MAX_TRELLO_IMPORT_SIZE:
+        raise HTTPException(status_code=413, detail="Trello export exceeds the 10 MiB size limit")
+    try:
+        draft = parse_trello_export(content)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return user, board, draft
+
+
+@router.post("/import-trello/preview")
+def preview_trello_import(
+    request: Request,
+    file: UploadFile = File(...),
+    board_id: Optional[int] = Form(None),
+    db: Session = Depends(get_db),
+):
+    _, board, draft = _trello_import_draft(request, file, board_id, db)
+    target = None
+    if board is not None:
+        target = {
+            "id": board.id,
+            "name": board.name,
+            "stage_count": db.query(models.Stage).filter_by(board_id=board.id).count(),
+            "task_count": db.query(models.Task).join(models.Stage).filter(models.Stage.board_id == board.id).count(),
+            "automation_count": db.query(models.Automation).filter_by(board_id=board.id).count(),
+        }
+    return {**draft.summary(), "target_board": target}
+
+
+@router.post("/import-trello")
+def import_trello_board(
+    request: Request,
+    response: Response,
+    file: UploadFile = File(...),
+    board_id: Optional[int] = Form(None),
+    confirm_replace: bool = Form(False),
+    db: Session = Depends(get_db),
+):
+    user, board, draft = _trello_import_draft(request, file, board_id, db)
+    replacing = board is not None
+    if replacing and not confirm_replace:
+        raise HTTPException(status_code=400, detail="Confirm replacement of this Hub's Stages, Objectives, and automations")
+    try:
+        if board is None:
+            board = models.Board(
+                name=draft.name,
+                owner_user_id=user.id,
+                position=db.query(models.Board).count(),
+                color=get_instance_settings(db)["default_board_color"] or None,
+            )
+            db.add(board)
+            db.flush()
+            ensure_board_membership(board, user, "owner", db)
+        import_trello_content(draft, board, db)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    response.status_code = 200 if replacing else 201
+    summary = draft.summary()
+    _audit_log("board_imported", request=request, actor_user_id=user.id, board_id=board.id,
+               details={"source": "trello", "replaced": replacing, **summary})
+    return {"board_id": board.id, "replaced": replacing, **summary}
 
 
 @router.put("/{board_id}")
