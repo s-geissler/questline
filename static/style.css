@@ -243,6 +243,14 @@
   font-weight: 600;
   line-height: 1;
 }
+.task-assignee-color-0 { background: #dbeafe; color: #1e40af; }
+.task-assignee-color-1 { background: #d1fae5; color: #065f46; }
+.task-assignee-color-2 { background: #ede9fe; color: #5b21b6; }
+.task-assignee-color-3 { background: #fef3c7; color: #92400e; }
+.task-assignee-color-4 { background: #ffe4e6; color: #9f1239; }
+.task-assignee-color-5 { background: #cffafe; color: #155e75; }
+.task-assignee-color-6 { background: #ffedd5; color: #9a3412; }
+.task-assignee-color-7 { background: #e0e7ff; color: #3730a3; }
 .task-assignee-picker { position: relative; min-width: 0; }
 .task-assignee-trigger { display: flex; align-items: center; gap: 8px; }
 .task-assignee-trigger svg { flex-shrink: 0; }
@@ -267,6 +275,14 @@
 .task-assignee-option input { flex-shrink: 0; }
 .task-assignee-option:hover { background: #f1f5f9; }
 :root.dark .task-assignee-pill { background: #334155; color: #e2e8f0; }
+:root.dark .task-assignee-color-0 { background: #1e3a8a; color: #bfdbfe; }
+:root.dark .task-assignee-color-1 { background: #064e3b; color: #a7f3d0; }
+:root.dark .task-assignee-color-2 { background: #4c1d95; color: #ddd6fe; }
+:root.dark .task-assignee-color-3 { background: #78350f; color: #fde68a; }
+:root.dark .task-assignee-color-4 { background: #881337; color: #fecdd3; }
+:root.dark .task-assignee-color-5 { background: #164e63; color: #a5f3fc; }
+:root.dark .task-assignee-color-6 { background: #7c2d12; color: #fed7aa; }
+:root.dark .task-assignee-color-7 { background: #312e81; color: #c7d2fe; }
 :root.dark .task-assignee-options { background: #111827; border-color: #374151; }
 :root.dark .task-assignee-option:hover { background: #1f2937; }
 

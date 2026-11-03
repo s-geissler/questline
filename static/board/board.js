@@ -1437,7 +1437,7 @@ function _createBoard() {
     renderTaskCard(task, stage) {
       const taskTypeBadge = task.task_type ? `<span class="text-xs px-2 py-0.5 rounded font-medium ${this.taskTypeBadgeClass(task.task_type)}">${_escapeBoardHtml(task.task_type.name)}</span>` : '';
       const parentBadge = task.parent_task ? `<span class="text-xs px-2 py-0.5 rounded font-medium bg-violet-100 text-violet-700">${_escapeBoardHtml(task.parent_task.title)}</span>` : '';
-      const assigneeBadge = this.taskAssignees(task).map(user => `<span class="task-assignee-pill" role="img" title="${_escapeBoardHtml(user.display_name || user.email)}" aria-label="Assigned to ${_escapeBoardHtml(user.display_name || user.email)}">${_escapeBoardHtml(this.assigneeInitials(user))}</span>`).join('');
+      const assigneeBadge = this.taskAssignees(task).map(user => `<span class="task-assignee-pill ${this.assigneeColorClass(user)}" role="img" title="${_escapeBoardHtml(user.display_name || user.email)}" aria-label="Assigned to ${_escapeBoardHtml(user.display_name || user.email)}">${_escapeBoardHtml(this.assigneeInitials(user))}</span>`).join('');
       const recurrenceBadge = task.recurrence ? '<span class="text-xs px-2 py-0.5 rounded font-medium bg-blue-100 text-blue-700">↻ Recurring</span>' : '';
       const dueDateBadge = this.hasDueDate(task.due_date) ? `<span class="text-xs px-2 py-0.5 rounded font-medium ${this.dueDateClass(task.due_date, task)}">${_escapeBoardHtml(this.dueDateLabel(task.due_date, task))}</span>` : '';
       const checklistBadge = this.showChecklistSummary(task) ? `<span class="text-xs text-gray-400 flex items-center gap-0.5"><span>☑</span><span>${_escapeBoardHtml(this.checklistProgress(task))}</span></span>` : '';
@@ -3789,6 +3789,14 @@ function _createBoard() {
       const words = (user.display_name || user.email || '?').trim().split(/\s+/u).filter(Boolean);
       const initial = word => Array.from(word || '?')[0];
       return (initial(words[0]) + (words.length > 1 ? initial(words[words.length - 1]) : '')).toLocaleUpperCase();
+    },
+
+    assigneeColorClass(user) {
+      // Prefer the stable user ID so changing a display name keeps its color.
+      const identity = String(user.id ?? user.email ?? user.display_name ?? '');
+      let hash = 0;
+      for (const character of identity) hash = (Math.imul(hash, 31) + character.codePointAt(0)) >>> 0;
+      return `task-assignee-color-${hash % 8}`;
     },
 
     assigneePickerHtml(task) {

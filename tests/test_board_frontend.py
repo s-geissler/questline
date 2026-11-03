@@ -36,7 +36,7 @@ assert.equal(board.assigneeInitials(users[0]), 'AA');
 assert.equal(board.assigneeInitials(users[1]), 'B');
 assert.equal(board.assigneeInitials(users[2]), 'É東');
 const html = board.renderTaskCard({id: 1, title: 'Task', assignees: users}, {id: 1});
-assert.equal((html.match(/class="task-assignee-pill"/g) || []).length, 4);
+assert.equal((html.match(/class="task-assignee-pill task-assignee-color-[0-7]"/g) || []).length, 4);
 assert(html.includes('>AA</span>'));
 assert(html.includes('title=" Alice   Adams "'));
 assert(html.includes('aria-label="Assigned to Éva 東京"'));
