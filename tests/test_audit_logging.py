@@ -181,6 +181,7 @@ def test_audit_log_path_writes_json_lines(tmp_path, monkeypatch):
         "services.audit",
         "services.settings",
         "services.tasks",
+        "services.task_history",
         "services.notifications",
         "services.automation",
         "services.recurrence",

@@ -12,6 +12,7 @@ from urllib.parse import quote, urlsplit
 from sqlalchemy.orm import Session
 
 import models
+from services.task_history import record_task_event
 
 
 MAX_TRELLO_IMPORT_SIZE = 10 * 1024 * 1024
@@ -237,7 +238,7 @@ def parse_trello_export(content: bytes) -> TrelloDraft:
     )
 
 
-def import_trello_content(draft: TrelloDraft, board: models.Board, db: Session):
+def import_trello_content(draft: TrelloDraft, board: models.Board, db: Session, actor=None):
     """Replace content without committing or running ordinary creation automations."""
     old_stages = list(board.stages)
     for automation in list(board.automations):
@@ -258,8 +259,10 @@ def import_trello_content(draft: TrelloDraft, board: models.Board, db: Session):
                 position=task_position,
             )
             db.add(task)
+            record_task_event(task, "task_created", db, actor)
             for item in task_draft.checklist:
                 db.add(models.ChecklistItem(task=task, title=item.title, done=item.done))
+                record_task_event(task, "checklist_item_added", db, actor, subject=item.title)
     db.flush()
     for stage in old_stages:
         db.delete(stage)

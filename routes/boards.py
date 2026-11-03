@@ -187,7 +187,7 @@ def import_trello_board(
             db.add(board)
             db.flush()
             ensure_board_membership(board, user, "owner", db)
-        import_trello_content(draft, board, db)
+        import_trello_content(draft, board, db, user)
         db.commit()
     except Exception:
         db.rollback()

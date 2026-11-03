@@ -78,6 +78,16 @@ The calendar subscription browser check uses the same Playwright/Chromium setup:
 node tests/browser_calendar_feeds.cjs
 ```
 
+Task history browser checks use a disposable database and cover the collapsed pane,
+desktop/mobile layout, scrolling, pagination, edits, automation, and task switching:
+
+```bash
+node tests/browser_task_history.cjs
+```
+
+Set `QUESTLINE_TEST_PYTHON` to a Python executable with the app dependencies if needed.
+Set `QUESTLINE_TEST_SCREENSHOT` to a PNG path to save desktop, collapsed, mobile, and dark-mode previews.
+
 ## Logging
 
 Questline uses Python's standard `logging` module. Loggers:

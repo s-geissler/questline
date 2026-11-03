@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import json
 import unicodedata
-from typing import List as PyList, Optional
+from typing import Annotated, List as PyList, Optional
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
@@ -25,6 +25,14 @@ from services.automation import run_automations
 from services.email_import import parse_eml_message
 from services.notifications import create_notification, recurrence_to_dict
 from services.recurrence import _advance_recurrence_date, _parse_iso_date
+from services.task_history import (
+    checklist_history_snapshot,
+    history_event_to_dict,
+    record_checklist_changes,
+    record_task_changes,
+    record_task_event,
+    task_history_snapshot,
+)
 from services.tasks import (
     _create_checklist_item_internal,
     _sync_checklist_item_title_from_spawned_task,
@@ -373,8 +381,9 @@ def _validate_task_recurrence_input(task: models.Task, data: TaskRecurrenceUpdat
 @router.post("")
 def create_task(data: TaskCreate, db: Session = Depends(get_db), request: Request = None):
     board_id = _board_id_for_stage(data.stage_id, db)
+    current_user = None
     if board_id is not None:
-        _authorize_board_request(request, db, board_id, "editor")
+        current_user = _authorize_board_request(request, db, board_id, "editor")
     stage = db.query(models.Stage).filter(models.Stage.id == data.stage_id).first()
     if not stage:
         raise HTTPException(status_code=404, detail="Stage not found")
@@ -391,6 +400,7 @@ def create_task(data: TaskCreate, db: Session = Depends(get_db), request: Reques
         position=pos,
     )
     db.add(task)
+    record_task_event(task, "task_created", db, current_user)
     db.commit()
     db.refresh(task)
     run_automations(task, "task_created", db)
@@ -447,6 +457,7 @@ def import_email_task(
         )
     )
     db.add(task)
+    record_task_event(task, "task_created", db, current_user)
     db.commit()
     db.refresh(task)
 
@@ -467,6 +478,26 @@ def get_task(task_id: int, db: Session = Depends(get_db), request: Request = Non
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     return task_to_dict(task)
+
+
+@router.get("/{task_id}/history")
+def get_task_history(
+    task_id: int,
+    db: Session = Depends(get_db),
+    request: Request = None,
+    before_id: Annotated[Optional[int], Query(gt=0)] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+):
+    _authorized_task(task_id, request, db, "viewer")
+    query = db.query(models.TaskHistoryEvent).filter(models.TaskHistoryEvent.task_id == task_id)
+    if before_id is not None:
+        query = query.filter(models.TaskHistoryEvent.id < before_id)
+    events = query.order_by(models.TaskHistoryEvent.id.desc()).limit(limit + 1).all()
+    page = events[:limit]
+    return {
+        "items": [history_event_to_dict(event) for event in page],
+        "next_before_id": page[-1].id if len(events) > limit else None,
+    }
 
 
 @router.get("/{task_id}/attachments")
@@ -584,8 +615,9 @@ def delete_task_attachment(
 @router.put("/reorder")
 def reorder_tasks(data: ReorderTasks, db: Session = Depends(get_db), request: Request = None):
     board_id = _board_id_for_stage(data.stage_id, db)
+    current_user = None
     if board_id is not None:
-        _authorize_board_request(request, db, board_id, "editor")
+        current_user = _authorize_board_request(request, db, board_id, "editor")
     target_stage = db.query(models.Stage).filter(models.Stage.id == data.stage_id).first()
     if not target_stage:
         raise HTTPException(status_code=404, detail="Stage not found")
@@ -598,6 +630,7 @@ def reorder_tasks(data: ReorderTasks, db: Session = Depends(get_db), request: Re
         task.stage_id = data.stage_id
         task.position = i
         if previous_stage_id != data.stage_id:
+            record_task_event(task, "stage_changed", db, current_user)
             moved_tasks.append(task)
     db.commit()
     for task in moved_tasks:
@@ -635,10 +668,11 @@ def update_task(task_id: int, data: TaskUpdate, db: Session = Depends(get_db), r
     effective_task_type_id = data.task_type_id if "task_type_id" in data.model_fields_set else task.task_type_id
     _validate_custom_fields_for_task(data.custom_fields, effective_task_type_id, task.stage.board_id, db)
     prev_done = task.done
+    previous = task_history_snapshot(task)
     prev_assignee_user_ids = set(previous_assignees)
     if data.title is not None:
         task.title = data.title
-        _sync_checklist_item_title_from_spawned_task(task, db)
+        _sync_checklist_item_title_from_spawned_task(task, db, current_user)
     if data.description is not None:
         task.description = data.description
     for field, value in deadline_values.items():
@@ -670,6 +704,7 @@ def update_task(task_id: int, data: TaskUpdate, db: Session = Depends(get_db), r
                 existing.value = value
             else:
                 db.add(models.CustomFieldValue(task_id=task_id, field_def_id=field_def_id, value=value))
+    record_task_changes(task, previous, db, current_user)
     db.commit()
     if data.done is not None:
         ref_item = (
@@ -678,9 +713,13 @@ def update_task(task_id: int, data: TaskUpdate, db: Session = Depends(get_db), r
             .first()
         )
         if ref_item:
+            previous_item = checklist_history_snapshot(ref_item)
             ref_item.done = data.done
+            record_checklist_changes(ref_item, previous_item, db, current_user)
         for checklist_item in task.checklist_items:
+            previous_item = checklist_history_snapshot(checklist_item)
             checklist_item.done = data.done
+            record_checklist_changes(checklist_item, previous_item, db, current_user)
         spawned_children = (
             db.query(models.Task)
             .join(models.ChecklistItem, models.ChecklistItem.spawned_task_id == models.Task.id)
@@ -690,7 +729,9 @@ def update_task(task_id: int, data: TaskUpdate, db: Session = Depends(get_db), r
         children_newly_done = []
         for child in spawned_children:
             was_done = child.done
+            previous_child = task_history_snapshot(child)
             child.done = data.done
+            record_task_changes(child, previous_child, db, current_user)
             if data.done and not was_done:
                 children_newly_done.append(child)
         db.commit()
@@ -723,8 +764,9 @@ def update_task(task_id: int, data: TaskUpdate, db: Session = Depends(get_db), r
 @router.put("/{task_id}/move")
 def move_task(task_id: int, data: TaskMove, db: Session = Depends(get_db), request: Request = None):
     board_id = _board_id_for_task(task_id, db)
+    current_user = None
     if board_id is not None:
-        _authorize_board_request(request, db, board_id, "editor")
+        current_user = _authorize_board_request(request, db, board_id, "editor")
     task = db.query(models.Task).filter(models.Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -738,6 +780,8 @@ def move_task(task_id: int, data: TaskMove, db: Session = Depends(get_db), reque
     previous_stage_id = task.stage_id
     task.stage_id = data.stage_id
     task.position = data.position
+    if previous_stage_id != data.stage_id:
+        record_task_event(task, "stage_changed", db, current_user)
     db.commit()
     if previous_stage_id != data.stage_id:
         run_automations(task, "task_moved_to_stage", db)
@@ -749,12 +793,13 @@ def move_task(task_id: int, data: TaskMove, db: Session = Depends(get_db), reque
 @router.delete("/{task_id}")
 def delete_task(task_id: int, db: Session = Depends(get_db), request: Request = None):
     board_id = _board_id_for_task(task_id, db)
+    current_user = None
     if board_id is not None:
-        _authorize_board_request(request, db, board_id, "editor")
+        current_user = _authorize_board_request(request, db, board_id, "editor")
     task = db.query(models.Task).filter(models.Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    delete_tasks_by_ids(collect_descendant_task_ids([task_id], db), db)
+    delete_tasks_by_ids(collect_descendant_task_ids([task_id], db), db, current_user)
     return {"ok": True}
 
 
@@ -800,12 +845,13 @@ def delete_task_recurrence(task_id: int, db: Session = Depends(get_db), request:
 @router.post("/{task_id}/checklist")
 def add_checklist_item(task_id: int, data: ChecklistItemCreate, db: Session = Depends(get_db), request: Request = None):
     board_id = _board_id_for_task(task_id, db)
+    current_user = None
     if board_id is not None:
-        _authorize_board_request(request, db, board_id, "editor")
+        current_user = _authorize_board_request(request, db, board_id, "editor")
     task = db.query(models.Task).filter(models.Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    item = _create_checklist_item_internal(task, data.title, db)
+    item = _create_checklist_item_internal(task, data.title, db, current_user)
     db.commit()
     if item.spawned_task_id:
         spawned = db.query(models.Task).filter(models.Task.id == item.spawned_task_id).first()
@@ -825,8 +871,9 @@ def update_checklist_item(
     request: Request = None,
 ):
     board_id = _board_id_for_task(task_id, db)
+    current_user = None
     if board_id is not None:
-        _authorize_board_request(request, db, board_id, "editor")
+        current_user = _authorize_board_request(request, db, board_id, "editor")
     item = (
         db.query(models.ChecklistItem)
         .filter(models.ChecklistItem.id == item_id, models.ChecklistItem.task_id == task_id)
@@ -835,16 +882,21 @@ def update_checklist_item(
     if not item:
         raise HTTPException(status_code=404, detail="Checklist item not found")
     was_complete = bool(item.task.checklist_items) and all(ci.done for ci in item.task.checklist_items)
+    previous_item = checklist_history_snapshot(item)
     if data.title is not None:
         item.title = data.title
-        _sync_spawned_task_title_from_checklist_item(item, db)
+        _sync_spawned_task_title_from_checklist_item(item, db, current_user)
     if data.done is not None:
         item.done = data.done
+    record_checklist_changes(item, previous_item, db, current_user)
+    if data.done is not None:
         if item.spawned_task_id:
             spawned = db.query(models.Task).filter(models.Task.id == item.spawned_task_id).first()
             if spawned:
                 prev_done = spawned.done
+                previous_spawned = task_history_snapshot(spawned)
                 spawned.done = data.done
+                record_task_changes(spawned, previous_spawned, db, current_user)
                 db.commit()
                 if data.done and not prev_done:
                     run_automations(spawned, "task_done", db)
@@ -858,8 +910,9 @@ def update_checklist_item(
 @router.delete("/{task_id}/checklist/{item_id}")
 def delete_checklist_item(task_id: int, item_id: int, db: Session = Depends(get_db), request: Request = None):
     board_id = _board_id_for_task(task_id, db)
+    current_user = None
     if board_id is not None:
-        _authorize_board_request(request, db, board_id, "editor")
+        current_user = _authorize_board_request(request, db, board_id, "editor")
     item = (
         db.query(models.ChecklistItem)
         .filter(models.ChecklistItem.id == item_id, models.ChecklistItem.task_id == task_id)
@@ -868,8 +921,9 @@ def delete_checklist_item(task_id: int, item_id: int, db: Session = Depends(get_
     if not item:
         raise HTTPException(status_code=404, detail="Checklist item not found")
     spawned_task_id = item.spawned_task_id
+    record_task_event(item.task, "checklist_item_removed", db, current_user, subject=item.title)
     db.delete(item)
     db.commit()
     if spawned_task_id is not None:
-        delete_tasks_by_ids(collect_descendant_task_ids([spawned_task_id], db), db)
+        delete_tasks_by_ids(collect_descendant_task_ids([spawned_task_id], db), db, current_user)
     return {"ok": True}

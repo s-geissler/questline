@@ -284,14 +284,15 @@ def update_stage_config(
 @router.delete("/{stage_id}")
 def delete_stage(stage_id: int, request: Request = None, db: Session = Depends(get_db)):
     board_id = _board_id_for_stage(stage_id, db)
+    current_user = None
     if board_id is not None:
-        _authorize_board_request(request, db, board_id, "editor")
+        current_user = _authorize_board_request(request, db, board_id, "editor")
     stage = db.query(models.Stage).filter(models.Stage.id == stage_id).first()
     if not stage:
         raise HTTPException(status_code=404, detail="Stage not found")
     task_ids = [t.id for t in stage.tasks]
     if task_ids:
-        delete_tasks_by_ids(collect_descendant_task_ids(task_ids, db), db)
+        delete_tasks_by_ids(collect_descendant_task_ids(task_ids, db), db, current_user)
         db.refresh(stage)
     db.delete(stage)
     db.commit()
@@ -301,8 +302,9 @@ def delete_stage(stage_id: int, request: Request = None, db: Session = Depends(g
 @router.post("/{stage_id}/clear-completed")
 def clear_completed_stage_tasks(stage_id: int, request: Request = None, db: Session = Depends(get_db)):
     board_id = _board_id_for_stage(stage_id, db)
+    current_user = None
     if board_id is not None:
-        _authorize_board_request(request, db, board_id, "editor")
+        current_user = _authorize_board_request(request, db, board_id, "editor")
     stage = db.query(models.Stage).filter(models.Stage.id == stage_id).first()
     if not stage:
         raise HTTPException(status_code=404, detail="Stage not found")
@@ -315,5 +317,5 @@ def clear_completed_stage_tasks(stage_id: int, request: Request = None, db: Sess
         .all()
     ]
     task_ids_to_delete = collect_descendant_task_ids(completed_task_ids, db)
-    deleted_count = delete_tasks_by_ids(task_ids_to_delete, db)
+    deleted_count = delete_tasks_by_ids(task_ids_to_delete, db, current_user)
     return {"ok": True, "deleted": deleted_count}

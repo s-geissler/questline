@@ -351,6 +351,25 @@ class Task(Base):
         cascade="all, delete-orphan",
         order_by="TaskAttachment.id",
     )
+    history = relationship(
+        "TaskHistoryEvent", back_populates="task", cascade="all, delete-orphan",
+    )
+
+
+class TaskHistoryEvent(Base):
+    __tablename__ = "task_history_events"
+    __table_args__ = (Index("ix_task_history_task_id_id", "task_id", "id"),)
+
+    id = Column(Integer, primary_key=True)
+    task_id = Column(Integer, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False)
+    event_type = Column(String(40), nullable=False)
+    actor_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # Keep the name at the time of the change, including after account deletion.
+    actor_name = Column(String, nullable=False)
+    subject = Column(String(200), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+
+    task = relationship("Task", back_populates="history")
 
 
 class TaskAttachment(Base):

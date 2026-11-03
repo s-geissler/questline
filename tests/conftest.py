@@ -42,6 +42,7 @@ def _load_modules(tmp_path, monkeypatch):
         "services.audit",
         "services.settings",
         "services.tasks",
+        "services.task_history",
         "services.trello_import",
         "services.calendar",
         "services.notifications",

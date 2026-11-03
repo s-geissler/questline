@@ -490,6 +490,40 @@ Returns a single task. Requires `viewer` on the task's board.
 
 ---
 
+### `GET /api/tasks/{task_id}/history`
+
+Read task history. Requires `viewer` access to the task's board. Entries are returned newest first.
+
+Query parameters: `limit` (default 50, range 1–100), `before_id` (optional positive event ID for loading older entries).
+
+```json
+{
+  "items": [
+    {
+      "id": 42,
+      "event_type": "description_updated",
+      "message": "Description updated",
+      "actor_user_id": 3,
+      "actor_name": "Alex",
+      "subject": null,
+      "created_at": "2026-11-03T13:22:00.000000Z"
+    }
+  ],
+  "next_before_id": null
+}
+```
+
+Pass `next_before_id` as `before_id` for the next page; `null` indicates the last page.
+Actor names are retained as they were at the time of the change. Automated actions use `actor_name: "Automation"` and no user ID. Timestamps are UTC.
+
+Tracked events: `task_created`, `title_updated`, `description_updated`, `stage_changed`, `task_completed`, `task_reopened`, `assignees_updated`, `deadline_updated`, `deadline_removed`, `checklist_item_added`, `checklist_item_renamed`, `checklist_item_completed`, `checklist_item_reopened`, and `checklist_item_removed`. Checklist entries include the item's title in `subject`; no old/new value diffs are stored.
+
+Only actual changes generate entries. Date, time, and timezone updates are grouped as one deadline event. Reordering within a stage and changes to colors, card visibility, task type, custom fields, attachments, and recurrence settings do not generate entries. Automated changes to tracked fields do generate entries, including recurring task resets. Linked checklist/objective changes are recorded on each affected task.
+
+History starts when this feature is installed; existing edits are not backfilled. New tasks created by imports and recurrence receive creation entries. History is removed when its task is deleted. The task modal starts with History collapsed, refreshes expanded history after local changes, and offers a refresh control for changes made elsewhere.
+
+---
+
 ### `GET /api/tasks/{task_id}/attachments`
 
 List a task's attachment metadata. Requires `viewer` access to the task's board. File bytes are not included in this response.

@@ -78,6 +78,11 @@ task_recurrences
   id, task_id → tasks (UNIQUE), enabled, mode, frequency, interval,
   next_run_on, spawn_stage_id → lists, created_at
 
+task_history_events
+  id, task_id → tasks, event_type, actor_user_id → users (SET NULL),
+  actor_name (snapshot, or Automation), subject (checklist item title), created_at (UTC)
+  INDEX (task_id, id); removed with the task
+
 custom_field_values
   id, task_id → tasks, field_def_id → custom_field_defs, value
 

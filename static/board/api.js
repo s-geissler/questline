@@ -75,6 +75,11 @@ async function apiGetTask(taskId) {
   return fetch(`/api/tasks/${taskId}`);
 }
 
+async function apiGetTaskHistory(taskId, beforeId = null) {
+  const query = beforeId === null ? '' : `?before_id=${encodeURIComponent(beforeId)}`;
+  return fetch(`/api/tasks/${encodeURIComponent(taskId)}/history${query}`);
+}
+
 async function apiGetTaskAttachments(taskId) {
   return fetch(`/api/tasks/${taskId}/attachments`);
 }

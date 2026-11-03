@@ -51,6 +51,14 @@ function _createBoard() {
     calendarCreateDate: '',
     calendarCreateStageId: '',
     selectedTask: null,
+    taskHistoryExpanded: false,
+    taskHistoryModalHeight: null,
+    taskHistory: [],
+    taskHistoryLoading: false,
+    taskHistoryError: '',
+    taskHistoryNextId: null,
+    _taskHistoryRequestId: 0,
+    _taskModalRenderedTaskId: null,
     taskAttachments: [],
     taskAttachmentsLoading: false,
     taskAttachmentsBusy: false,
@@ -434,6 +442,7 @@ function _createBoard() {
         tasks: (stage.tasks || []).map(task => this._decorateTask(task)),
       }));
       this._stagesLoaded = true;
+      this.refreshTaskHistory();
       this.renderBoardSurface();
     },
 
@@ -661,6 +670,18 @@ function _createBoard() {
       }
       if (action === 'close-task-modal') {
         this.closeModal();
+        return;
+      }
+      if (action === 'modal-toggle-history') {
+        this.toggleTaskHistory();
+        return;
+      }
+      if (action === 'modal-refresh-history') {
+        this.loadTaskHistory();
+        return;
+      }
+      if (action === 'modal-more-history') {
+        this.loadTaskHistory(true);
         return;
       }
       if (action === 'modal-toggle-done') {
@@ -1673,6 +1694,10 @@ function _createBoard() {
         return;
       }
       const task = this.selectedTask;
+      const sameTask = this._taskModalRenderedTaskId === task.id;
+      const mainScroll = sameTask ? this.taskModalEl.querySelector?.('[data-role="task-modal-main"]')?.scrollTop || 0 : 0;
+      const historyScroll = sameTask ? this.taskModalEl.querySelector?.('[data-role="task-history-scroll"]')?.scrollTop || 0 : 0;
+      this._taskModalRenderedTaskId = task.id;
       const canEdit = this.canEditBoard;
       const dis = canEdit ? '' : 'disabled';
       const attachmentPickerDisabled = this.taskAttachmentsLoading
@@ -1690,12 +1715,11 @@ function _createBoard() {
       ` : '';
 
       // --- title row ---
-      const doneLabel = task.done ? '✓ Done' : 'Mark Done';
-      const doneCls = task.done
-        ? 'bg-green-100 text-green-700 hover:bg-green-200'
-        : 'bg-gray-100 text-gray-600 hover:bg-gray-200';
+      const doneLabel = task.done ? 'Mark as not done' : 'Mark done';
       const doneBtn = canEdit
-        ? `<button data-action="modal-toggle-done" class="flex-shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${doneCls}">${doneLabel}</button>`
+        ? `<button type="button" data-action="modal-toggle-done" class="task-done-toggle" title="${doneLabel}" aria-label="${doneLabel}" aria-pressed="${!!task.done}">
+            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6"/></svg>
+          </button>`
         : '';
       const actionMenuBtn = canEdit ? `
         <div class="relative flex-shrink-0" data-role="modal-action-menu-anchor">
@@ -1781,10 +1805,11 @@ function _createBoard() {
 
       this.taskModalEl.innerHTML = `
         <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" data-action="close-task-modal">
-          <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" data-stop-propagation="true">
+          <div class="task-modal-shell bg-white rounded-2xl shadow-2xl ${this.taskHistoryExpanded ? 'task-modal-history-open' : ''}" data-stop-propagation="true">
+            <div class="task-modal-main" data-role="task-modal-main">
             <div class="p-6">
               <div class="flex items-start gap-3 mb-5">
-                <div class="flex-1">
+                <div class="flex-1 min-w-0">
                   <input
                     data-field="modal-title"
                     value="${_escapeBoardHtml(task.title || '')}"
@@ -1793,6 +1818,9 @@ function _createBoard() {
                   >
                 </div>
                 ${doneBtn}
+                <button type="button" data-action="modal-toggle-history" class="task-history-toggle" aria-label="${this.taskHistoryExpanded ? 'Hide history' : 'Show history'}" aria-expanded="${this.taskHistoryExpanded}" aria-controls="task-history-pane" title="${this.taskHistoryExpanded ? 'Hide history' : 'Show history'}">
+                  <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 11a9 9 0 1 1 2.6 7.4M3 4v7h7"/><path d="M12 7v5l3 2"/></svg>
+                </button>
                 ${actionMenuBtn}
                 <button data-action="close-task-modal" class="text-gray-400 hover:text-gray-600 text-xl leading-none flex-shrink-0">×</button>
               </div>
@@ -1843,10 +1871,21 @@ function _createBoard() {
               ${attachmentFeedback}
               ${attachmentsSection}
             </div>
+            </div>
+            ${this.taskHistoryExpanded ? `<aside id="task-history-pane" data-role="task-history-pane" class="task-history-pane" aria-labelledby="task-history-heading">${this.taskHistoryContentHtml()}</aside>` : ''}
           </div>
         </div>
         <div data-role="deadline-picker-host"></div>
       `;
+
+      const shell = this.taskModalEl.querySelector?.('.task-modal-shell');
+      if (shell && this.taskHistoryExpanded && this.taskHistoryModalHeight !== null) {
+        shell.style.height = `${this.taskHistoryModalHeight}px`;
+      }
+      const main = this.taskModalEl.querySelector?.('[data-role="task-modal-main"]');
+      if (main) main.scrollTop = mainScroll;
+      const history = this.taskModalEl.querySelector?.('[data-role="task-history-scroll"]');
+      if (history) history.scrollTop = historyScroll;
 
       this.renderDeadlinePicker();
 
@@ -2819,6 +2858,7 @@ function _createBoard() {
     },
 
     openTask(task) {
+      this.resetTaskHistory();
       this.selectedTask = this._normalizeSelectedTask(task);
       this.recurrenceExpanded = false;
       this.newChecklistItem = '';
@@ -2835,6 +2875,7 @@ function _createBoard() {
     },
 
     closeModal() {
+      this.resetTaskHistory();
       this._taskAttachmentRequestId += 1;
       this.taskAttachments = [];
       this.taskAttachmentsLoading = false;
@@ -2867,6 +2908,7 @@ function _createBoard() {
         window.location.href = `/board/${task.board_id}?task_id=${task.id}`;
         return;
       }
+      this.resetTaskHistory();
       this.selectedTask = this._normalizeSelectedTask(task);
       this.recurrenceExpanded = false;
       this.showModal = true;
@@ -2880,6 +2922,93 @@ function _createBoard() {
       this.deadlinePickerOpen = false;
       this.deadlinePickerSaving = false;
       this.beginTaskAttachmentLoad(task.id);
+    },
+
+    resetTaskHistory() {
+      this._taskHistoryRequestId += 1;
+      this.taskHistoryExpanded = false;
+      this.taskHistoryModalHeight = null;
+      this.taskHistory = [];
+      this.taskHistoryLoading = false;
+      this.taskHistoryError = '';
+      this.taskHistoryNextId = null;
+      this._taskModalRenderedTaskId = null;
+    },
+
+    async toggleTaskHistory() {
+      this.taskHistoryModalHeight = this.taskHistoryExpanded ? null
+        : this.taskModalEl?.querySelector?.('.task-modal-shell')?.getBoundingClientRect().height || null;
+      this.taskHistoryExpanded = !this.taskHistoryExpanded;
+      this.renderTaskModal();
+      this.taskModalEl?.querySelector?.('[data-action="modal-toggle-history"]')?.focus();
+      if (this.taskHistoryExpanded) await this.loadTaskHistory();
+    },
+
+    refreshTaskHistory() {
+      if (this.taskHistoryExpanded && this.showModal && this.selectedTask) {
+        return this.loadTaskHistory();
+      }
+    },
+
+    async loadTaskHistory(append = false) {
+      if (!this.taskHistoryExpanded || !this.showModal || !this.selectedTask) return;
+      if (append && (this.taskHistoryLoading || this.taskHistoryNextId === null)) return;
+      const taskId = this.selectedTask.id;
+      const requestId = ++this._taskHistoryRequestId;
+      const beforeId = append ? this.taskHistoryNextId : null;
+      this.taskHistoryLoading = true;
+      this.taskHistoryError = '';
+      this.renderTaskHistory();
+      try {
+        const response = await apiGetTaskHistory(taskId, beforeId);
+        const payload = await response.json();
+        if (requestId !== this._taskHistoryRequestId || this.selectedTask?.id !== taskId) return;
+        if (!response.ok) throw new Error(payload.detail || 'Unable to load history.');
+        this.taskHistory = append ? [...this.taskHistory, ...payload.items] : payload.items;
+        this.taskHistoryNextId = payload.next_before_id;
+      } catch (error) {
+        if (requestId !== this._taskHistoryRequestId || this.selectedTask?.id !== taskId) return;
+        this.taskHistoryError = error.message || 'Unable to load history.';
+      } finally {
+        if (requestId === this._taskHistoryRequestId && this.selectedTask?.id === taskId) {
+          this.taskHistoryLoading = false;
+          this.renderTaskHistory();
+        }
+      }
+    },
+
+    renderTaskHistory() {
+      const pane = this.taskModalEl?.querySelector?.('[data-role="task-history-pane"]');
+      if (!pane) return;
+      const scroll = pane.querySelector('[data-role="task-history-scroll"]')?.scrollTop || 0;
+      pane.innerHTML = this.taskHistoryContentHtml();
+      pane.querySelector('[data-role="task-history-scroll"]').scrollTop = scroll;
+    },
+
+    taskHistoryContentHtml() {
+      const rows = this.taskHistory.map(event => {
+        const date = new Date(event.created_at);
+        const when = Number.isNaN(date.getTime()) ? '' : date.toLocaleString(undefined, {
+          year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit',
+        });
+        return `<li class="task-history-event" data-history-event-id="${_escapeBoardHtml(event.id)}">
+          <div class="task-history-message">${_escapeBoardHtml(event.message)}</div>
+          ${event.subject ? `<div class="task-history-subject">${_escapeBoardHtml(event.subject)}</div>` : ''}
+          <div class="task-history-meta"><span class="task-history-actor">${_escapeBoardHtml(event.actor_name)}</span><time datetime="${_escapeBoardHtml(event.created_at)}" title="${_escapeBoardHtml(when)}">${_escapeBoardHtml(when)}</time></div>
+        </li>`;
+      }).join('');
+      return `<div class="task-history-header">
+          <h2 id="task-history-heading">History</h2>
+          <button type="button" data-action="modal-refresh-history" class="task-history-control" ${this.taskHistoryLoading ? 'disabled' : ''} aria-label="Refresh history" title="Refresh history">↻</button>
+          <button type="button" data-action="modal-toggle-history" class="task-history-control" aria-label="Hide history" title="Hide history">›</button>
+        </div>
+        <div class="task-history-scroll" data-role="task-history-scroll" tabindex="0" aria-label="Task history events" aria-busy="${this.taskHistoryLoading}">
+          ${this.taskHistoryError ? `<p class="task-history-error" role="alert">${_escapeBoardHtml(this.taskHistoryError)} <button type="button" data-action="modal-refresh-history">Retry</button></p>` : ''}
+          ${!rows && this.taskHistoryLoading ? '<p class="task-history-empty" role="status">Loading history…</p>' : ''}
+          ${!rows && !this.taskHistoryLoading && !this.taskHistoryError ? '<p class="task-history-empty">No history recorded yet.</p>' : ''}
+          <ol class="task-history-events">${rows}</ol>
+          ${this.taskHistoryNextId !== null ? `<button type="button" class="task-history-more" data-action="modal-more-history" ${this.taskHistoryLoading ? 'disabled' : ''}>${this.taskHistoryLoading ? 'Loading…' : 'Load older events'}</button>` : ''}
+        </div>`;
     },
 
     beginTaskAttachmentLoad(taskId) {
@@ -3981,6 +4110,7 @@ function _createBoard() {
 
     // Helpers
     _syncTaskInStages(updated) {
+      this.refreshTaskHistory();
       const nextTask = this._decorateTask(updated);
       let changed = false;
       this.stages = this.stages.map(stage => {

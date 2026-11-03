@@ -7,9 +7,11 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 import models
+from services.task_history import record_task_changes, task_history_snapshot
 
 
 def apply_automation(task: models.Task, automation: models.Automation, db: Session):
+    previous = task_history_snapshot(task)
     if automation.action_type == "move_to_stage" and automation.action_stage_id:
         target_stage = db.query(models.Stage).filter(models.Stage.id == automation.action_stage_id).first()
         if target_stage and target_stage.is_log:
@@ -25,6 +27,7 @@ def apply_automation(task: models.Task, automation: models.Automation, db: Sessi
         task.color = automation.action_color or None
     elif automation.action_type == "set_due_in_days" and automation.action_days_offset is not None:
         task.due_date = (date.today() + timedelta(days=automation.action_days_offset)).isoformat()
+    record_task_changes(task, previous, db)
 
 
 def run_automations(

@@ -10,6 +10,10 @@ from sqlalchemy import and_, or_, text
 from sqlalchemy.orm import Session
 
 import models
+from services.task_history import (
+    checklist_history_snapshot, record_checklist_changes,
+    record_task_changes, record_task_event, task_history_snapshot,
+)
 
 
 def backfill_task_assignees(engine) -> None:
@@ -157,9 +161,10 @@ def collect_descendant_task_ids(root_task_ids: list[int], db: Session) -> set[in
     return all_ids
 
 
-def _create_checklist_item_internal(task: models.Task, title: str, db: Session) -> models.ChecklistItem:
+def _create_checklist_item_internal(task: models.Task, title: str, db: Session, actor=None) -> models.ChecklistItem:
     item = models.ChecklistItem(task_id=task.id, title=title)
     db.add(item)
+    record_task_event(task, "checklist_item_added", db, actor, subject=title)
     db.flush()
 
     if task.task_type and task.task_type.is_epic:
@@ -176,30 +181,35 @@ def _create_checklist_item_internal(task: models.Task, title: str, db: Session) 
             parent_task_id=task.id,
         )
         db.add(spawned)
+        record_task_event(spawned, "task_created", db, actor)
         db.flush()
         item.spawned_task_id = spawned.id
     return item
 
 
-def _sync_spawned_task_title_from_checklist_item(item: models.ChecklistItem, db: Session):
+def _sync_spawned_task_title_from_checklist_item(item: models.ChecklistItem, db: Session, actor=None):
     if not item.spawned_task_id:
         return
     spawned = db.query(models.Task).filter(models.Task.id == item.spawned_task_id).first()
     if spawned:
+        previous = task_history_snapshot(spawned)
         spawned.title = item.title
+        record_task_changes(spawned, previous, db, actor)
 
 
-def _sync_checklist_item_title_from_spawned_task(task: models.Task, db: Session):
+def _sync_checklist_item_title_from_spawned_task(task: models.Task, db: Session, actor=None):
     linked_item = (
         db.query(models.ChecklistItem)
         .filter(models.ChecklistItem.spawned_task_id == task.id)
         .first()
     )
     if linked_item:
+        previous = checklist_history_snapshot(linked_item)
         linked_item.title = task.title
+        record_checklist_changes(linked_item, previous, db, actor)
 
 
-def delete_tasks_by_ids(task_ids: set[int], db: Session):
+def delete_tasks_by_ids(task_ids: set[int], db: Session, actor=None):
     if not task_ids:
         return 0
 
@@ -209,6 +219,8 @@ def delete_tasks_by_ids(task_ids: set[int], db: Session):
         .all()
     )
     for item in linked_items:
+        if item.task_id not in task_ids:
+            record_task_event(item.task, "checklist_item_removed", db, actor, subject=item.title)
         db.delete(item)
 
     tasks = db.query(models.Task).filter(models.Task.id.in_(task_ids)).all()

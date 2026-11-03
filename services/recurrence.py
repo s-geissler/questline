@@ -17,6 +17,10 @@ from services.settings import (
     get_instance_settings,
 )
 from services.tasks import _create_checklist_item_internal, set_task_assignees, task_assignees
+from services.task_history import (
+    checklist_history_snapshot, record_checklist_changes,
+    record_task_changes, record_task_event, task_history_snapshot,
+)
 
 log = logging.getLogger(__name__)
 
@@ -103,6 +107,7 @@ def _clone_task_from_recurrence(
     )
     set_task_assignees(cloned_task, task_assignees(source_task))
     db.add(cloned_task)
+    record_task_event(cloned_task, "task_created", db)
     db.flush()
 
     for cfv in source_task.custom_field_values:
@@ -141,12 +146,16 @@ def _reuse_task_from_recurrence(
 
     occurrence_date = _parse_iso_date(recurrence.next_run_on, "Invalid recurrence next run date")
     new_pos = db.query(models.Task).filter(models.Task.stage_id == target_stage.id).count()
+    previous = task_history_snapshot(source_task)
     source_task.stage_id = target_stage.id
     source_task.position = new_pos
     source_task.done = False
     source_task.due_date = occurrence_date.isoformat()
     for checklist_item in source_task.checklist_items:
+        previous_item = checklist_history_snapshot(checklist_item)
         checklist_item.done = False
+        record_checklist_changes(checklist_item, previous_item, db)
+    record_task_changes(source_task, previous, db)
     recurrence.next_run_on = _advance_recurrence_date(
         occurrence_date,
         recurrence.frequency,

@@ -17,6 +17,87 @@ def run_board_js(script: str):
     assert result.returncode == 0, result.stderr
 
 
+def test_history_escapes_user_content_and_uses_absolute_local_timestamps():
+    run_board_js("""
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const context = {document: {addEventListener() {}}};
+vm.createContext(context);
+vm.runInContext(fs.readFileSync('static/board/board.js', 'utf8'), context);
+const board = context._createBoard();
+assert.equal(board.taskHistoryExpanded, false);
+assert(board.taskHistoryContentHtml().includes('No history recorded yet.'));
+board.taskHistory = [{id: 1, message: 'Checklist item renamed',
+  actor_name: '<img src=x onerror=alert(1)>', subject: '<script>unsafe</script>',
+  created_at: '2026-11-03T13:22:00.000000Z'}];
+const html = board.taskHistoryContentHtml();
+assert(html.includes('&lt;img src=x onerror=alert(1)&gt;'));
+assert(html.includes('&lt;script&gt;unsafe&lt;/script&gt;'));
+assert(!html.includes('<script>'));
+assert(html.includes('datetime="2026-11-03T13:22:00.000000Z"'));
+assert(html.includes('2026'));
+""")
+
+
+def test_history_ignores_stale_task_responses_and_preserves_events_on_load_failure():
+    run_board_js("""
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const requests = [];
+const context = {document: {addEventListener() {}},
+  apiGetTaskHistory: (taskId, beforeId) => new Promise(resolve => requests.push({taskId, beforeId, resolve})),
+};
+vm.createContext(context);
+vm.runInContext(fs.readFileSync('static/board/board.js', 'utf8'), context);
+const board = context._createBoard();
+board.renderTaskModal = () => {};
+board.renderTaskHistory = () => {};
+board.showModal = true;
+board.selectedTask = {id: 1};
+const reply = (index, items, next_before_id = null) => requests[index].resolve({
+  ok: true, json: async () => ({items, next_before_id})});
+(async () => {
+  board.refreshTaskHistory();
+  assert.equal(requests.length, 0);
+  const first = board.toggleTaskHistory();
+  assert.equal(requests[0].taskId, 1);
+  board.resetTaskHistory();
+  board.selectedTask = {id: 2};
+  const second = board.toggleTaskHistory();
+  reply(0, [{id: 1, message: 'Old task'}]);
+  await first;
+  assert.equal(board.taskHistory.length, 0);
+  assert.equal(board.taskHistoryLoading, true);
+  reply(1, [{id: 20, message: 'New task'}], 20);
+  await second;
+  assert.equal(board.taskHistory[0].id, 20);
+  const more = board.loadTaskHistory(true);
+  assert.equal(requests[2].beforeId, 20);
+  reply(2, [{id: 19}], 19);
+  await more;
+  assert.deepEqual(Array.from(board.taskHistory, event => event.id), [20, 19]);
+  const failed = board.loadTaskHistory(true);
+  requests[3].resolve({ok: false, json: async () => ({detail: 'History unavailable'})});
+  await failed;
+  assert.equal(board.taskHistoryError, 'History unavailable');
+  assert.equal(board.taskHistoryLoading, false);
+  assert.equal(board.taskHistoryNextId, 19);
+  assert.deepEqual(Array.from(board.taskHistory, event => event.id), [20, 19]);
+  const retry = board.loadTaskHistory(true);
+  reply(4, [{id: 18}]);
+  await retry;
+  assert.equal(board.taskHistoryError, '');
+  assert.equal(board.taskHistoryNextId, null);
+  assert.deepEqual(Array.from(board.taskHistory, event => event.id), [20, 19, 18]);
+  await board.toggleTaskHistory();
+  board.refreshTaskHistory();
+  assert.equal(requests.length, 5);
+})().catch(error => {console.error(error); process.exitCode = 1;});
+""")
+
+
 def test_assignee_initial_pills_escape_names_and_support_single_names_and_unicode():
     run_board_js("""
 const assert = require('node:assert/strict');
