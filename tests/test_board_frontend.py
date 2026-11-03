@@ -17,7 +17,7 @@ def run_board_js(script: str):
     assert result.returncode == 0, result.stderr
 
 
-def test_deadline_time_controls_render_defaults_and_viewer_permissions():
+def test_single_deadline_control_and_combined_picker_respect_viewer_permissions():
     script = """
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -32,28 +32,36 @@ board.showModal = true;
 board.selectedTask = {id: 1, title: 'Deadline', stage_id: 1, checklist: [], due_date: null};
 board.renderTaskModal();
 let html = board.taskModalEl.innerHTML;
-assert(html.includes('No time · all-day deadline'));
-assert(/data-field="modal-due-time"[^>]*disabled/.test(html));
+assert(html.includes('No due date'));
+assert.equal((html.match(/data-action="modal-toggle-deadline"/g) || []).length, 1);
+assert(!html.includes('type="time"'));
+assert(!html.includes('type="date"'));
 board.selectedTask.due_date = '2026-11-03';
-board.renderTaskModal();
-assert(!/data-field="modal-due-time"[^>]*disabled/.test(board.taskModalEl.innerHTML));
+board.browserTimezone = () => 'Europe/Berlin';
+board.openDeadlinePicker();
+html = board.deadlinePickerHtml();
+assert(html.includes('No time · all-day deadline'));
+assert(html.includes('data-date="2026-11-03"'));
+assert(html.includes('type="time"'));
 Object.assign(board.selectedTask, {due_time: '14:30', due_timezone: 'Europe/Berlin', due_at: '2026-11-03T13:30:00Z'});
+board.openDeadlinePicker();
 board.renderTaskModal();
-assert(board.taskModalEl.innerHTML.includes('modal-clear-due-time'));
-assert(board.taskModalEl.innerHTML.includes('Europe/Berlin'));
+assert(board.taskModalEl.innerHTML.includes('14:30'));
+assert(board.deadlinePickerHtml().includes('Europe/Berlin'));
 assert(board.renderTaskCard(board.selectedTask, {id: 1}).includes('14:30 (Europe/Berlin)'));
 assert(board.renderCalendarEntry(board.selectedTask, '2026-11-03').includes('14:30 (Europe/Berlin)'));
 board.currentBoardRole = 'viewer';
+board.deadlinePickerOpen = false;
 board.renderTaskModal();
 html = board.taskModalEl.innerHTML;
-assert(/data-field="modal-due-time"[^>]*disabled/.test(html));
-assert(/data-field="modal-due-date"[^>]*disabled/.test(html));
-assert(!html.includes('modal-clear-due-time'));
+assert(/data-action="modal-toggle-deadline"[^>]*disabled/.test(html));
+board.openDeadlinePicker();
+assert.equal(board.deadlinePickerOpen, false);
 """
     run_board_js(script)
 
 
-def test_deadline_updates_capture_timezone_clear_time_and_recover_from_failure():
+def test_combined_deadline_picker_saves_atomically_and_discards_cancelled_edits():
     script = """
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -66,7 +74,8 @@ const context = {
   apiUpdateTask: async (id, body) => {
     writes.push({id, body});
     if (fail) return {ok: false, json: async () => ({detail: 'Rejected deadline'})};
-    return {ok: true, json: async () => ({...task, ...body})};
+    Object.assign(task, body);
+    return {ok: true, json: async () => ({...task})};
   },
 };
 vm.createContext(context);
@@ -77,30 +86,81 @@ board.selectedTask = {...task};
 board.stages = [{id: 1, tasks: [{...task}]}];
 board.renderBoardSurface = () => {};
 board.renderTaskModal = () => {};
+board.renderDeadlinePicker = () => {};
 board.browserTimezone = () => 'Europe/Berlin';
 (async () => {
-  const update = board.updateTaskDeadline.bind(board);
-  let pending;
-  board.updateTaskDeadline = body => (pending = update(body));
-  board.handleSurfaceChange({target: {dataset: {field: 'modal-due-time'}, value: '14:30'}});
-  await pending;
-  assert.deepEqual(JSON.parse(JSON.stringify(writes[0])), {id: 1, body: {due_time: '14:30', due_timezone: 'Europe/Berlin'}});
+  board.openDeadlinePicker();
+  board.selectDeadlinePickerDate('2026-11-04');
+  board.handleSurfaceInput({target: {dataset: {field: 'deadline-picker-time'}, value: '14:30'}});
+  assert.equal(writes.length, 0);
+  await board.saveDeadlinePicker();
+  assert.deepEqual(JSON.parse(JSON.stringify(writes[0])), {id: 1, body: {due_date: '2026-11-04', due_time: '14:30', due_timezone: 'Europe/Berlin'}});
   assert.equal(board.stages[0].tasks[0].due_time, '14:30');
+  assert.equal(board.deadlinePickerOpen, false);
   // Editing from another timezone retains the deadline's original timezone.
   board.browserTimezone = () => 'America/New_York';
-  board.handleSurfaceChange({target: {dataset: {field: 'modal-due-time'}, value: '15:00'}});
-  await pending;
+  board.openDeadlinePicker();
+  board.setDeadlinePickerTime('15:00');
+  await board.saveDeadlinePicker();
   assert.equal(writes[1].body.due_timezone, 'Europe/Berlin');
-  await board.updateTaskDeadline({due_time: null});
+  board.openDeadlinePicker();
+  board.selectDeadlinePickerDate('2026-12-25');
+  board.setDeadlinePickerTime('22:00');
+  board.closeDeadlinePicker();
+  assert.equal(writes.length, 2);
+  assert.equal(board.selectedTask.due_date, '2026-11-04');
+  assert.equal(board.selectedTask.due_time, '15:00');
+  board.openDeadlinePicker();
+  board.setDeadlinePickerTime('');
+  await board.saveDeadlinePicker();
   assert.equal(board.selectedTask.due_time, null);
   fail = true;
-  await board.updateTaskDeadline({due_date: '2026-11-04'});
-  assert.equal(board.selectedTask.due_date, '2026-11-03');
+  board.openDeadlinePicker();
+  board.selectDeadlinePickerDate('2026-11-05');
+  await board.saveDeadlinePicker();
+  assert.equal(board.selectedTask.due_date, '2026-11-04');
+  assert.equal(board.deadlinePickerOpen, true);
+  assert.equal(board.deadlinePickerDate, '2026-11-05');
+  assert.equal(board.deadlinePickerSaving, false);
   assert.deepEqual(alerts, ['Rejected deadline']);
   board.currentBoardRole = 'viewer';
-  await board.updateTaskDeadline({due_time: '16:00'});
+  await board.saveDeadlinePicker();
   assert.equal(writes.length, 4);
 })().catch(error => {console.error(error); process.exitCode = 1;});
+"""
+    run_board_js(script)
+
+
+def test_deadline_calendar_keyboard_navigation_handles_month_and_year_boundaries():
+    script = """
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const context = {document: {addEventListener() {}}};
+vm.createContext(context);
+vm.runInContext(fs.readFileSync('static/board/board.js', 'utf8'), context);
+const board = context._createBoard();
+board.renderDeadlinePicker = () => {};
+board.deadlinePickerMonth = new Date('2028-01-01T12:00:00Z');
+function key(date, key, shiftKey = false) {
+  const handled = board.handleDeadlinePickerKeydown({target: {dataset: {date}}, key, shiftKey,
+    preventDefault() {}, stopPropagation() {}});
+  assert(handled);
+  return board.deadlinePickerFocusDate;
+}
+assert.equal(key('2028-01-31', 'PageDown'), '2028-02-29');
+assert.equal(key('2028-02-29', 'ArrowRight'), '2028-03-01');
+assert.equal(key('2028-03-01', 'Home'), '2028-02-28');
+assert.equal(key('2028-03-01', 'End'), '2028-03-05');
+assert.equal(key('2028-02-29', 'PageDown', true), '2029-02-28');
+board.deadlinePickerMonth = new Date('0001-01-01T12:00:00Z');
+board.changeDeadlinePickerMonth(-1);
+assert.equal(board.deadlinePickerMonth.getUTCFullYear(), 1);
+assert.equal(board.deadlinePickerMonth.getUTCMonth(), 0);
+board.deadlinePickerMonth = new Date('9999-12-01T12:00:00Z');
+board.changeDeadlinePickerMonth(1);
+assert.equal(board.deadlinePickerMonth.getUTCFullYear(), 9999);
+assert.equal(board.deadlinePickerMonth.getUTCMonth(), 11);
 """
     run_board_js(script)
 

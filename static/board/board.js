@@ -72,6 +72,13 @@ function _createBoard() {
     activeStageMenuId: null,
     taskActionMenuOpen: false,
     taskColorPickerOpen: false,
+    deadlinePickerOpen: false,
+    deadlinePickerDate: '',
+    deadlinePickerTime: '',
+    deadlinePickerTimezone: '',
+    deadlinePickerMonth: null,
+    deadlinePickerFocusDate: '',
+    deadlinePickerSaving: false,
 
     get canEditBoard() {
       return this.currentBoardRole === 'owner' || this.currentBoardRole === 'editor' || this.currentBoardRole === 'admin';
@@ -507,6 +514,16 @@ function _createBoard() {
             this.renderTaskModal();
           }
         }
+        if (this.deadlinePickerOpen && !event.target.closest('[data-role="deadline-picker"]') && !event.target.closest('[data-action="modal-toggle-deadline"]')) {
+          this.closeDeadlinePicker(false);
+        }
+      });
+      document.addEventListener('scroll', () => this.positionDeadlinePicker(), true);
+      window.addEventListener('resize', () => this.positionDeadlinePicker());
+      this._el.addEventListener('focusin', event => {
+        if (this.deadlinePickerOpen && !event.target.closest('[data-role="deadline-picker"]') && !event.target.closest('[data-action="modal-toggle-deadline"]')) {
+          this.closeDeadlinePicker(false);
+        }
       });
     },
 
@@ -641,8 +658,31 @@ function _createBoard() {
         this.toggleDone();
         return;
       }
-      if (action === 'modal-clear-due-time') {
-        this.updateTaskDeadline({due_time: null});
+      if (action === 'modal-toggle-deadline') {
+        if (this.deadlinePickerOpen) this.closeDeadlinePicker();
+        else this.openDeadlinePicker();
+        return;
+      }
+      if (action === 'deadline-picker-month') {
+        this.changeDeadlinePickerMonth(Number(actionTarget.dataset.offset));
+        return;
+      }
+      if (action === 'deadline-picker-day') {
+        this.selectDeadlinePickerDate(actionTarget.dataset.date);
+        return;
+      }
+      if (action === 'deadline-picker-no-time') {
+        this.deadlinePickerTime = '';
+        this.renderDeadlinePicker();
+        this.taskModalEl?.querySelector('[data-action="deadline-picker-no-time"]')?.focus();
+        return;
+      }
+      if (action === 'deadline-picker-cancel') {
+        this.closeDeadlinePicker();
+        return;
+      }
+      if (action === 'deadline-picker-apply' || action === 'deadline-picker-clear') {
+        this.saveDeadlinePicker(action === 'deadline-picker-clear');
         return;
       }
       if (action === 'modal-toggle-action-menu') {
@@ -796,6 +836,10 @@ function _createBoard() {
 
     handleSurfaceInput(event) {
       const field = event.target.dataset.field;
+      if (field === 'deadline-picker-time') {
+        this.setDeadlinePickerTime(event.target.value);
+        return;
+      }
       const stageId = parseInt(event.target.dataset.stageId || '0', 10);
       if (field === 'new-stage-name') {
         this.newStageName = event.target.value;
@@ -860,16 +904,8 @@ function _createBoard() {
         this.updateAssignee();
         return;
       }
-      if (field === 'modal-due-date') {
-        this.updateTaskDeadline({due_date: event.target.value || null});
-        return;
-      }
-      if (field === 'modal-due-time') {
-        const time = event.target.value || null;
-        this.updateTaskDeadline({
-          due_time: time,
-          due_timezone: time ? (this.selectedTask?.due_timezone || this.browserTimezone()) : null,
-        });
+      if (field === 'deadline-picker-time') {
+        this.setDeadlinePickerTime(event.target.value);
         return;
       }
       if (field === 'modal-task-type') {
@@ -926,6 +962,15 @@ function _createBoard() {
     },
 
     handleSurfaceKeydown(event) {
+      if (this.deadlinePickerOpen && event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        this.closeDeadlinePicker();
+        return;
+      }
+      if (this.deadlinePickerOpen && event.target.dataset.action === 'deadline-picker-day') {
+        if (this.handleDeadlinePickerKeydown(event)) return;
+      }
       const field = event.target.dataset.field;
       const stageId = parseInt(event.target.dataset.stageId || '0', 10);
       const row = parseInt(event.target.dataset.stageRow || '0', 10);
@@ -1743,29 +1788,20 @@ function _createBoard() {
                   </select>
                 </div>
                 <div>
-                  <label for="objective-due-date" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Due Date</label>
-                  <input
-                    id="objective-due-date"
-                    type="date"
-                    data-field="modal-due-date"
-                    value="${_escapeBoardHtml(task.due_date || '')}"
+                  <label id="objective-deadline-label" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Due Date</label>
+                  <button
+                    type="button"
+                    data-action="modal-toggle-deadline"
+                    aria-labelledby="objective-deadline-label objective-deadline-value"
+                    aria-haspopup="dialog"
+                    aria-expanded="${this.deadlinePickerOpen}"
+                    aria-controls="objective-deadline-picker"
                     ${dis}
-                    class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    class="deadline-picker-trigger w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                   >
-                  <label for="objective-due-time" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mt-2 mb-1">Time (optional)</label>
-                  <div class="flex items-center gap-2">
-                    <input
-                      id="objective-due-time"
-                      type="time"
-                      step="60"
-                      data-field="modal-due-time"
-                      value="${_escapeBoardHtml(task.due_time || '')}"
-                      ${canEdit && task.due_date ? '' : 'disabled'}
-                      class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                    >
-                    ${canEdit && task.due_time ? '<button data-action="modal-clear-due-time" class="text-xs text-gray-500 hover:text-gray-700 flex-shrink-0">No time</button>' : ''}
-                  </div>
-                  <p class="text-xs text-gray-500 mt-1" data-role="deadline-timezone">${_escapeBoardHtml(task.due_time ? task.due_timezone : 'No time · all-day deadline')}</p>
+                    <span id="objective-deadline-value">${_escapeBoardHtml(this.deadlineFieldLabel(task))}</span>
+                    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg>
+                  </button>
                 </div>
                 <div class="relative pb-0.5" data-role="modal-color-picker-anchor">
                   <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Color</label>
@@ -1797,7 +1833,10 @@ function _createBoard() {
             </div>
           </div>
         </div>
+        <div data-role="deadline-picker-host"></div>
       `;
+
+      this.renderDeadlinePicker();
 
       // Focus description textarea after render if editing
       if (this.descriptionEditing) {
@@ -2774,6 +2813,8 @@ function _createBoard() {
       this.descriptionEditing = false;
       this.taskActionMenuOpen = false;
       this.taskColorPickerOpen = false;
+      this.deadlinePickerOpen = false;
+      this.deadlinePickerSaving = false;
       this.showModal = true;
       this.beginTaskAttachmentLoad(task.id);
     },
@@ -2790,6 +2831,8 @@ function _createBoard() {
       this.newChecklistItem = '';
       this.taskActionMenuOpen = false;
       this.taskColorPickerOpen = false;
+      this.deadlinePickerOpen = false;
+      this.deadlinePickerSaving = false;
       this.selectedTask = null;
       this.renderTaskModal();
     },
@@ -2813,6 +2856,8 @@ function _createBoard() {
       this.descriptionEditing = false;
       this.taskActionMenuOpen = false;
       this.taskColorPickerOpen = false;
+      this.deadlinePickerOpen = false;
+      this.deadlinePickerSaving = false;
       this.beginTaskAttachmentLoad(task.id);
     },
 
@@ -3021,6 +3066,184 @@ function _createBoard() {
       return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
     },
 
+    deadlineFieldLabel(task) {
+      if (!task?.due_date) return 'No due date';
+      const date = new Date(task.due_date + 'T12:00:00Z');
+      const label = Number.isNaN(date.getTime()) ? task.due_date : date.toLocaleDateString(undefined, {
+        timeZone: 'UTC', year: 'numeric', month: 'short', day: 'numeric',
+      });
+      return label + (task.due_time ? `, ${task.due_time}` : '');
+    },
+
+    openDeadlinePicker() {
+      if (!this.canEditBoard || !this.selectedTask) return;
+      this.deadlinePickerDate = this.selectedTask.due_date || '';
+      this.deadlinePickerTime = this.selectedTask.due_time || '';
+      this.deadlinePickerTimezone = this.selectedTask.due_timezone || this.browserTimezone();
+      this.deadlinePickerFocusDate = this.deadlinePickerDate || this.formatDateKey(new Date());
+      this.deadlinePickerMonth = new Date(this.deadlinePickerFocusDate + 'T12:00:00Z');
+      if (Number.isNaN(this.deadlinePickerMonth.getTime())) this.deadlinePickerMonth = new Date();
+      this.deadlinePickerMonth.setUTCDate(1);
+      this.deadlinePickerSaving = false;
+      this.deadlinePickerOpen = true;
+      this.taskColorPickerOpen = false;
+      this.taskActionMenuOpen = false;
+      this.renderTaskModal();
+      this.renderDeadlinePicker(this.deadlinePickerFocusDate);
+    },
+
+    closeDeadlinePicker(restoreFocus = true) {
+      if (this.deadlinePickerSaving) return;
+      this.deadlinePickerOpen = false;
+      this.renderDeadlinePicker();
+      if (restoreFocus) this.taskModalEl?.querySelector('[data-action="modal-toggle-deadline"]')?.focus();
+    },
+
+    deadlinePickerHint() {
+      if (!this.deadlinePickerDate) return 'Choose a date to add an optional time.';
+      return this.deadlinePickerTime ? this.deadlinePickerTimezone : 'No time · all-day deadline';
+    },
+
+    setDeadlinePickerTime(value) {
+      this.deadlinePickerTime = value;
+      const hint = this.taskModalEl?.querySelector('[data-role="deadline-picker-hint"]');
+      if (hint) hint.textContent = this.deadlinePickerHint();
+    },
+
+    deadlinePickerHtml() {
+      const month = this.deadlinePickerMonth;
+      const first = new Date(month);
+      first.setUTCDate(1 - (first.getUTCDay() + 6) % 7);
+      const today = this.formatDateKey(new Date());
+      const saving = this.deadlinePickerSaving;
+      const disabled = saving ? 'disabled' : '';
+      const monthKey = month.toISOString().slice(0, 7);
+      const days = Array.from({length: 42}, (_, index) => {
+        const day = new Date(first);
+        day.setUTCDate(first.getUTCDate() + index);
+        if (day.getUTCFullYear() < 1 || day.getUTCFullYear() > 9999) return '<span></span>';
+        const key = day.toISOString().slice(0, 10);
+        const selected = key === this.deadlinePickerDate;
+        const label = day.toLocaleDateString(undefined, {timeZone: 'UTC', dateStyle: 'full'});
+        const classes = [selected ? 'is-selected' : '', key === today ? 'is-today' : '', day.getUTCMonth() !== month.getUTCMonth() ? 'is-outside-month' : ''].join(' ');
+        return `<button type="button" data-action="deadline-picker-day" data-date="${key}" aria-label="${_escapeBoardHtml(label)}" aria-pressed="${selected}" ${key === today ? 'aria-current="date"' : ''} tabindex="${key === this.deadlinePickerFocusDate ? '0' : '-1'}" class="${classes}" ${disabled}>${day.getUTCDate()}</button>`;
+      }).join('');
+      return `
+        <div id="objective-deadline-picker" data-role="deadline-picker" role="dialog" aria-labelledby="deadline-picker-heading" aria-busy="${saving}" class="deadline-picker">
+          <div class="deadline-picker-header">
+            <button type="button" data-action="deadline-picker-month" data-offset="-1" aria-label="Previous month" ${saving || monthKey === '0001-01' ? 'disabled' : ''}>‹</button>
+            <strong id="deadline-picker-heading" aria-live="polite">${_escapeBoardHtml(month.toLocaleDateString(undefined, {timeZone: 'UTC', month: 'long', year: 'numeric'}))}</strong>
+            <button type="button" data-action="deadline-picker-month" data-offset="1" aria-label="Next month" ${saving || monthKey === '9999-12' ? 'disabled' : ''}>›</button>
+          </div>
+          <div class="deadline-picker-weekdays" aria-hidden="true">${this.calendarWeekdayLabels.map(day => `<span>${day}</span>`).join('')}</div>
+          <div class="deadline-picker-days" role="group" aria-label="Choose a date">${days}</div>
+          <label for="deadline-picker-time" class="deadline-picker-time-label">Time (optional)</label>
+          <div class="deadline-picker-time-row">
+            <input id="deadline-picker-time" type="time" step="60" data-field="deadline-picker-time" value="${_escapeBoardHtml(this.deadlinePickerTime)}" ${saving || !this.deadlinePickerDate ? 'disabled' : ''}>
+            <button type="button" data-action="deadline-picker-no-time" ${saving || !this.deadlinePickerDate ? 'disabled' : ''}>No time</button>
+          </div>
+          <p class="deadline-picker-hint" data-role="deadline-picker-hint">${_escapeBoardHtml(this.deadlinePickerHint())}</p>
+          <div class="deadline-picker-footer">
+            <button type="button" data-action="deadline-picker-clear" class="deadline-picker-clear" ${saving || !this.selectedTask?.due_date ? 'disabled' : ''}>Clear</button>
+            <button type="button" data-action="deadline-picker-cancel" ${disabled}>Cancel</button>
+            <button type="button" data-action="deadline-picker-apply" class="deadline-picker-apply" ${saving || !this.deadlinePickerDate ? 'disabled' : ''}>${saving ? 'Saving…' : 'Apply'}</button>
+          </div>
+        </div>`;
+    },
+
+    renderDeadlinePicker(focusDate = null) {
+      const trigger = this.taskModalEl?.querySelector?.('[data-action="modal-toggle-deadline"]');
+      trigger?.setAttribute('aria-expanded', String(this.deadlinePickerOpen));
+      const host = this.taskModalEl?.querySelector?.('[data-role="deadline-picker-host"]');
+      if (!host) return;
+      host.innerHTML = this.deadlinePickerOpen && this.canEditBoard ? this.deadlinePickerHtml() : '';
+      this.positionDeadlinePicker();
+      if (focusDate) host.querySelector(`[data-date="${focusDate}"]`)?.focus({preventScroll: true});
+    },
+
+    positionDeadlinePicker() {
+      if (!this.deadlinePickerOpen) return;
+      const picker = this.taskModalEl?.querySelector('[data-role="deadline-picker"]');
+      const trigger = this.taskModalEl?.querySelector('[data-action="modal-toggle-deadline"]');
+      if (!picker || !trigger) return;
+      const anchor = trigger.getBoundingClientRect();
+      const width = picker.offsetWidth;
+      const height = picker.offsetHeight;
+      const left = Math.max(16, Math.min(anchor.left, window.innerWidth - width - 16));
+      const below = anchor.bottom + 6;
+      const preferredTop = below + height <= window.innerHeight - 16 ? below : anchor.top - height - 6;
+      const top = Math.max(16, Math.min(preferredTop, window.innerHeight - height - 16));
+      picker.style.left = `${left}px`;
+      picker.style.top = `${top}px`;
+    },
+
+    selectDeadlinePickerDate(value) {
+      if (this.deadlinePickerSaving) return;
+      this.deadlinePickerDate = value;
+      this.deadlinePickerFocusDate = value;
+      this.deadlinePickerMonth = new Date(value + 'T12:00:00Z');
+      this.deadlinePickerMonth.setUTCDate(1);
+      this.renderDeadlinePicker(value);
+    },
+
+    changeDeadlinePickerMonth(offset) {
+      if (this.deadlinePickerSaving) return;
+      const month = new Date(this.deadlinePickerMonth);
+      month.setUTCMonth(month.getUTCMonth() + offset);
+      if (month.getUTCFullYear() < 1 || month.getUTCFullYear() > 9999) return;
+      this.deadlinePickerMonth = month;
+      this.deadlinePickerFocusDate = month.toISOString().slice(0, 10);
+      this.renderDeadlinePicker();
+      this.taskModalEl?.querySelector(`[data-action="deadline-picker-month"][data-offset="${offset}"]`)?.focus();
+    },
+
+    handleDeadlinePickerKeydown(event) {
+      const steps = {ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7};
+      if (!(event.key in steps) && !['Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) return false;
+      event.preventDefault();
+      event.stopPropagation();
+      if (this.deadlinePickerSaving) return true;
+      const day = new Date(event.target.dataset.date + 'T12:00:00Z');
+      if (event.key in steps) day.setUTCDate(day.getUTCDate() + steps[event.key]);
+      else if (event.key === 'Home') day.setUTCDate(day.getUTCDate() - (day.getUTCDay() + 6) % 7);
+      else if (event.key === 'End') day.setUTCDate(day.getUTCDate() + 6 - (day.getUTCDay() + 6) % 7);
+      else {
+        const currentDay = day.getUTCDate();
+        day.setUTCDate(1);
+        day.setUTCMonth(day.getUTCMonth() + (event.key === 'PageUp' ? -1 : 1) * (event.shiftKey ? 12 : 1));
+        const last = new Date(day);
+        last.setUTCMonth(last.getUTCMonth() + 1);
+        last.setUTCDate(0);
+        day.setUTCDate(Math.min(currentDay, last.getUTCDate()));
+      }
+      if (day.getUTCFullYear() < 1 || day.getUTCFullYear() > 9999) return true;
+      this.deadlinePickerFocusDate = day.toISOString().slice(0, 10);
+      this.deadlinePickerMonth = new Date(day);
+      this.deadlinePickerMonth.setUTCDate(1);
+      this.renderDeadlinePicker(this.deadlinePickerFocusDate);
+      return true;
+    },
+
+    async saveDeadlinePicker(clear = false) {
+      if (!this.canEditBoard || !this.selectedTask || this.deadlinePickerSaving || (!clear && !this.deadlinePickerDate)) return;
+      const input = this.taskModalEl?.querySelector('[data-field="deadline-picker-time"]');
+      if (!clear && input && !input.reportValidity()) return;
+      const taskId = this.selectedTask.id;
+      const time = clear ? null : this.deadlinePickerTime || null;
+      const body = {
+        due_date: clear ? null : this.deadlinePickerDate,
+        due_time: time,
+        due_timezone: time ? this.deadlinePickerTimezone : null,
+      };
+      this.deadlinePickerSaving = true;
+      this.renderDeadlinePicker();
+      const saved = await this.updateTaskDeadline(body);
+      if (this.selectedTask?.id !== taskId) return;
+      this.deadlinePickerSaving = false;
+      if (saved) this.closeDeadlinePicker();
+      else this.renderDeadlinePicker();
+    },
+
     async updateTaskDeadline(body) {
       if (!this.canEditBoard || !this.selectedTask) return;
       const taskId = this.selectedTask.id;
@@ -3033,8 +3256,10 @@ function _createBoard() {
         }
         if (this.selectedTask?.id === taskId) this.selectedTask = this._normalizeSelectedTask(updated);
         this._syncTaskInStages(updated);
+        return true;
       } catch (error) {
         alert(error.message || 'Unable to update deadline');
+        return false;
       } finally {
         this.renderTaskModal();
       }

@@ -30,12 +30,14 @@ the owning user also disables their subscriptions.
 
 ## Optional deadline times
 
-In an Objective's details, choose a **Due Date**, then optionally set **Time**.
-The default is **No time**, including for existing Objectives. Use **No time** next
-to a set time to return to an all-day deadline. Clearing the date also clears its
-time and timezone.
+In an Objective's details, open the single **Due Date** field. Choose a day in the
+calendar and optionally set a time in the same picker, then choose **Apply** to save
+both together. The default is **No time**, including for existing Objectives. Use
+**No time** in the picker to return to an all-day deadline, or **Clear** to remove
+the date and time. **Cancel**, Escape, and clicking outside discard unsaved edits.
+Arrow keys navigate days; Page Up/Down changes months (with Shift, years).
 
-Setting a time captures your browser's IANA timezone, displayed under the control
+Setting a time captures your browser's IANA timezone, displayed inside the picker
 and with the deadline. Editing an existing timed deadline retains its timezone,
 including when another user edits it. Calendar apps receive a UTC timestamp and
 display it in their configured timezone. Date-only deadlines never undergo timezone
