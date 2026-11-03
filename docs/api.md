@@ -222,7 +222,8 @@ Mark all notifications for the current user as read.
 Returns all hubs accessible to the current user.
 
 - Regular users only receive hubs they are a member of.
-- Admin users receive all hubs, but the frontend overview now uses the `is_owner` flag to show only hubs they own by default.
+- Admin users receive all hubs.
+- The frontend overview uses `is_owner` and `is_member` to show only hubs the current user owns or has an explicit membership in, including for admins. `is_shared` indicates multiple members in a hub; it does not indicate whether the current user is a member.
 
 ```json
 [
@@ -233,7 +234,8 @@ Returns all hubs accessible to the current user.
     "position": 0,
     "role": "owner",
     "is_shared": false,
-    "is_owner": true
+    "is_owner": true,
+    "is_member": true
   }
 ]
 ```

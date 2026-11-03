@@ -79,7 +79,7 @@ A hub must always retain at least one owner at the membership level; removing or
 
 Instance `admin` is not stored as a hub membership role. Admin users bypass membership checks and are treated as having full access to every hub.
 
-The hub dropdown shows only hubs the current user owns or has an explicit membership in, including for admins. Admins can open other hubs through the admin panel's hub list.
+The hub dropdown and overview show only hubs the current user owns or has an explicit membership in, including for admins. Admins can open other hubs through the admin panel's hub list.
 
 Admin-only account actions also include:
 

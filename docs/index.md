@@ -39,7 +39,7 @@ The first registered account is automatically promoted to admin.
 
 | Path | Description |
 |---|---|
-| `/` | Owned hub overview / home page |
+| `/` | Owned and shared hub overview / home page |
 | `/board/{id}` | Hub view |
 | `/board/{id}/task-types` | Task type configuration |
 | `/board/{id}/automations` | Automation rules |

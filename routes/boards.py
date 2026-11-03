@@ -75,6 +75,12 @@ def get_boards(request: Request = None, db: Session = Depends(get_db)):
     board_ids = [board.id for board in boards]
     role_map = _board_role_map(board_ids, user, db)
     shared_map = _board_shared_map(board_ids, db)
+    member_board_ids = {
+        board_id
+        for board_id, in db.query(models.BoardMembership.board_id)
+        .filter(models.BoardMembership.user_id == user.id)
+        .all()
+    }
     return [
         {
             "id": b.id,
@@ -84,6 +90,7 @@ def get_boards(request: Request = None, db: Session = Depends(get_db)):
             "role": role_map.get(b.id),
             "is_shared": shared_map.get(b.id, False),
             "is_owner": b.owner_user_id == user.id,
+            "is_member": b.id in member_board_ids,
         }
         for b in boards
     ]

@@ -52,7 +52,7 @@ class HomePageController {
   async init() {
     const res = await fetch('/api/boards');
     this.boards = (await res.json())
-      .filter(board => !!board.is_owner)
+      .filter(board => board.is_owner || board.is_member)
       .map(board => this.normalizeBoard(board));
     this.render();
   }
