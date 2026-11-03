@@ -67,7 +67,14 @@ async function main() {
     const file = { name: 'trello.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(exportData)) };
 
     await page.goto(origin);
-    await page.getByRole('button', { name: 'Import from Trello', exact: true }).click();
+    assert.equal(await page.locator('#home-page [data-action="import-trello"]').count(), 0);
+    assert.equal(await page.locator('#nav-import-trello').isVisible(), false);
+    await page.locator('#nav-user-menu-toggle').click();
+    if (process.env.QUESTLINE_TEST_SCREENSHOT) {
+      await page.screenshot({ path: process.env.QUESTLINE_TEST_SCREENSHOT.replace('.png', '-user-menu.png') });
+    }
+    await page.getByRole('button', { name: 'Import Hub from Trello', exact: true }).click();
+    assert.equal(await page.locator('#nav-user-menu-panel').isVisible(), false);
     await page.locator('[data-trello-file]').setInputFiles(file);
     const dialog = page.getByRole('dialog', { name: 'Import from Trello' });
     await dialog.getByText('2 Stages · 1 Objective · 1 checklist item', { exact: true }).waitFor();
@@ -87,7 +94,22 @@ async function main() {
       board_id: boardId, name: 'Remove this automation', trigger_type: 'task_created', action_type: 'set_done',
     } })).status(), 200);
     await page.locator('#board-settings-button').click();
-    await page.getByRole('button', { name: 'Choose Trello export…', exact: true }).click();
+    assert.equal(await page.locator('#board-settings-modal [data-action="import-trello"]').count(), 0);
+    assert.equal((await page.locator('#board-settings-modal').innerText()).includes('Import from Trello'), false);
+
+    async function openReplacement() {
+      await page.goto(origin);
+      const menu = page.locator(`[data-role="board-menu"][data-board-id="${boardId}"]`);
+      assert.equal(await menu.isVisible(), false);
+      await page.locator(`[data-action="toggle-menu"][data-board-id="${boardId}"]`).click();
+      if (process.env.QUESTLINE_TEST_SCREENSHOT) {
+        await page.screenshot({ path: process.env.QUESTLINE_TEST_SCREENSHOT.replace('.png', '-hub-menu.png') });
+      }
+      await menu.getByRole('button', { name: 'Import from Trello', exact: true }).click();
+      assert.equal(await menu.isVisible(), false);
+    }
+
+    await openReplacement();
     await page.locator('[data-trello-file]').setInputFiles(file);
     await dialog.getByText('2 Stages · 1 Objective · 1 checklist item', { exact: true }).waitFor();
     assert(await dialog.getByRole('button', { name: 'Replace content', exact: true }).isDisabled());
@@ -105,15 +127,14 @@ async function main() {
     assert.equal(replaced[0].tasks[0].done, false);
     assert.deepEqual(await (await page.request.get(`${origin}/api/automations?board_id=${boardId}`)).json(), []);
 
-    await page.locator('#board-settings-button').click();
-    await page.getByRole('button', { name: 'Choose Trello export…', exact: true }).click();
+    await openReplacement();
     await page.locator('[data-trello-file]').setInputFiles({ name: 'bad.json', mimeType: 'application/json', buffer: Buffer.from('{}') });
     await dialog.getByRole('alert').waitFor();
     assert(await dialog.getByRole('button', { name: 'Replace content', exact: true }).isDisabled());
     await page.keyboard.press('Escape');
     assert.equal(await page.getByRole('dialog', { name: 'Import from Trello' }).count(), 0);
     assert.deepEqual(errors, []);
-    console.log('Trello browser checks passed: create, preview, replacement confirmation, metadata, deletion, invalid file, and cancel.');
+    console.log('Trello browser checks passed: user/Hub burger menus, create, preview, replacement confirmation, metadata, deletion, invalid file, and cancel.');
   } finally {
     if (browser) await browser.close();
     if (server.exitCode === null) {

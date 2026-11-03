@@ -149,6 +149,11 @@
             class="w-full text-left px-3 py-2 hover:bg-gray-100 text-sm transition-colors"
           >API Tokens</button>
           <button type="button" data-open-calendar-feeds class="w-full text-left px-3 py-2 hover:bg-gray-100 text-sm transition-colors">Calendar subscriptions</button>
+          <button
+            id="nav-import-trello"
+            type="button"
+            class="w-full text-left px-3 py-2 hover:bg-gray-100 text-sm transition-colors"
+          >Import Hub from Trello</button>
           {% if current_user and current_user.role == 'admin' %}
           <a
             href="/admin{% if board %}?board_id={{ board.id }}{% endif %}"

@@ -228,6 +228,7 @@ function initUserShell() {
   const menuPanel = document.getElementById('nav-user-menu-panel');
   const currentUserName = document.getElementById('nav-current-user-name');
   const openProfileButton = document.getElementById('nav-open-profile');
+  const importTrelloButton = document.getElementById('nav-import-trello');
   const logoutButton = document.getElementById('nav-logout');
   const profileModal = document.getElementById('profile-modal');
   const profileBackdrop = document.getElementById('profile-modal-backdrop');
@@ -491,6 +492,12 @@ function initUserShell() {
   openProfileButton?.addEventListener('click', () => {
     closeMenu();
     openProfile();
+  });
+
+  importTrelloButton?.addEventListener('click', () => {
+    closeMenu();
+    menuToggle?.focus();
+    openTrelloImport();
   });
 
   logoutButton?.addEventListener('click', () => {

@@ -1,11 +1,13 @@
 # Import from Trello
 
-Export a single board as JSON from Trello, then choose **Import from Trello** on
-Questline’s Hubs page to create a new Hub. The export’s board name becomes the Hub
-name, and you become its owner.
+Export a single board as JSON from Trello, then open the **top-right user ☰ menu →
+Import Hub from Trello** to create a new Hub. This menu is available from the Hubs
+page and within existing Hubs. The export’s board name becomes the Hub name, and
+you become its owner.
 
-To replace content in an existing Hub, open **Settings → Import from Trello →
-Choose Trello export**. Only owners and administrators can replace Hub content.
+To replace content in an existing Hub, go to the Hubs overview and open the
+**Hub card’s ☰ menu → Import from Trello**, alongside Rename and Delete. Only
+owners and administrators can replace Hub content.
 
 Choose the JSON file and review the Stage, Objective, and checklist counts. For
 replacement, the preview also shows how much existing content will be deleted.

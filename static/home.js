@@ -124,6 +124,12 @@ class HomePageController {
             >Rename</button>
             <button
               type="button"
+              data-action="import-trello"
+              data-board-id="${board.id}"
+              class="block w-full text-left text-xs text-gray-600 hover:text-blue-600 px-3 py-2 hover:bg-gray-100 transition-colors"
+            >Import from Trello</button>
+            <button
+              type="button"
               data-action="delete-board"
               data-board-id="${board.id}"
               class="block w-full text-left text-xs text-gray-600 hover:text-red-600 px-3 py-2 hover:bg-gray-100 transition-colors"
@@ -234,7 +240,11 @@ class HomePageController {
     const boardId = Number.parseInt(actionTarget.dataset.boardId || '', 10);
 
     if (action === 'import-trello') {
-      openTrelloImport();
+      const board = this.boardById(boardId);
+      if (!board || !canManageBoard(board)) return;
+      this.closeBoardMenu();
+      this.root.querySelector(`[data-action="toggle-menu"][data-board-id="${board.id}"]`)?.focus();
+      openTrelloImport({boardId: board.id, boardName: board.name});
       return;
     }
     if (action === 'open-create') {

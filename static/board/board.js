@@ -586,10 +586,6 @@ function _createBoard() {
         this.saveSettings();
         return;
       }
-      if (action === 'import-trello') {
-        if (this.canManageBoard) openTrelloImport({boardId: this.boardId, boardName: this.settingsBoardName});
-        return;
-      }
       if (action === 'open-new-stage') {
         this.openNewStageForm(row, position);
         return;
@@ -1577,12 +1573,6 @@ function _createBoard() {
                 <div class="h-6 rounded-lg transition-colors ${this.settingsBoardColorStyle}"></div>
               </div>
               ${shareSection}
-              ${this.canManageBoard ? `
-                <div class="mb-6 border-t pt-5">
-                  <h3 class="text-sm font-semibold text-gray-800 mb-2">Import from Trello</h3>
-                  <p class="text-xs text-gray-500 mb-3">Replace this Hub’s Stages and Objectives from a Trello JSON export. All automations will be removed.</p>
-                  <button type="button" data-action="import-trello" class="text-sm text-blue-600 hover:text-blue-700">Choose Trello export…</button>
-                </div>` : ''}
               <div class="flex justify-end gap-2 border-t pt-4">
                 <button data-action="close-settings" class="text-gray-500 hover:text-gray-700 px-4 py-2 text-sm">Cancel</button>
                 ${this.canManageBoard ? `<button data-action="save-settings" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">Save</button>` : ''}
