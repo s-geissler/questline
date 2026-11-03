@@ -253,3 +253,57 @@ def test_boards_for_nav_includes_membership_role(app_env):
             "is_shared": True,
         }
     ]
+
+
+def test_admin_hub_dropdown_only_lists_owned_and_shared_hubs(app_env):
+    main = app_env["main"]
+    pages = app_env["pages"]
+    db = app_env["db"]
+    models = app_env["models"]
+
+    admin, admin_cookie = register_and_cookie(main, db, "dropdown-admin@example.com", "Admin")
+    _, owner_cookie = register_and_cookie(main, db, "dropdown-owner@example.com", "Owner")
+    admin_row = db.get(models.User, admin["id"])
+
+    owned = main.create_board(
+        main.BoardCreate(name="Owned Hub"),
+        db,
+        main.Request(request_with_cookie(cookie=admin_cookie)),
+    )
+    foreign = main.create_board(
+        main.BoardCreate(name="Foreign Hub"),
+        db,
+        main.Request(request_with_cookie(cookie=owner_cookie)),
+    )
+    shared_ids = []
+    for role in ("viewer", "editor", "owner"):
+        shared = main.create_board(
+            main.BoardCreate(name=f"Shared as {role}"),
+            db,
+            main.Request(request_with_cookie(cookie=owner_cookie)),
+        )
+        main.ensure_board_membership(db.get(models.Board, shared["id"]), admin_row, role, db)
+        shared_ids.append(shared["id"])
+    # Ownership also counts if the membership record is missing.
+    owned_without_membership = models.Board(name="Owned without membership", owner_user_id=admin["id"], position=5)
+    orphan = models.Board(name="Orphan Hub", position=6)
+    db.add_all([owned_without_membership, orphan])
+    db.commit()
+
+    expected_ids = [owned["id"], *shared_ids, owned_without_membership.id]
+    # Visiting another user's Hub through administration must not add it to the dropdown.
+    page = pages.board_page(
+        main.Request(request_with_cookie(path=f"/board/{foreign['id']}", cookie=admin_cookie)),
+        foreign["id"],
+        db,
+    )
+    assert page.status_code == 200
+    assert page.context["board_role"] == "admin"
+    assert [board["id"] for board in page.context["boards"]] == expected_ids
+    assert all(board["role"] == "admin" for board in page.context["boards"])
+
+    admin_boards = main.get_admin_boards(
+        main.Request(request_with_cookie(path="/api/admin/boards", cookie=admin_cookie)), db
+    )
+    assert {board["id"] for board in admin_boards} == {*expected_ids, foreign["id"], orphan.id}
+    assert main._boards_for_nav(db) == []

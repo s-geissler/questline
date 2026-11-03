@@ -71,6 +71,7 @@ def test_admin_can_access_all_hubs_without_membership(app_env):
     )
     assert page.status_code == 200
     assert page.context["board_role"] == "admin"
+    assert page.context["boards"] == []
     assert admin["role"] == "admin"
 
 

@@ -7,7 +7,7 @@ from typing import Optional
 
 from fastapi import HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 import models
@@ -118,7 +118,18 @@ def _board_role_map(board_ids: list[int], user: Optional[models.User], db: Sessi
 
 
 def _boards_for_nav(db: Session, user: Optional[models.User] = None):
-    boards = get_accessible_boards(user, db)
+    if not user:
+        return []
+    # Navigation lists personal Hubs even when admin access covers the whole instance.
+    boards = (
+        db.query(models.Board)
+        .filter(or_(
+            models.Board.owner_user_id == user.id,
+            models.Board.memberships.any(user_id=user.id),
+        ))
+        .order_by(models.Board.position)
+        .all()
+    )
     board_ids = [board.id for board in boards]
     shared_map = _board_shared_map(board_ids, db)
     role_map = _board_role_map(board_ids, user, db)
