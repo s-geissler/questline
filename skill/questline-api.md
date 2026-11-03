@@ -223,7 +223,7 @@ A **Log Stage** (`is_log: true`) is read-only. Created by assigning a `filter_id
 |--------|--------|------|-------|
 | List Objectives in a Stage | `GET` | `/api/tasks?stage_id=N` | Returns array of task objects. |
 | Create an Objective | `POST` | `/api/tasks` | Body: `{ title: str, stage_id: int, task_type_id?: int, due_date?: str, due_time?: str, due_timezone?: str }`. Requires `editor` on the board. Cannot target a Log Stage. |
-| Update an Objective | `PUT` | `/api/tasks/{id}` | Body: partial update with any of `title`, `description`, `due_date`, `due_time`, `due_timezone`, `task_type_id`, `assignee_user_id`, `color`, `done`, `custom_fields`. Setting `done: true` fires `task_done` automations. |
+| Update an Objective | `PUT` | `/api/tasks/{id}` | Body: partial update with any of `title`, `description`, `due_date`, `due_time`, `due_timezone`, `task_type_id`, `assignee_user_ids`, `color`, `done`, `custom_fields`. `assignee_user_ids` replaces all assignees (use `[]` to clear); newly assigned users must be active Hub members. Legacy `assignee_user_id` replaces with a single user or clears with `null`; do not send both inputs. Setting `done: true` fires `task_done` automations. |
 | Move an Objective | `PUT` | `/api/tasks/{id}/move` | Body: `{ stage_id: int, position?: int }`. Target cannot be a Log Stage. |
 | Delete an Objective | `DELETE` | `/api/tasks/{id}` | — |
 

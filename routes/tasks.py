@@ -35,6 +35,9 @@ from services.tasks import (
     normalize_due_date,
     normalize_due_time,
     normalize_due_timezone,
+    set_task_assignees,
+    task_assignees,
+    task_assignment_to_dict,
     task_deadline_to_dict,
 )
 
@@ -100,6 +103,7 @@ class TaskUpdate(_TaskDeadlineInput):
     description: Optional[str] = Field(default=None, max_length=MAX_DESCRIPTION_LENGTH)
     task_type_id: Optional[int] = None
     assignee_user_id: Optional[int] = None
+    assignee_user_ids: list[int] = Field(default_factory=list)
     color: Optional[str] = Field(default=None, max_length=7)
     show_description_on_card: Optional[bool] = None
     show_checklist_on_card: Optional[bool] = None
@@ -222,13 +226,6 @@ def task_to_dict(task: models.Task) -> dict:
             "title": task.parent_task.title,
             "board_id": task.parent_task.stage.board_id if task.parent_task.stage else None,
         }
-    assignee = None
-    if task.assignee:
-        assignee = {
-            "id": task.assignee.id,
-            "display_name": task.assignee.display_name,
-            "email": task.assignee.email,
-        }
     return {
         "id": task.id,
         "title": task.title,
@@ -238,8 +235,7 @@ def task_to_dict(task: models.Task) -> dict:
         "board_name": task.stage.board.name if task.stage and task.stage.board else None,
         "stage_name": task.stage.name if task.stage else None,
         "parent_task": parent_task,
-        "assignee": assignee,
-        "assignee_user_id": task.assignee_user_id,
+        **task_assignment_to_dict(task),
         "show_description_on_card": task.show_description_on_card,
         "effective_show_description_on_card": effective_show_description_on_card,
         "show_checklist_on_card": task.show_checklist_on_card,
@@ -623,12 +619,23 @@ def update_task(task_id: int, data: TaskUpdate, db: Session = Depends(get_db), r
     deadline_values = _deadline_values(data, task) if {"due_date", "due_time", "due_timezone"} & data.model_fields_set else {}
     if "task_type_id" in data.model_fields_set and data.task_type_id is not None:
         _require_task_type_in_board(data.task_type_id, task.stage.board_id, db)
-    if "assignee_user_id" in data.model_fields_set:
-        _validate_assignee_for_task(task.stage.board_id, data.assignee_user_id, db)
+    assignment_fields = {"assignee_user_id", "assignee_user_ids"} & data.model_fields_set
+    if len(assignment_fields) > 1:
+        raise HTTPException(status_code=422, detail="Use either assignee_user_ids or assignee_user_id")
+    assignees = []
+    previous_assignees = {user.id: user for user in task_assignees(task)} if assignment_fields else {}
+    if assignment_fields:
+        user_ids = data.assignee_user_ids if "assignee_user_ids" in assignment_fields else (
+            [data.assignee_user_id] if data.assignee_user_id is not None else []
+        )
+        assignees = [
+            previous_assignees.get(user_id) or _validate_assignee_for_task(task.stage.board_id, user_id, db)
+            for user_id in sorted(set(user_ids))
+        ]
     effective_task_type_id = data.task_type_id if "task_type_id" in data.model_fields_set else task.task_type_id
     _validate_custom_fields_for_task(data.custom_fields, effective_task_type_id, task.stage.board_id, db)
     prev_done = task.done
-    prev_assignee_user_id = task.assignee_user_id
+    prev_assignee_user_ids = set(previous_assignees)
     if data.title is not None:
         task.title = data.title
         _sync_checklist_item_title_from_spawned_task(task, db)
@@ -638,8 +645,8 @@ def update_task(task_id: int, data: TaskUpdate, db: Session = Depends(get_db), r
         setattr(task, field, value)
     if "task_type_id" in data.model_fields_set:
         task.task_type_id = data.task_type_id
-    if "assignee_user_id" in data.model_fields_set:
-        task.assignee_user_id = data.assignee_user_id
+    if assignment_fields:
+        set_task_assignees(task, assignees)
     if "color" in data.model_fields_set:
         task.color = _validated_optional_hex_color(data.color, "Task color must be a valid hex color")
     if "show_description_on_card" in data.model_fields_set:
@@ -694,24 +701,20 @@ def update_task(task_id: int, data: TaskUpdate, db: Session = Depends(get_db), r
     if data.done is True and not prev_done:
         run_automations(task, "task_done", db)
         db.commit()
-    if (
-        "assignee_user_id" in data.model_fields_set
-        and task.assignee_user_id
-        and task.assignee_user_id != prev_assignee_user_id
-        and current_user
-        and current_user.id != task.assignee_user_id
-        and task.stage
-    ):
-        create_notification(
-            task.assignee_user_id,
-            "task_assigned",
-            "Assigned to an objective",
-            f"{current_user.display_name} assigned you to {task.title}",
-            db,
-            link_url=f"/board/{task.stage.board_id}?task_id={task.id}",
-            board_id=task.stage.board_id,
-            task_id=task.id,
-        )
+    if assignment_fields and current_user and task.stage:
+        for user in assignees:
+            if user.id in prev_assignee_user_ids or user.id == current_user.id:
+                continue
+            create_notification(
+                user.id,
+                "task_assigned",
+                "Assigned to an objective",
+                f"{current_user.display_name} assigned you to {task.title}",
+                db,
+                link_url=f"/board/{task.stage.board_id}?task_id={task.id}",
+                board_id=task.stage.board_id,
+                task_id=task.id,
+            )
         db.commit()
     db.refresh(task)
     return task_to_dict(task)

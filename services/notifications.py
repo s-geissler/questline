@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 
 import models
-from services.tasks import deadline_datetime
+from services.tasks import deadline_datetime, task_assigned_to
 
 
 def notification_to_dict(notification: models.Notification) -> dict:
@@ -80,7 +80,7 @@ def generate_due_notifications_for_user(user: models.User, db: Session):
         db.query(models.Task)
         .join(models.Stage, models.Task.stage_id == models.Stage.id)
         .filter(
-            models.Task.assignee_user_id == user.id,
+            task_assigned_to(user.id),
             models.Task.done == False,
             models.Task.due_date.is_not(None),
             models.Task.due_date != "",

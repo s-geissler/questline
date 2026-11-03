@@ -6,9 +6,63 @@ from datetime import UTC, date, datetime, time
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import HTTPException
+from sqlalchemy import and_, or_, text
 from sqlalchemy.orm import Session
 
 import models
+
+
+def backfill_task_assignees(engine) -> None:
+    """Copy legacy assignments without changing task IDs or timestamps."""
+    with engine.begin() as conn:
+        conn.execute(text("""
+            INSERT OR IGNORE INTO task_assignees (task_id, user_id)
+            SELECT tasks.id, tasks.assignee_user_id FROM tasks
+            JOIN users ON users.id = tasks.assignee_user_id
+            WHERE tasks.assignee_user_id IS NOT NULL
+        """))
+
+
+def task_assignees(task: models.Task) -> list[models.User]:
+    # Also read the legacy column for older callers that create tasks directly.
+    users = {user.id: user for user in task.assignees}
+    if task.assignee_user_id is not None and task.assignee:
+        users[task.assignee.id] = task.assignee
+    return [users[user_id] for user_id in sorted(users)]
+
+
+def set_task_assignees(task: models.Task, users: list[models.User]) -> None:
+    users = sorted({user.id: user for user in users}.values(), key=lambda user: user.id)
+    if {user.id for user in task_assignees(task)} != {user.id for user in users}:
+        task.updated_at = datetime.now(UTC).replace(tzinfo=None)
+    task.assignees = users
+    # Keep the singular API/column usable by existing integrations.
+    task.assignee = users[0] if users else None
+    task.assignee_user_id = users[0].id if users else None
+
+
+def task_assignment_to_dict(task: models.Task) -> dict:
+    assignees = [
+        {"id": user.id, "display_name": user.display_name, "email": user.email}
+        for user in task_assignees(task)
+    ]
+    return {
+        "assignees": assignees,
+        "assignee_user_ids": [user["id"] for user in assignees],
+        "assignee": assignees[0] if assignees else None,
+        "assignee_user_id": assignees[0]["id"] if assignees else None,
+    }
+
+
+def task_assigned_to(user_id: int):
+    return or_(
+        and_(models.Task.assignee_user_id.is_not(None), models.Task.assignee_user_id == user_id),
+        models.Task.assignees.any(models.User.id == user_id),
+    )
+
+
+def task_has_assignees():
+    return or_(models.Task.assignee_user_id.is_not(None), models.Task.assignees.any())
 
 
 def normalize_due_date(value: str | None) -> str | None:

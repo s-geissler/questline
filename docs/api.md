@@ -470,6 +470,8 @@ Returns a single task. Requires `viewer` on the task's board.
   "due_timezone": null,
   "due_at": null,
   "parent_task": null,
+  "assignees": [],
+  "assignee_user_ids": [],
   "assignee": null,
   "assignee_user_id": null,
   "show_description_on_card": null,
@@ -578,7 +580,7 @@ Update a task. Requires `editor`. All fields are optional.
   "task_type_id": 2,
   "done": true,
   "due_date": "2024-07-01",
-  "assignee_user_id": 5,
+  "assignee_user_ids": [5, 7],
   "color": "#e74c3c",
   "show_description_on_card": true,
   "show_checklist_on_card": false,
@@ -587,6 +589,20 @@ Update a task. Requires `editor`. All fields are optional.
 ```
 
 Setting `done: true` fires `task_done` automations.
+
+`assignee_user_ids` replaces the complete assignment list; send `[]` to unassign
+everyone. Omit it to leave assignments unchanged. Newly assigned users must be
+active members of the task's Hub. Existing assignments can be retained or removed
+if a user becomes inactive or leaves the Hub. Repeated IDs are deduplicated.
+Each newly assigned user receives a notification, except the user making the change.
+
+Task responses include `assignees` (objects with `id`, `display_name`, and `email`)
+and `assignee_user_ids`, sorted by user ID. For existing integrations, the singular
+`assignee` and `assignee_user_id` fields return the first assignee or `null`.
+Updating `assignee_user_id` still replaces the entire list with that one user,
+or clears it when `null`. Send either the singular or plural input, never both.
+Saved assignment filters and assigned-only calendar feeds match any assignee;
+recurring Objectives copy all assignments, and due notifications reach each assignee.
 
 Deadline updates are partial: changing only `due_date` preserves an existing time
 and timezone; changing only `due_time` preserves its existing timezone. Setting a

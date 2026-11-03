@@ -286,6 +286,15 @@ class CustomFieldDef(Base):
     )
 
 
+task_assignees = Table(
+    "task_assignees",
+    Base.metadata,
+    Column("task_id", Integer, ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True),
+    Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    Index("ix_task_assignees_user_id", "user_id"),
+)
+
+
 class Task(Base):
     __tablename__ = "tasks"
     __table_args__ = (
@@ -320,6 +329,7 @@ class Task(Base):
     task_type = relationship("TaskType", back_populates="tasks")
     parent_task = relationship("Task", foreign_keys=[parent_task_id], remote_side=[id])
     assignee = relationship("User", foreign_keys=[assignee_user_id])
+    assignees = relationship("User", secondary=task_assignees, order_by="User.id")
     custom_field_values = relationship(
         "CustomFieldValue", back_populates="task", cascade="all, delete-orphan"
     )

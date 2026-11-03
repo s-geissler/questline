@@ -16,7 +16,7 @@ from services.settings import (
     RECURRENCE_MIN_INTERVAL_SECONDS,
     get_instance_settings,
 )
-from services.tasks import _create_checklist_item_internal
+from services.tasks import _create_checklist_item_internal, set_task_assignees, task_assignees
 
 log = logging.getLogger(__name__)
 
@@ -95,13 +95,13 @@ def _clone_task_from_recurrence(
         due_timezone=source_task.due_timezone,
         stage_id=target_stage.id,
         task_type_id=source_task.task_type_id,
-        assignee_user_id=source_task.assignee_user_id,
         position=new_pos,
         color=source_task.color,
         show_description_on_card=source_task.show_description_on_card,
         show_checklist_on_card=source_task.show_checklist_on_card,
         done=False,
     )
+    set_task_assignees(cloned_task, task_assignees(source_task))
     db.add(cloned_task)
     db.flush()
 

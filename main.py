@@ -186,8 +186,10 @@ from services.tasks import (
     _create_checklist_item_internal,
     _sync_checklist_item_title_from_spawned_task,
     _sync_spawned_task_title_from_checklist_item,
+    backfill_task_assignees,
     collect_descendant_task_ids,
     delete_tasks_by_ids,
+    task_assignment_to_dict,
     task_deadline_to_dict,
 )
 from authz import (
@@ -509,6 +511,7 @@ def _dedupe_board_memberships():
 
 models.Base.metadata.create_all(bind=engine)
 _run_column_migrations()
+backfill_task_assignees(engine)
 backfill_calendar_metadata(engine)
 _migrate_orphan_data()
 _migrate_board_memberships()
@@ -820,13 +823,6 @@ def task_to_dict(task: models.Task) -> dict:
             "title": task.parent_task.title,
             "board_id": task.parent_task.stage.board_id if task.parent_task.stage else None,
         }
-    assignee = None
-    if task.assignee:
-        assignee = {
-            "id": task.assignee.id,
-            "display_name": task.assignee.display_name,
-            "email": task.assignee.email,
-        }
     return {
         "id": task.id,
         "title": task.title,
@@ -836,8 +832,7 @@ def task_to_dict(task: models.Task) -> dict:
         "board_name": task.stage.board.name if task.stage and task.stage.board else None,
         "stage_name": task.stage.name if task.stage else None,
         "parent_task": parent_task,
-        "assignee": assignee,
-        "assignee_user_id": task.assignee_user_id,
+        **task_assignment_to_dict(task),
         "show_description_on_card": task.show_description_on_card,
         "effective_show_description_on_card": effective_show_description_on_card,
         "show_checklist_on_card": task.show_checklist_on_card,

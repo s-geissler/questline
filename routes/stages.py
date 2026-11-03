@@ -14,7 +14,12 @@ from authz import _authorize_board_request, _board_id_for_stage, _require_stage_
 from filters_logic import get_stage_tasks, stage_to_dict
 from routes._deps import get_db
 from services.notifications import recurrence_to_dict
-from services.tasks import collect_descendant_task_ids, delete_tasks_by_ids, task_deadline_to_dict
+from services.tasks import (
+    collect_descendant_task_ids,
+    delete_tasks_by_ids,
+    task_assignment_to_dict,
+    task_deadline_to_dict,
+)
 
 router = APIRouter(prefix="/api/stages", tags=["stages"])
 
@@ -122,13 +127,6 @@ def _task_to_dict(task: models.Task) -> dict:
             "title": task.parent_task.title,
             "board_id": task.parent_task.stage.board_id if task.parent_task.stage else None,
         }
-    assignee = None
-    if task.assignee:
-        assignee = {
-            "id": task.assignee.id,
-            "display_name": task.assignee.display_name,
-            "email": task.assignee.email,
-        }
     return {
         "id": task.id,
         "title": task.title,
@@ -138,8 +136,7 @@ def _task_to_dict(task: models.Task) -> dict:
         "board_name": task.stage.board.name if task.stage and task.stage.board else None,
         "stage_name": task.stage.name if task.stage else None,
         "parent_task": parent_task,
-        "assignee": assignee,
-        "assignee_user_id": task.assignee_user_id,
+        **task_assignment_to_dict(task),
         "show_description_on_card": task.show_description_on_card,
         "effective_show_description_on_card": effective_show_description_on_card,
         "show_checklist_on_card": task.show_checklist_on_card,

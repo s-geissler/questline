@@ -69,6 +69,11 @@ tasks
   position, color, due_date, due_time, due_timezone, done, show_description_on_card, show_checklist_on_card,
   created_at
 
+task_assignees
+  task_id → tasks, user_id → users (composite primary key)
+  Existing tasks.assignee_user_id values are copied here at startup. The legacy
+  column remains synchronized to the first assignee for compatibility.
+
 task_recurrences
   id, task_id → tasks (UNIQUE), enabled, mode, frequency, interval,
   next_run_on, spawn_stage_id → lists, created_at

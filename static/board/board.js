@@ -72,6 +72,9 @@ function _createBoard() {
     activeStageMenuId: null,
     taskActionMenuOpen: false,
     taskColorPickerOpen: false,
+    assigneePickerOpen: false,
+    assigneeSaving: false,
+    assigneeError: '',
     deadlinePickerOpen: false,
     deadlinePickerDate: '',
     deadlinePickerTime: '',
@@ -184,7 +187,7 @@ function _createBoard() {
     },
 
     get isUnassignedSelected() {
-      return !this.selectedTask?.assignee_user_id;
+      return this.taskAssigneeIds(this.selectedTask).length === 0;
     },
 
     get isLogConfigAllSelected() {
@@ -294,7 +297,7 @@ function _createBoard() {
 
     assigneeSelectKey() {
       const taskId = this.selectedTask?.id || 'none';
-      const assignee = this.selectedTask?.assignee_user_id || 'none';
+      const assignee = this.taskAssigneeIds(this.selectedTask).join('-') || 'none';
       return `assignee-${taskId}-${assignee}-${this.assignableMembers.length}`;
     },
 
@@ -514,6 +517,9 @@ function _createBoard() {
             this.renderTaskModal();
           }
         }
+        if (this.assigneePickerOpen && !event.target.closest('[data-role="assignee-picker"]')) {
+          this.closeAssigneePicker(false);
+        }
         if (this.deadlinePickerOpen && !event.target.closest('[data-role="deadline-picker"]') && !event.target.closest('[data-action="modal-toggle-deadline"]')) {
           this.closeDeadlinePicker(false);
         }
@@ -521,6 +527,9 @@ function _createBoard() {
       document.addEventListener('scroll', () => this.positionDeadlinePicker(), true);
       window.addEventListener('resize', () => this.positionDeadlinePicker());
       this._el.addEventListener('focusin', event => {
+        if (this.assigneePickerOpen && !event.target.closest('[data-role="assignee-picker"]')) {
+          this.closeAssigneePicker(false);
+        }
         if (this.deadlinePickerOpen && !event.target.closest('[data-role="deadline-picker"]') && !event.target.closest('[data-action="modal-toggle-deadline"]')) {
           this.closeDeadlinePicker(false);
         }
@@ -661,6 +670,17 @@ function _createBoard() {
       if (action === 'modal-toggle-deadline') {
         if (this.deadlinePickerOpen) this.closeDeadlinePicker();
         else this.openDeadlinePicker();
+        return;
+      }
+      if (action === 'modal-toggle-assignees') {
+        if (!this.canEditBoard || this.assigneeSaving) return;
+        this.assigneePickerOpen = !this.assigneePickerOpen;
+        this.assigneeError = '';
+        this.deadlinePickerOpen = false;
+        this.taskActionMenuOpen = false;
+        this.taskColorPickerOpen = false;
+        this.renderTaskModal();
+        this.taskModalEl?.querySelector(this.assigneePickerOpen ? '[data-field="modal-assignee"]' : '[data-action="modal-toggle-assignees"]')?.focus();
         return;
       }
       if (action === 'deadline-picker-month') {
@@ -900,8 +920,7 @@ function _createBoard() {
         return;
       }
       if (field === 'modal-assignee') {
-        if (this.selectedTask) this.selectedTask.assignee_user_id = event.target.value;
-        this.updateAssignee();
+        this.updateAssignee(Number(event.target.dataset.userId), event.target.checked);
         return;
       }
       if (field === 'deadline-picker-time') {
@@ -962,6 +981,12 @@ function _createBoard() {
     },
 
     handleSurfaceKeydown(event) {
+      if (this.assigneePickerOpen && event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        this.closeAssigneePicker();
+        return;
+      }
       if (this.deadlinePickerOpen && event.key === 'Escape') {
         event.preventDefault();
         event.stopPropagation();
@@ -1412,7 +1437,7 @@ function _createBoard() {
     renderTaskCard(task, stage) {
       const taskTypeBadge = task.task_type ? `<span class="text-xs px-2 py-0.5 rounded font-medium ${this.taskTypeBadgeClass(task.task_type)}">${_escapeBoardHtml(task.task_type.name)}</span>` : '';
       const parentBadge = task.parent_task ? `<span class="text-xs px-2 py-0.5 rounded font-medium bg-violet-100 text-violet-700">${_escapeBoardHtml(task.parent_task.title)}</span>` : '';
-      const assigneeBadge = task.assignee ? `<span class="text-xs px-2 py-0.5 rounded font-medium bg-slate-100 text-slate-700">${_escapeBoardHtml(this.assigneeChipLabel(task))}</span>` : '';
+      const assigneeBadge = this.taskAssignees(task).map(user => `<span class="task-assignee-pill" role="img" title="${_escapeBoardHtml(user.display_name || user.email)}" aria-label="Assigned to ${_escapeBoardHtml(user.display_name || user.email)}">${_escapeBoardHtml(this.assigneeInitials(user))}</span>`).join('');
       const recurrenceBadge = task.recurrence ? '<span class="text-xs px-2 py-0.5 rounded font-medium bg-blue-100 text-blue-700">↻ Recurring</span>' : '';
       const dueDateBadge = this.hasDueDate(task.due_date) ? `<span class="text-xs px-2 py-0.5 rounded font-medium ${this.dueDateClass(task.due_date, task)}">${_escapeBoardHtml(this.dueDateLabel(task.due_date, task))}</span>` : '';
       const checklistBadge = this.showChecklistSummary(task) ? `<span class="text-xs text-gray-400 flex items-center gap-0.5"><span>☑</span><span>${_escapeBoardHtml(this.checklistProgress(task))}</span></span>` : '';
@@ -1684,13 +1709,6 @@ function _createBoard() {
         </div>
       ` : '';
 
-      // --- assignee ---
-      const memberOptions = this.assignableMembers.map(m => {
-        const sel = this.sameString(task.assignee_user_id, m.user_id) ? ' selected' : '';
-        return `<option value="${_escapeBoardHtml(String(m.user_id))}"${sel}>${_escapeBoardHtml(m.display_name)}</option>`;
-      }).join('');
-      const assigneeUnselected = !task.assignee_user_id ? ' selected' : '';
-
       // --- color picker ---
       const colorBtnClass = this.colorSwatchClass(task.color);
       const colorSwatches = PRESET_COLORS.map(c => {
@@ -1780,13 +1798,7 @@ function _createBoard() {
               </div>
 
               <div class="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-4 mb-5 items-start">
-                <div>
-                  <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Assignee</label>
-                  <select data-field="modal-assignee" ${dis} class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
-                    <option value=""${assigneeUnselected}>Unassigned</option>
-                    ${memberOptions}
-                  </select>
-                </div>
+                ${this.assigneePickerHtml(task)}
                 <div>
                   <label id="objective-deadline-label" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Due Date</label>
                   <button
@@ -2813,6 +2825,9 @@ function _createBoard() {
       this.descriptionEditing = false;
       this.taskActionMenuOpen = false;
       this.taskColorPickerOpen = false;
+      this.assigneePickerOpen = false;
+      this.assigneeSaving = false;
+      this.assigneeError = '';
       this.deadlinePickerOpen = false;
       this.deadlinePickerSaving = false;
       this.showModal = true;
@@ -2831,6 +2846,9 @@ function _createBoard() {
       this.newChecklistItem = '';
       this.taskActionMenuOpen = false;
       this.taskColorPickerOpen = false;
+      this.assigneePickerOpen = false;
+      this.assigneeSaving = false;
+      this.assigneeError = '';
       this.deadlinePickerOpen = false;
       this.deadlinePickerSaving = false;
       this.selectedTask = null;
@@ -2856,6 +2874,9 @@ function _createBoard() {
       this.descriptionEditing = false;
       this.taskActionMenuOpen = false;
       this.taskColorPickerOpen = false;
+      this.assigneePickerOpen = false;
+      this.assigneeSaving = false;
+      this.assigneeError = '';
       this.deadlinePickerOpen = false;
       this.deadlinePickerSaving = false;
       this.beginTaskAttachmentLoad(task.id);
@@ -3275,14 +3296,30 @@ function _createBoard() {
       this.renderTaskModal();
     },
 
-    async updateAssignee() {
-      if (!this.canEditBoard) return;
-      const assigneeUserId = this.selectedTask.assignee_user_id ? parseInt(this.selectedTask.assignee_user_id) : null;
-      const res = await apiUpdateTask(this.selectedTask.id, {assignee_user_id: assigneeUserId});
-      const updated = await res.json();
-      this.selectedTask = this._normalizeSelectedTask(updated);
-      this._syncTaskInStages(updated);
+    async updateAssignee(userId, checked) {
+      if (!this.canEditBoard || !this.selectedTask || this.assigneeSaving) return;
+      const taskId = this.selectedTask.id;
+      const ids = new Set(this.taskAssigneeIds(this.selectedTask));
+      if (checked) ids.add(userId);
+      else ids.delete(userId);
+      this.assigneeSaving = true;
+      this.assigneeError = '';
       this.renderTaskModal();
+      try {
+        const res = await apiUpdateTask(taskId, {assignee_user_ids: [...ids]});
+        const updated = await res.json();
+        if (!res.ok) throw new Error(typeof updated.detail === 'string' ? updated.detail : 'Could not update assignees.');
+        this._syncTaskInStages(updated);
+        if (this.selectedTask?.id === taskId) this.selectedTask = this._normalizeSelectedTask(updated);
+      } catch (error) {
+        if (this.selectedTask?.id === taskId) this.assigneeError = error.message || 'Could not update assignees.';
+      } finally {
+        if (this.selectedTask?.id === taskId) {
+          this.assigneeSaving = false;
+          this.renderTaskModal();
+          if (this.assigneePickerOpen) this.taskModalEl?.querySelector(`[data-field="modal-assignee"][data-user-id="${userId}"]`)?.focus();
+        }
+      }
     },
 
     async updateCustomField(fieldDefId, value) {
@@ -3562,7 +3599,7 @@ function _createBoard() {
     },
 
     isAssigneeSelected(member) {
-      return this.sameString(this.selectedTask?.assignee_user_id || '', member.user_id);
+      return this.taskAssigneeIds(this.selectedTask).includes(Number(member.user_id));
     },
 
     customFieldOptions(field) {
@@ -3738,8 +3775,57 @@ function _createBoard() {
       return task.done ? 'line-through text-gray-400' : '';
     },
 
-    assigneeChipLabel(task) {
-      return `@ ${task.assignee.display_name}`;
+    taskAssignees(task) {
+      return task?.assignees || (task?.assignee ? [task.assignee] : []);
+    },
+
+    taskAssigneeIds(task) {
+      const ids = task?.assignee_user_ids || this.taskAssignees(task).map(user => user.id);
+      if (!ids.length && !task?.assignee_user_ids && task?.assignee_user_id) return [Number(task.assignee_user_id)];
+      return ids.map(Number);
+    },
+
+    assigneeInitials(user) {
+      const words = (user.display_name || user.email || '?').trim().split(/\s+/u).filter(Boolean);
+      const initial = word => Array.from(word || '?')[0];
+      return (initial(words[0]) + (words.length > 1 ? initial(words[words.length - 1]) : '')).toLocaleUpperCase();
+    },
+
+    assigneePickerHtml(task) {
+      const disabled = !this.canEditBoard || this.assigneeSaving ? 'disabled' : '';
+      const users = this.taskAssignees(task);
+      const label = users.map(user => user.display_name || user.email).join(', ') || 'Unassigned';
+      // Keep former/inactive members visible so their assignments can be removed.
+      const members = [...this.assignableMembers];
+      for (const user of users) {
+        if (!members.some(member => Number(member.user_id) === Number(user.id))) {
+          members.push({...user, user_id: user.id});
+        }
+      }
+      const options = members.map(member => `<label class="task-assignee-option">
+        <input type="checkbox" data-field="modal-assignee" data-user-id="${Number(member.user_id)}" ${this.isAssigneeSelected(member) ? 'checked' : ''} ${disabled}>
+        <span>${_escapeBoardHtml(member.display_name || member.email)}</span>
+      </label>`).join('');
+      return `<div class="task-assignee-picker" data-role="assignee-picker">
+        <label id="objective-assignees-label" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Assignees</label>
+        <button type="button" data-action="modal-toggle-assignees" ${disabled}
+          aria-labelledby="objective-assignees-label objective-assignees-value" aria-expanded="${this.assigneePickerOpen}" aria-controls="objective-assignees-options"
+          class="task-assignee-trigger w-full border rounded-lg px-2 py-1.5 text-sm text-left focus:outline-none focus:ring-2 focus:ring-blue-400">
+          <span id="objective-assignees-value" class="task-assignee-value" title="${_escapeBoardHtml(label)}">${_escapeBoardHtml(label)}</span>
+          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        ${this.assigneePickerOpen ? `<div id="objective-assignees-options" class="task-assignee-options" role="group" aria-labelledby="objective-assignees-label" aria-busy="${this.assigneeSaving}">
+          ${options || '<p class="text-sm text-gray-500 px-3 py-2">No members available</p>'}
+        </div>` : ''}
+        ${this.assigneeError ? `<p class="text-xs text-red-600 mt-1" role="alert">${_escapeBoardHtml(this.assigneeError)}</p>` : ''}
+      </div>`;
+    },
+
+    closeAssigneePicker(restoreFocus = true) {
+      this.assigneePickerOpen = false;
+      const picker = this.taskModalEl?.querySelector('[data-role="assignee-picker"]');
+      if (picker) picker.outerHTML = this.assigneePickerHtml(this.selectedTask);
+      if (restoreFocus) this.taskModalEl?.querySelector('[data-action="modal-toggle-assignees"]')?.focus();
     },
 
     logSourceLabel(task) {
@@ -3914,8 +4000,8 @@ function _createBoard() {
       selectedTask.stage_id = task.stage_id;
       const taskTypeId = task.task_type_id ?? task.task_type?.id ?? '';
       selectedTask.task_type_id = taskTypeId === '' || taskTypeId === null ? '' : String(taskTypeId);
-      const assigneeUserId = task.assignee_user_id ?? task.assignee?.id ?? '';
-      selectedTask.assignee_user_id = assigneeUserId === '' || assigneeUserId === null ? '' : String(assigneeUserId);
+      selectedTask.assignee_user_ids = this.taskAssigneeIds(task);
+      selectedTask.assignees = this.taskAssignees(task);
       if (selectedTask.recurrence) {
         selectedTask.recurrence.spawn_stage_id = String(selectedTask.recurrence.spawn_stage_id || selectedTask.stage_id);
         selectedTask.recurrence._persisted = true;

@@ -17,6 +17,85 @@ def run_board_js(script: str):
     assert result.returncode == 0, result.stderr
 
 
+def test_assignee_initial_pills_escape_names_and_support_single_names_and_unicode():
+    run_board_js("""
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const context = {document: {addEventListener() {}}, renderMarkdown: value => value || ''};
+vm.createContext(context);
+vm.runInContext(fs.readFileSync('static/board/board.js', 'utf8'), context);
+const board = context._createBoard();
+const users = [
+  {id: 1, display_name: ' Alice   Adams '},
+  {id: 2, display_name: 'Björk'},
+  {id: 3, display_name: 'Éva 東京'},
+  {id: 4, display_name: '<script> unsafe'},
+];
+assert.equal(board.assigneeInitials(users[0]), 'AA');
+assert.equal(board.assigneeInitials(users[1]), 'B');
+assert.equal(board.assigneeInitials(users[2]), 'É東');
+const html = board.renderTaskCard({id: 1, title: 'Task', assignees: users}, {id: 1});
+assert.equal((html.match(/class="task-assignee-pill"/g) || []).length, 4);
+assert(html.includes('>AA</span>'));
+assert(html.includes('title=" Alice   Adams "'));
+assert(html.includes('aria-label="Assigned to Éva 東京"'));
+assert(!html.includes('@ Alice'));
+assert(!html.includes('<script>'));
+// Old serialized tasks can still be displayed.
+assert(board.renderTaskCard({id: 2, title: 'Legacy', assignee: users[0]}, {id: 1}).includes('>AA</span>'));
+""")
+
+
+def test_assignee_picker_sends_full_list_and_recovers_after_failed_save():
+    run_board_js("""
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const writes = [];
+let fail = false;
+const users = [{id: 1, display_name: 'Alice Adams'}, {id: 2, display_name: 'Bob Brown'}];
+const context = {document: {addEventListener() {}},
+  apiUpdateTask: async (id, body) => {
+    writes.push(body);
+    return {ok: !fail, json: async () => fail ? {detail: 'Save rejected'} : {
+      id, assignee_user_ids: body.assignee_user_ids,
+      assignees: users.filter(user => body.assignee_user_ids.includes(user.id)),
+    }};
+  },
+};
+vm.createContext(context);
+vm.runInContext(fs.readFileSync('static/board/board.js', 'utf8'), context);
+const board = context._createBoard();
+board.currentBoardRole = 'owner';
+board.selectedTask = {id: 7, assignee_user_ids: [1], assignees: [users[0]]};
+board.assigneePickerOpen = true;
+board.boardMembers = users.map(user => ({...user, user_id: user.id, is_active: true}));
+board.renderTaskModal = () => {};
+board._syncTaskInStages = () => {};
+(async () => {
+  await board.updateAssignee(2, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(writes[0])), {assignee_user_ids: [1, 2]});
+  assert.equal(board.assigneePickerOpen, true);
+  assert.equal(board.assigneeSaving, false);
+  fail = true;
+  await board.updateAssignee(1, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(board.selectedTask.assignee_user_ids)), [1, 2]);
+  assert.equal(board.assigneeError, 'Save rejected');
+  assert(board.assigneePickerHtml(board.selectedTask).includes('role="alert"'));
+  fail = false;
+  await board.updateAssignee(1, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(board.selectedTask.assignee_user_ids)), [2]);
+  await board.updateAssignee(2, false);
+  assert.equal(board.taskAssigneeIds(board.selectedTask).length, 0);
+  board.currentBoardRole = 'viewer';
+  assert(/data-action="modal-toggle-assignees" disabled/.test(board.assigneePickerHtml(board.selectedTask)));
+  await board.updateAssignee(1, true);
+  assert.equal(writes.length, 4);
+})().catch(error => {console.error(error); process.exitCode = 1;});
+""")
+
+
 def test_single_deadline_control_and_combined_picker_respect_viewer_permissions():
     script = """
 const assert = require('node:assert/strict');

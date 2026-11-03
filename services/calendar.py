@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session, contains_eager
 
 import models
 from authz import get_accessible_boards, require_board_access
-from services.tasks import deadline_datetime, normalize_due_date
+from services.tasks import deadline_datetime, normalize_due_date, task_assigned_to
 
 log = logging.getLogger("questline.calendar")
 TOKEN_PREFIX = "qlcal_"
@@ -167,7 +167,7 @@ def render_calendar(feed: models.CalendarFeed, db: Session, base_url: str) -> by
         models.Task.due_date != "",
     )
     if feed.assigned_only:
-        query = query.filter(models.Task.assignee_user_id == feed.user_id)
+        query = query.filter(task_assigned_to(feed.user_id))
     if not feed.all_stages:
         query = query.filter(models.Task.stage_id.in_([stage.id for stage in feed.stages]))
 

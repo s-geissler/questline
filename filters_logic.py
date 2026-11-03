@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 import models
 from authz import get_accessible_boards, require_board_access, _require_task_type_in_board
+from services.tasks import task_assignees, task_assigned_to, task_has_assignees
 
 logger = logging.getLogger("questline.logs")
 SLOW_LOG_STAGE_MS = 150.0
@@ -23,6 +24,7 @@ def _task_detail_load_options():
         .joinedload(models.Task.stage)
         .joinedload(models.Stage.board),
         joinedload(models.Task.assignee),
+        selectinload(models.Task.assignees),
         selectinload(models.Task.custom_field_values),
         selectinload(models.Task.checklist_items),
         selectinload(models.Task.attachments),
@@ -165,7 +167,7 @@ def _task_field_value(task: models.Task, field: str):
     if field == "task_type_id":
         return task.task_type_id
     if field == "assignee_user_id":
-        return task.assignee_user_id
+        return [user.id for user in task_assignees(task)]
     if field == "has_parent_task":
         return bool(task.parent_task_id)
     if field.startswith("custom:"):
@@ -193,6 +195,16 @@ def _rule_matches(task: models.Task, rule: dict, current_user: Optional[models.U
 
     if expected == "today":
         expected = date.today().isoformat()
+
+    if rule["field"] == "assignee_user_id":
+        if operator == "empty":
+            return not value
+        if operator == "not_empty":
+            return bool(value)
+        if operator in {"eq", "neq"}:
+            matches = expected is not None and str(expected) in {str(user_id) for user_id in value}
+            return matches if operator == "eq" else not matches
+        return False
 
     if rule["field"] in {"done", "has_parent_task"}:
         if isinstance(expected, str):
@@ -273,17 +285,17 @@ def _prefilter_log_query(query, definition: dict, current_user: Optional[models.
                     query = query.filter(or_(models.Task.task_type_id.is_(None), models.Task.task_type_id != expected))
         elif field == "assignee_user_id":
             if operator == "empty":
-                query = query.filter(models.Task.assignee_user_id.is_(None))
+                query = query.filter(~task_has_assignees())
             elif operator == "not_empty":
-                query = query.filter(models.Task.assignee_user_id.is_not(None))
+                query = query.filter(task_has_assignees())
             elif operator in {"eq", "neq"} and value not in {None, ""}:
                 expected = _resolve_dynamic_filter_value(value, current_user)
                 if expected is None:
                     query = query.filter(models.Task.id == -1)
                 elif operator == "eq":
-                    query = query.filter(models.Task.assignee_user_id == expected)
+                    query = query.filter(task_assigned_to(expected))
                 else:
-                    query = query.filter(or_(models.Task.assignee_user_id.is_(None), models.Task.assignee_user_id != expected))
+                    query = query.filter(~task_assigned_to(expected))
         elif field == "has_parent_task" and operator in {"eq", "neq"}:
             expected = value if isinstance(value, bool) else str(value).lower() == "true"
             condition = models.Task.parent_task_id.is_not(None) if expected else models.Task.parent_task_id.is_(None)
