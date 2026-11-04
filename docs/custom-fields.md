@@ -47,6 +47,15 @@ Custom fields can be used as filter conditions in Saved Filters. The filter rule
 
 When a Task Type filter is active on a Log Stage or Saved Filter, custom field rules are validated to ensure the referenced field belongs to the selected task type. Dropdown fields use equality-style operators in the UI, while text, number, and date fields can also use ordered comparisons where applicable.
 
+The filter editor also has a **Sort order** section. Add one or more fields,
+choose ascending or descending, and use the arrow buttons to change their
+precedence. For example, sort by Due Date, then by `Issue: Priority`. A dropdown
+Priority field uses the option order configured on its Objective type, such as
+High → Medium → Low; descending reverses that order. Empty values always sort
+last. Fields with the same name on different Objective types are separate fields.
+Sorting rules only affect the log view, and removing all rules restores its
+original newest-first order. Sorted logs refresh after task fields are edited.
+
 ## API
 
 See [api.md — Task Types](api.md#task-types) for the full CRUD endpoints.

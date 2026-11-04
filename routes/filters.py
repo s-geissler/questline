@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 import models
 from authz import _authorize_board_request, _board_id_for_saved_filter
-from filters_logic import _validated_filter_definition, saved_filter_to_dict
+from filters_logic import _validated_filter_definition, parse_filter_definition, saved_filter_to_dict
 from routes._deps import get_db
 
 router = APIRouter(prefix="/api/filters", tags=["filters"])
@@ -75,13 +75,17 @@ def update_saved_filter(filter_id: int, data: SavedFilterUpdate, db: Session = D
     saved_filter = db.query(models.SavedFilter).filter(models.SavedFilter.id == filter_id).first()
     if not saved_filter:
         raise HTTPException(status_code=404, detail="Saved filter not found")
-    if data.name is not None:
-        saved_filter.name = data.name
     if "definition" in data.model_fields_set:
         _validate_filter_definition_size(data.definition)
+        definition = dict(data.definition or {})
+        # Older clients do not send sort_rules. Only an explicit [] clears them.
+        if "sort_rules" not in definition:
+            definition["sort_rules"] = parse_filter_definition(saved_filter.definition)["sort_rules"]
         saved_filter.definition = json.dumps(
-            _validated_filter_definition(data.definition, saved_filter.board_id, db, current_user)
+            _validated_filter_definition(definition, saved_filter.board_id, db, current_user)
         )
+    if data.name is not None:
+        saved_filter.name = data.name
     db.commit()
     db.refresh(saved_filter)
     return saved_filter_to_dict(saved_filter)

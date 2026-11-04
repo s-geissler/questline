@@ -895,11 +895,45 @@ Create a saved filter. Requires `editor`.
 
 See [custom-fields.md](custom-fields.md) for available filter operators.
 
+An optional `definition.sort_rules` array sets the display order in Log Stages:
+
+```json
+{
+  "sort_rules": [
+    { "field": "due_date", "direction": "asc" },
+    { "field": "custom:7", "direction": "asc" }
+  ]
+}
+```
+
+Rules are applied in order: the first is primary, later rules break ties. Up to
+10 distinct fields are allowed, with `asc` or `desc` directions. Available fields
+are `title`, `description`, `due_date`, `created_at`, `updated_at`, `done`,
+`task_type_id` (Objective type name), `assignee_user_id` (assignee names), `color`,
+`has_parent_task`, and `custom:<field_id>`. Custom fields must belong to this Hub
+and, when set, the selected Objective type.
+
+Text sorts without case sensitivity, numbers sort numerically, and dropdowns
+follow their configured option order (reversed for `desc`). Dates sort
+chronologically. Due dates include optional times, retaining the existing
+date-only-before-timed ordering on the same day; timed deadlines use their UTC
+instant to break ties within that day. Empty, invalid, or removed-option values
+are always last in either direction. Equal values retain the previous
+newest-first order. A deleted custom sort field is ignored when displaying logs.
+
+Without sorting rules, logs retain their existing newest-first order. Sorting
+never changes the positions of tasks in their source stages. Existing filters
+need no migration and are not rewritten when read.
+
 ---
 
 ### `PUT /api/filters/{filter_id}`
 
 Update a saved filter. Requires `editor`.
+
+When updating `definition`, omitting `sort_rules` preserves its current sorting
+for compatibility with older clients. Send `sort_rules: []` explicitly to remove
+sorting and restore newest-first order. Renaming a filter preserves its settings.
 
 ---
 

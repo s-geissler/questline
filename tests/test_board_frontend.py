@@ -17,6 +17,36 @@ def run_board_js(script: str):
     assert result.returncode == 0, result.stderr
 
 
+def test_sorted_log_refresh_ignores_stale_responses_and_leaves_source_stages_alone():
+    run_board_js("""
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const requests = [];
+const context = {document: {addEventListener() {}},
+  apiGetStages: () => new Promise(resolve => requests.push(resolve))};
+vm.createContext(context);
+vm.runInContext(fs.readFileSync('static/board/board.js', 'utf8'), context);
+const board = context._createBoard();
+board.renderBoardSurface = () => {};
+board.stages = [{id: 1, tasks: [{id: 1}, {id: 2}]}];
+(async () => {
+  await board.refreshSortedLogStages();
+  assert.equal(requests.length, 0);
+  board.stages.push({id: 2, is_log: true, tasks: [{id: 1}, {id: 2}], saved_filter: {
+    definition: {sort_rules: [{field: 'title', direction: 'asc'}]}}});
+  board.stages.push({id: 3, is_log: true, tasks: [{id: 2}, {id: 1}]});
+  const old = board.refreshSortedLogStages();
+  const current = board.refreshSortedLogStages();
+  requests[1]([{id: 1, tasks: [{id: 2}, {id: 1}]}, {id: 2, tasks: [{id: 2}, {id: 1}]}, {id: 3, tasks: []}]);
+  await current;
+  requests[0]([{id: 2, tasks: [{id: 1}, {id: 2}]}]);
+  await old;
+  assert.deepEqual(JSON.parse(JSON.stringify(board.stages.map(stage => stage.tasks.map(task => task.id)))), [[1, 2], [2, 1], [2, 1]]);
+})().catch(error => {console.error(error); process.exitCode = 1;});
+""")
+
+
 def test_history_escapes_user_content_and_uses_absolute_local_timestamps():
     run_board_js("""
 const assert = require('node:assert/strict');

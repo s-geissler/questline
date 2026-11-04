@@ -23,6 +23,7 @@ Questline includes several advanced features to help you manage complex workflow
 *   **Customizable Hubs**: Create multiple workspaces and define your own Stages to match your specific process.
 *   **Objective Types and Templates**: Set up blueprints for different kinds of work to ensure that every objective has the right metadata and default settings.
 *   **Flexible Custom Fields**: Extend your objectives by adding specialized data fields like text, numbers, dates, or dropdown menus based on the objective type.
+*   **Sorted Log Stages**: Add sorting rules to a saved filter, such as Due Date then Priority, with ascending or descending order for each field. Filters without sorting rules retain their newest-first ordering.
 *   **Automation Engine**: Create rules that automatically perform actions based on specific triggers. For example, you can set a rule to move an objective to a specific Stage whenever it is marked as completed.
 *   **Checklist Spawning**: Break down Quests into smaller objectives using checklists. Checklist items can be converted into standalone objectives that remain linked to their parent Quest.
 *   **Shared Assignments**: Assign an objective to multiple Hub members through a checkbox dropdown. Cards show compact initials pills; hover to see full names. Assignment filters, reminders, recurring objectives, and calendar subscriptions recognize every assignee.

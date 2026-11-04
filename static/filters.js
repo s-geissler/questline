@@ -43,6 +43,8 @@ class FiltersPageController {
     this.taskTypes = [];
     this.editingFilter = null;
     this.nextRuleUid = 1;
+    this.saveError = '';
+    this.saving = false;
     this.editorContainer = root.querySelector('#filters-editor-container');
     this.listContainer = root.querySelector('#filters-list-container');
     this.emptyState = root.querySelector('#filters-empty-state');
@@ -108,6 +110,24 @@ class FiltersPageController {
 
   get customFieldTaskTypes() {
     return this.taskTypes.filter(taskType => (taskType.custom_fields || []).length > 0);
+  }
+
+  get availableSortFields() {
+    return [
+      {key: 'due_date', label: 'Due Date'},
+      {key: 'title', label: 'Title'},
+      {key: 'created_at', label: 'Created'},
+      {key: 'updated_at', label: 'Last Updated'},
+      {key: 'done', label: 'Status'},
+      {key: 'task_type_id', label: 'Objective Type'},
+      {key: 'assignee_user_id', label: 'Assigned To'},
+      {key: 'description', label: 'Description'},
+      {key: 'color', label: 'Color'},
+      {key: 'has_parent_task', label: 'Has Quest'},
+      ...this.taskTypes.flatMap(type => (type.custom_fields || []).map(field => ({
+        key: `custom:${field.id}`, label: `${type.name}: ${field.name}`,
+      }))),
+    ];
   }
 
   editorTitle() {
@@ -331,6 +351,9 @@ class FiltersPageController {
     if (['status', 'boolean', 'dropdown', 'task_type', 'assignee', 'color'].includes(field.type) && normalized.value !== '' && normalized.value !== null) {
       normalized.value = String(normalized.value);
     }
+    if (['status', 'boolean'].includes(field.type) && ['true', 'false'].includes(String(normalized.value).toLowerCase())) {
+      normalized.value = String(normalized.value).toLowerCase() === 'true' ? 'True' : 'False';
+    }
     const validOperators = this.operatorsForType(field.type || 'text').map(entry => entry.value);
     if (!validOperators.includes(normalized.operator)) {
       normalized.operator = validOperators[0];
@@ -350,6 +373,7 @@ class FiltersPageController {
         selected_task_type_id: null,
         source_board_ids: [this.boardId],
         rules: [],
+        sort_rules: [],
       },
     };
   }
@@ -410,7 +434,8 @@ class FiltersPageController {
   }
 
   startCreate() {
-    if (!this.canEdit) return;
+    if (!this.canEdit || this.saving) return;
+    this.saveError = '';
     this.editingFilter = this.blankFilter();
     this.render();
   }
@@ -420,9 +445,11 @@ class FiltersPageController {
     const savedFilter = this.filters.find(entry => entry.id === savedFilterId);
     if (!savedFilter) return;
     this.editingFilter = JSON.parse(JSON.stringify(savedFilter));
+    this.saveError = '';
     const sourceBoardIds = this.editingFilter.definition.source_board_ids || [];
     this.editingFilter.definition.source_board_ids = (sourceBoardIds.length ? sourceBoardIds : [this.boardId]).map(id => String(id));
     this.editingFilter.definition.rules = (this.editingFilter.definition.rules || []).map(rule => this.normalizeRule(rule));
+    this.editingFilter.definition.sort_rules ||= [];
     this.render();
   }
 
@@ -434,7 +461,7 @@ class FiltersPageController {
   normalizedDefinition() {
     return {
       op: this.editingFilter.definition.op,
-      selected_task_type_id: null,
+      selected_task_type_id: this.editingFilter.definition.selected_task_type_id ?? null,
       source_board_ids: (this.editingFilter.definition.source_board_ids || [])
         .map(id => parseInt(id, 10))
         .filter(id => !Number.isNaN(id)),
@@ -443,32 +470,39 @@ class FiltersPageController {
         operator: rule.operator,
         value: this.operatorWithoutValue(rule.operator) ? null : rule.value,
       })),
+      sort_rules: (this.editingFilter.definition.sort_rules || []).map(rule => ({field: rule.field, direction: rule.direction})),
     };
   }
 
   async saveFilter() {
-    if (!this.canEdit) return;
+    if (!this.canEdit || this.saving) return;
     if (!this.editingFilter.name.trim()) return;
     const payload = {
       name: this.editingFilter.name.trim(),
       definition: this.normalizedDefinition(),
     };
-    if (this.editingFilter.id) {
-      await fetch(`/api/filters/${this.editingFilter.id}`, {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload),
-      });
-    } else {
-      await fetch('/api/filters', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({...payload, board_id: this.boardId}),
-      });
-    }
-    this.editingFilter = null;
-    await this.load();
+    this.saving = true;
+    this.saveError = '';
     this.render();
+    try {
+      const id = this.editingFilter.id;
+      const response = await fetch(id ? `/api/filters/${id}` : '/api/filters', {
+        method: id ? 'PUT' : 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(id ? payload : {...payload, board_id: this.boardId}),
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(typeof error.detail === 'string' ? error.detail : 'Could not save filter.');
+      }
+      this.editingFilter = null;
+      await this.load();
+    } catch (error) {
+      this.saveError = error.message || 'Could not save filter.';
+    } finally {
+      this.saving = false;
+      this.render();
+    }
   }
 
   async deleteFilter(savedFilterId) {
@@ -492,7 +526,28 @@ class FiltersPageController {
     parts.push(`Hubs: ${(sourceNames.length ? sourceNames : [this.boards.find(board => String(board.id) === String(this.boardId))?.name || 'Current hub']).join(', ')}`);
     parts.push(`${ruleCount} rule${ruleCount === 1 ? '' : 's'}`);
     parts.push(definition.op?.toUpperCase() || 'AND');
+    if (definition.sort_rules?.length) {
+      parts.push('Sort: ' + definition.sort_rules.map(rule => `${this.sortFieldLabel(rule.field)} ${rule.direction === 'desc' ? '↓' : '↑'}`).join(', then '));
+    }
     return parts.join(' • ');
+  }
+
+  sortFieldLabel(key) {
+    return this.availableSortFields.find(field => field.key === key)?.label || 'Unavailable field';
+  }
+
+  addSortRule() {
+    const rules = this.editingFilter.definition.sort_rules;
+    if (rules.length >= 10) return;
+    const field = this.availableSortFields.find(field => !rules.some(rule => rule.field === field.key));
+    if (field) rules.push({field: field.key, direction: 'asc'});
+  }
+
+  moveSortRule(index, offset) {
+    const rules = this.editingFilter.definition.sort_rules;
+    const target = index + offset;
+    if (target < 0 || target >= rules.length) return;
+    [rules[index], rules[target]] = [rules[target], rules[index]];
   }
 
   ruleByUid(uid) {
@@ -535,9 +590,11 @@ class FiltersPageController {
         ${this.renderEditorHeader()}
         ${this.renderSourceBoards()}
         ${this.renderRules()}
+        ${this.renderSortRules()}
+        ${this.saveError ? `<p class="text-sm text-red-600 mt-3" role="alert">${escapeHtml(this.saveError)}</p>` : ''}
         <div class="flex justify-end gap-2 border-t pt-4 mt-5">
           <button type="button" data-action="cancel-edit" class="text-gray-500 hover:text-gray-700 px-4 py-2 text-sm">Cancel</button>
-          <button type="button" data-action="save-filter" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">Save Filter</button>
+          <button type="button" data-action="save-filter" ${renderDisabled(this.saving)} class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">${this.saving ? 'Saving…' : 'Save Filter'}</button>
         </div>
       </div>
     `;
@@ -612,6 +669,42 @@ class FiltersPageController {
         </div>
       </div>
     `;
+  }
+
+  renderSortRules() {
+    const rules = this.editingFilter.definition.sort_rules || [];
+    const markup = rules.map((rule, index) => {
+      const fields = this.availableSortFields.map(field => `<option value="${escapeHtml(field.key)}"${renderSelected(rule.field, field.key)}${renderDisabled(rules.some((other, otherIndex) => otherIndex !== index && other.field === field.key))}>${escapeHtml(field.label)}</option>`).join('');
+      const unavailable = !this.availableSortFields.some(field => field.key === rule.field)
+        ? `<option value="${escapeHtml(rule.field)}" selected>Unavailable field</option>` : '';
+      return `<div class="bg-gray-50 rounded-xl p-3 border" data-sort-rule="${index}">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+          <div>
+            <label for="filter-sort-field-${index}" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">${index === 0 ? 'Sort by' : 'Then by'}</label>
+            <select id="filter-sort-field-${index}" data-field="sort-field" data-sort-index="${index}" aria-label="Sort field ${index + 1}" class="w-full border rounded-lg px-3 py-2 text-sm">${unavailable}${fields}</select>
+          </div>
+          <div>
+            <label for="filter-sort-direction-${index}" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Direction</label>
+            <select id="filter-sort-direction-${index}" data-field="sort-direction" data-sort-index="${index}" aria-label="Sort direction ${index + 1}" class="w-full border rounded-lg px-3 py-2 text-sm">
+              <option value="asc"${renderSelected(rule.direction, 'asc')}>Ascending</option>
+              <option value="desc"${renderSelected(rule.direction, 'desc')}>Descending</option>
+            </select>
+          </div>
+          <div class="flex items-center gap-2">
+            <button type="button" data-action="move-sort-up" data-sort-index="${index}" aria-label="Move sort rule ${index + 1} up"${renderDisabled(index === 0)} class="border rounded-lg px-3 py-2 text-sm">↑</button>
+            <button type="button" data-action="move-sort-down" data-sort-index="${index}" aria-label="Move sort rule ${index + 1} down"${renderDisabled(index === rules.length - 1)} class="border rounded-lg px-3 py-2 text-sm">↓</button>
+            <button type="button" data-action="remove-sort" data-sort-index="${index}" class="text-gray-400 hover:text-red-500 px-2 py-2 text-sm">Remove</button>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+    return `<section class="border-t pt-4 mt-5" aria-labelledby="filter-sort-heading">
+      <h3 id="filter-sort-heading" class="font-semibold text-gray-700 mb-2">Sort order</h3>
+      <p class="text-xs text-gray-400 mb-3">${rules.length ? 'The first field has priority; later fields break ties. Empty values are always last.' : 'No sorting rules. Logs keep their current order: newest objectives first.'}</p>
+      <div class="space-y-3">${markup}</div>
+      <button type="button" data-action="add-sort"${renderDisabled(rules.length >= 10)} class="text-sm text-blue-600 hover:text-blue-700 font-medium mt-3">+ Add sorting rule</button>
+      ${rules.length ? '<p class="text-xs text-gray-400 mt-2">Dropdowns use the option order set on their Objective type. Descending reverses it.</p>' : ''}
+    </section>`;
   }
 
   renderRuleField(rule) {
@@ -757,6 +850,18 @@ class FiltersPageController {
     const action = actionTarget.dataset.action;
     const filterId = Number.parseInt(actionTarget.dataset.filterId || '', 10);
     const ruleUid = Number.parseInt(actionTarget.dataset.ruleUid || '', 10);
+    if (!this.canEdit || this.saving) return;
+    if (['add-sort', 'remove-sort', 'move-sort-up', 'move-sort-down'].includes(action) && this.editingFilter) {
+      const index = Number.parseInt(actionTarget.dataset.sortIndex || '', 10);
+      if (action === 'add-sort') this.addSortRule();
+      else if (action === 'remove-sort') this.editingFilter.definition.sort_rules.splice(index, 1);
+      else this.moveSortRule(index, action === 'move-sort-up' ? -1 : 1);
+      this.render();
+      const rules = this.editingFilter.definition.sort_rules;
+      const next = action === 'add-sort' ? rules.length - 1 : action === 'move-sort-up' ? index - 1 : action === 'move-sort-down' ? index + 1 : Math.min(index, rules.length - 1);
+      this.root.querySelector(next < 0 ? '[data-action="add-sort"]' : `[data-field="sort-field"][data-sort-index="${next}"]`)?.focus?.();
+      return;
+    }
 
     if (action === 'add-rule') {
       this.addRule();
@@ -801,7 +906,7 @@ class FiltersPageController {
   }
 
   handleInput(event) {
-    if (!this.editingFilter) return;
+    if (!this.editingFilter || !this.canEdit || this.saving) return;
     const field = event.target.dataset.field;
     if (field === 'filter-name') {
       this.editingFilter.name = event.target.value;
@@ -819,6 +924,14 @@ class FiltersPageController {
     const field = event.target.dataset.field;
     if (!field) return;
     if (!this.editingFilter && field !== 'source-board') return;
+    if (!this.canEdit || this.saving) return;
+    if (field === 'sort-field' || field === 'sort-direction') {
+      const rule = this.editingFilter.definition.sort_rules[Number(event.target.dataset.sortIndex)];
+      if (rule) rule[field === 'sort-field' ? 'field' : 'direction'] = event.target.value;
+      this.render();
+      this.root.querySelector(`[data-field="${field}"][data-sort-index="${event.target.dataset.sortIndex}"]`)?.focus?.();
+      return;
+    }
 
     if (field === 'filter-op') {
       this.editingFilter.definition.op = event.target.value;

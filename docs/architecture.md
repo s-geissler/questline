@@ -55,6 +55,8 @@ lists  [= Stages]
 
 saved_filters
   id, name, board_id → boards, definition (JSON)
+  definition.sort_rules optionally stores ordered field/direction pairs for logs.
+  An absent or empty list retains newest-first ordering; no schema migration.
 
 task_types
   id, name, board_id → boards, color, is_epic, spawn_list_id → lists,

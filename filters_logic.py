@@ -1,7 +1,9 @@
 import json
 import logging
+import re
 import time
-from datetime import date
+from datetime import UTC, date, datetime
+from decimal import Decimal, InvalidOperation
 from typing import Optional
 
 from fastapi import HTTPException
@@ -10,10 +12,27 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 import models
 from authz import get_accessible_boards, require_board_access, _require_task_type_in_board
-from services.tasks import task_assignees, task_assigned_to, task_has_assignees
+from services.tasks import deadline_datetime, normalize_due_date, task_assignees, task_assigned_to, task_has_assignees
 
 logger = logging.getLogger("questline.logs")
 SLOW_LOG_STAGE_MS = 150.0
+MAX_SORT_RULES = 10
+SORT_FIELDS = {
+    "title", "description", "due_date", "created_at", "updated_at", "done",
+    "task_type_id", "assignee_user_id", "color", "has_parent_task",
+}
+
+
+def _valid_sort_rule(rule) -> bool:
+    if not isinstance(rule, dict) or not isinstance(rule.get("field"), str):
+        return False
+    if not isinstance(rule.get("direction"), str) or rule["direction"] not in {"asc", "desc"}:
+        return False
+    field = rule["field"]
+    return field in SORT_FIELDS or (
+        re.fullmatch(r"custom:[1-9][0-9]{0,18}", field) is not None
+        and int(field.split(":", 1)[1]) <= 2**63 - 1
+    )
 
 
 def _task_detail_load_options():
@@ -33,7 +52,7 @@ def _task_detail_load_options():
 
 
 def default_filter_definition():
-    return {"op": "and", "selected_task_type_id": None, "source_board_ids": [], "rules": []}
+    return {"op": "and", "selected_task_type_id": None, "source_board_ids": [], "rules": [], "sort_rules": []}
 
 
 def parse_filter_definition(definition: str | None) -> dict:
@@ -64,6 +83,12 @@ def parse_filter_definition(definition: str | None) -> dict:
         for rule in rules
         if isinstance(rule, dict) and rule.get("field") and rule.get("operator")
     ]
+    sort_rules = raw.get("sort_rules")
+    if isinstance(sort_rules, list):
+        parsed["sort_rules"] = [
+            {"field": rule["field"], "direction": rule["direction"]}
+            for rule in sort_rules[:MAX_SORT_RULES] if _valid_sort_rule(rule)
+        ]
     return parsed
 
 
@@ -74,6 +99,23 @@ def _validated_filter_definition(
     user: Optional[models.User] = None,
 ) -> dict:
     parsed = parse_filter_definition(json.dumps(definition or default_filter_definition()))
+    sort_rules = (definition or {}).get("sort_rules", [])
+    if not isinstance(sort_rules, list) or len(sort_rules) > MAX_SORT_RULES:
+        raise HTTPException(status_code=400, detail=f"Provide at most {MAX_SORT_RULES} sorting rules")
+    seen_sort_fields = set()
+    for rule in sort_rules:
+        if not _valid_sort_rule(rule):
+            raise HTTPException(status_code=400, detail="Invalid sorting rule")
+        if rule["field"] in seen_sort_fields:
+            raise HTTPException(status_code=400, detail="A sort field can only be used once")
+        seen_sort_fields.add(rule["field"])
+        if rule["field"].startswith("custom:"):
+            field_id = int(rule["field"].split(":", 1)[1])
+            field_def = db.get(models.CustomFieldDef, field_id)
+            if not field_def or not field_def.task_type or field_def.task_type.board_id != owning_board_id:
+                raise HTTPException(status_code=400, detail="Invalid custom sort field")
+            if parsed["selected_task_type_id"] is not None and field_def.task_type_id != parsed["selected_task_type_id"]:
+                raise HTTPException(status_code=400, detail="Custom sort field does not match selected type")
     if parsed["selected_task_type_id"] is not None:
         _require_task_type_in_board(parsed["selected_task_type_id"], owning_board_id, db)
 
@@ -304,6 +346,82 @@ def _prefilter_log_query(query, definition: dict, current_user: Optional[models.
     return query
 
 
+def _sort_value(task: models.Task, field: str, custom_fields: dict):
+    if field == "due_date":
+        try:
+            day = normalize_due_date(task.due_date)
+            if day is None:
+                return None
+            instant = deadline_datetime(task.due_date, task.due_time, task.due_timezone)
+            return (day, instant is not None, instant or datetime.min.replace(tzinfo=UTC))
+        except ValueError:
+            return None
+    if field in {"created_at", "updated_at"}:
+        value = getattr(task, field)
+        return value.replace(tzinfo=UTC) if value and value.tzinfo is None else value
+    if field == "task_type_id":
+        return task.task_type.name.casefold() if task.task_type else None
+    if field == "assignee_user_id":
+        names = sorted((user.display_name or user.email).casefold() for user in task_assignees(task))
+        return tuple(names) if names else None
+    value = _task_field_value(task, field)
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    if field.startswith("custom:"):
+        field_def = custom_fields.get(int(field.split(":", 1)[1]))
+        if field_def is None:
+            return None  # A deleted field must not prevent an existing filter from loading.
+        if field_def.field_type == "number":
+            try:
+                number = Decimal(value)
+                return number if number.is_finite() else None
+            except (InvalidOperation, ValueError):
+                return None
+        if field_def.field_type == "date":
+            try:
+                return normalize_due_date(value)
+            except ValueError:
+                return None
+        if field_def.field_type == "dropdown":
+            try:
+                options = json.loads(field_def.options or "[]")
+            except (TypeError, ValueError):
+                return None
+            if not isinstance(options, list):
+                return None
+            labels = [
+                option.get("label", option.get("value")) if isinstance(option, dict) else option
+                for option in options
+            ]
+            return labels.index(value) if value in labels else None
+    return value.strip().casefold() if isinstance(value, str) else value
+
+
+def _sort_log_tasks(tasks: list, sort_rules: list, db: Session) -> list:
+    if not sort_rules:
+        return tasks
+    field_ids = [
+        int(rule["field"].split(":", 1)[1])
+        for rule in sort_rules if rule["field"].startswith("custom:")
+    ]
+    custom_fields = {
+        field.id: field
+        for field in db.query(models.CustomFieldDef).filter(models.CustomFieldDef.id.in_(field_ids)).all()
+    } if field_ids else {}
+    # Stable sorts preserve the existing newest-first order when all keys tie.
+    for rule in reversed(sort_rules):
+        present, missing = [], []
+        for task in tasks:
+            value = _sort_value(task, rule["field"], custom_fields)
+            if value is None:
+                missing.append(task)
+            else:
+                present.append((value, task))
+        present.sort(key=lambda item: item[0], reverse=rule["direction"] == "desc")
+        tasks = [task for _, task in present] + missing
+    return tasks
+
+
 def get_stage_tasks(stage: models.Stage, db: Session, current_user: Optional[models.User] = None):
     if not stage.is_log:
         return (
@@ -335,6 +453,7 @@ def get_stage_tasks(stage: models.Stage, db: Session, current_user: Optional[mod
     )
     query = _prefilter_log_query(query, definition, current_user)
     tasks = [task for task in query.all() if _task_matches_filter(task, definition, current_user)]
+    tasks = _sort_log_tasks(tasks, definition["sort_rules"], db)
     elapsed_ms = (time.perf_counter() - started) * 1000
     if elapsed_ms >= SLOW_LOG_STAGE_MS:
         logger.warning("slow_log_stage %.1fms stage_id=%s source_boards=%s matched=%s", elapsed_ms, stage.id, source_board_ids, len(tasks))

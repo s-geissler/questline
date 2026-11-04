@@ -25,6 +25,7 @@ function _createBoard() {
     boards: [],
     stages: [],
     _stagesLoaded: false,
+    _sortedLogRequestId: 0,
     collapsedStageIds: new Set(),
     taskTypes: [],
     savedFilters: [],
@@ -436,6 +437,7 @@ function _createBoard() {
     },
 
     async loadStages() {
+      this._sortedLogRequestId += 1;
       this.stages = (await apiGetStages(this.boardId)).map(stage => ({
         ...stage,
         row: Number.isInteger(stage.row) ? stage.row : 0,
@@ -4121,8 +4123,30 @@ function _createBoard() {
         tasks.splice(idx, 1, nextTask);
         return {...stage, tasks};
       });
-      if (!changed) return;
-      this.renderBoardSurface();
+      if (changed) this.renderBoardSurface();
+      this.refreshSortedLogStages();
+    },
+
+    async refreshSortedLogStages() {
+      const sortedLogs = this.stages.filter(stage => stage.is_log && stage.saved_filter?.definition?.sort_rules?.length);
+      if (!sortedLogs.length) return;
+      const requestId = ++this._sortedLogRequestId;
+      try {
+        const stages = await apiGetStages(this.boardId);
+        if (requestId !== this._sortedLogRequestId || !Array.isArray(stages)) return;
+        const byId = new Map(stages.map(stage => [stage.id, stage]));
+        let changed = false;
+        this.stages = this.stages.map(stage => {
+          if (!sortedLogs.some(log => log.id === stage.id)) return stage;
+          const fresh = byId.get(stage.id);
+          if (!fresh) return stage;
+          if (stage.tasks.map(task => task.id).join(',') !== fresh.tasks.map(task => task.id).join(',')) changed = true;
+          return {...stage, tasks: fresh.tasks.map(task => this._decorateTask(task))};
+        });
+        if (changed) this.renderBoardSurface();
+      } catch (error) {
+        console.warn('Could not refresh sorted logs', error);
+      }
     },
 
     _findTaskInStages(taskId) {
