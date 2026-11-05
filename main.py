@@ -304,6 +304,7 @@ def _run_column_migrations():
         ("task_types",       "color",   "VARCHAR"),
         ("task_types",       "show_description_on_card", "BOOLEAN"),
         ("task_types",       "show_checklist_on_card", "BOOLEAN"),
+        ("task_types",       "hide_name_on_card", "BOOLEAN NOT NULL DEFAULT 0"),
         ("lists",            "row", "INTEGER"),
         ("lists",            "is_log", "BOOLEAN"),
         ("lists",            "filter_id", "INTEGER REFERENCES saved_filters(id)"),
@@ -803,6 +804,7 @@ def task_to_dict(task: models.Task) -> dict:
             "is_epic": task.task_type.is_epic,
             "show_description_on_card": task.task_type.show_description_on_card,
             "show_checklist_on_card": task.task_type.show_checklist_on_card,
+            "hide_name_on_card": task.task_type.hide_name_on_card,
             "custom_fields": [field_to_dict(f) for f in task.task_type.custom_fields],
         }
     display_color = task.color or (task.task_type.color if task.task_type else None)

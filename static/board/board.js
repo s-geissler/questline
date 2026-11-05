@@ -1459,7 +1459,7 @@ function _createBoard() {
     },
 
     renderTaskCard(task, stage) {
-      const taskTypeBadge = task.task_type ? `<span class="text-xs px-2 py-0.5 rounded font-medium ${this.taskTypeBadgeClass(task.task_type)}">${_escapeBoardHtml(task.task_type.name)}</span>` : '';
+      const taskTypeBadge = task.task_type && !task.task_type.hide_name_on_card ? `<span class="text-xs px-2 py-0.5 rounded font-medium ${this.taskTypeBadgeClass(task.task_type)}">${_escapeBoardHtml(task.task_type.name)}</span>` : '';
       const parentBadge = task.parent_task ? `<span class="text-xs px-2 py-0.5 rounded font-medium bg-violet-100 text-violet-700">${_escapeBoardHtml(task.parent_task.title)}</span>` : '';
       const assigneeBadge = this.taskAssignees(task).map(user => `<span class="task-assignee-pill ${this.assigneeColorClass(user)}" role="img" title="${_escapeBoardHtml(user.display_name || user.email)}" aria-label="Assigned to ${_escapeBoardHtml(user.display_name || user.email)}">${_escapeBoardHtml(this.assigneeInitials(user))}</span>`).join('');
       const recurrenceBadge = task.recurrence ? '<span class="text-xs px-2 py-0.5 rounded font-medium bg-blue-100 text-blue-700">↻ Recurring</span>' : '';
@@ -2274,7 +2274,7 @@ function _createBoard() {
           </div>
           <div class="mt-1.5 flex items-center gap-1.5 flex-wrap">
             ${entry.due_time ? `<span class="text-[11px] font-medium">${_escapeBoardHtml(this.deadlineTimeLabel(entry))}</span>` : ''}
-            ${entry.task_type ? `<span class="text-[11px] px-1.5 py-0.5 rounded font-medium ${this.taskTypeBadgeClass(entry.task_type)}">${_escapeBoardHtml(entry.task_type.name)}</span>` : ''}
+            ${entry.task_type && !entry.task_type.hide_name_on_card ? `<span class="text-[11px] px-1.5 py-0.5 rounded font-medium ${this.taskTypeBadgeClass(entry.task_type)}">${_escapeBoardHtml(entry.task_type.name)}</span>` : ''}
             <span class="text-[11px] px-1.5 py-0.5 rounded font-medium bg-slate-100 text-slate-600">${_escapeBoardHtml(this.calendarStageLabel(entry))}</span>
             ${entry.is_calendar_preview ? '<span class="text-[11px] text-blue-600 font-medium">Next occurrence</span>' : ''}
           </div>

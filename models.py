@@ -258,6 +258,7 @@ class TaskType(Base):
     is_epic = Column(Boolean, default=False)
     show_description_on_card = Column(Boolean, default=False)
     show_checklist_on_card = Column(Boolean, default=False)
+    hide_name_on_card = Column(Boolean, nullable=False, default=False, server_default="0")
     board_id = Column(Integer, ForeignKey("boards.id"), nullable=True)
     spawn_stage_id = Column("spawn_list_id", Integer, ForeignKey("lists.id", ondelete="SET NULL"), nullable=True)
     board = relationship("Board", back_populates="task_types")

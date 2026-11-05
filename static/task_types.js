@@ -287,6 +287,29 @@ class TaskTypesPageController {
     this.render();
   }
 
+  async setTypeNameHidden(typeId, hidden) {
+    const tt = this.taskTypeById(typeId);
+    if (!tt || !this.canEdit || tt.nameVisibilitySaving) return;
+    tt.nameVisibilitySaving = true;
+    tt.nameVisibilityError = '';
+    this.render();
+    try {
+      const res = await fetch(`/api/task-types/${tt.id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({hide_name_on_card: hidden}),
+      });
+      if (!res.ok) throw new Error('Unable to update type name visibility. Please try again.');
+      const updated = await res.json();
+      tt.hide_name_on_card = updated.hide_name_on_card;
+    } catch {
+      tt.nameVisibilityError = 'Unable to update type name visibility. Please try again.';
+    } finally {
+      tt.nameVisibilitySaving = false;
+      this.render();
+    }
+  }
+
   async setSpawnStage(typeId, value) {
     const tt = this.taskTypeById(typeId);
     if (!tt || !this.canEdit) return;
@@ -585,6 +608,7 @@ class TaskTypesPageController {
     return `
       <div class="bg-white rounded-xl shadow overflow-visible">
         ${this.renderTaskTypeHeader(tt)}
+        ${tt.nameVisibilityError ? `<p class="px-5 py-2 text-sm text-red-600" role="alert">${escapeHtml(tt.nameVisibilityError)}</p>` : ''}
         ${tt.is_epic ? this.renderSpawnConfig(tt) : ''}
         ${this.renderCustomFields(tt)}
       </div>
@@ -603,7 +627,7 @@ class TaskTypesPageController {
     });
 
     return `
-      <div class="flex items-center gap-3 px-5 py-4 border-b">
+      <div class="flex flex-wrap items-center gap-3 px-5 py-4 border-b">
         <div class="relative flex-shrink-0" data-role="color-popover-anchor">
           <button
             type="button"
@@ -633,7 +657,11 @@ class TaskTypesPageController {
           }
           ${tt.is_epic ? '<span class="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-medium">⚡ Quest</span>' : ''}
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2">
+          <label class="flex items-center gap-1.5 text-sm text-gray-500 cursor-pointer">
+            <input type="checkbox" data-field="type-hide-name" data-type-id="${tt.id}" class="h-4 w-4 rounded accent-blue-500"${renderChecked(tt.hide_name_on_card)}${renderDisabled(!this.canEdit || tt.nameVisibilitySaving)}>
+            Hide type name on cards
+          </label>
           <label class="flex items-center gap-1.5 text-sm text-gray-500 cursor-pointer">
             <input type="checkbox" data-field="type-show-description" data-type-id="${tt.id}" class="h-4 w-4 rounded accent-blue-500"${renderChecked(tt.show_description_on_card)}${renderDisabled(!this.canEdit)}>
             Description on card
@@ -848,6 +876,10 @@ class TaskTypesPageController {
     const tt = this.taskTypeById(typeId);
     if (!tt) return;
 
+    if (field === 'type-hide-name') {
+      this.setTypeNameHidden(typeId, event.target.checked);
+      return;
+    }
     if (field === 'type-show-description') {
       this.toggleTypeDescriptionOnCard(typeId);
       return;

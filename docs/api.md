@@ -780,6 +780,7 @@ Returns all task types for a board. Requires `viewer`.
   "is_epic": false,
   "show_description_on_card": false,
   "show_checklist_on_card": false,
+  "hide_name_on_card": false,
   "spawn_stage_id": null,
   "custom_fields": []
 }]
@@ -799,7 +800,8 @@ Create a task type. Requires `editor`.
   "color": "#e74c3c",
   "is_epic": false,
   "show_description_on_card": false,
-  "show_checklist_on_card": false
+  "show_checklist_on_card": false,
+  "hide_name_on_card": false
 }
 ```
 
@@ -817,11 +819,15 @@ Update a task type. Requires `editor`. All fields optional.
   "spawn_stage_id": 4,
   "color": "#9b59b6",
   "show_description_on_card": true,
-  "show_checklist_on_card": true
+  "show_checklist_on_card": true,
+  "hide_name_on_card": true
 }
 ```
 
 `spawn_stage_id` cannot be a Log Stage.
+
+`hide_name_on_card` defaults to `false`. Setting it to `true` hides the type-name
+pill on board and calendar cards. Omitting it from an update preserves its saved value.
 
 If `spawn_stage_id` points at a stage in a different board, the caller must also have `editor` access to that board.
 

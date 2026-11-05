@@ -60,7 +60,7 @@ saved_filters
 
 task_types
   id, name, board_id → boards, color, is_epic, spawn_list_id → lists,
-  show_description_on_card, show_checklist_on_card
+  show_description_on_card, show_checklist_on_card, hide_name_on_card
 
 custom_field_defs
   id, task_type_id → task_types, name, field_type, options (JSON), color, show_on_card

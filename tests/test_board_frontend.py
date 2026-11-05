@@ -874,6 +874,35 @@ const files = [{name: 'one.png', size: 30}, {name: 'two.pdf', size: 40}];
 """)
 
 
+def test_type_name_visibility_controls_board_and_calendar_card_pills():
+    run_board_js("""
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const context = {document: {addEventListener() {}}};
+vm.createContext(context);
+vm.runInContext(fs.readFileSync('static/board/board.js', 'utf8'), context);
+const board = context._createBoard();
+const stage = {id: 1, name: 'Inbox', tasks: []};
+board.stages = [stage];
+const type = {id: 4, name: 'Unique Type Name', color: '#ef4444'};
+const task = {id: 10, title: 'A typed task', stage_id: 1, task_type_id: 4,
+  task_type: type, color: type.color, due_date: '2026-11-05', done: false, checklist: [], custom_field_values: {}};
+for (const hidden of [undefined, false, true]) {
+  type.hide_name_on_card = hidden;
+  const card = board.renderTaskCard(task, stage);
+  const calendarCard = board.renderCalendarEntry(task, '2026-11-05');
+  assert.equal(card.includes(type.name), hidden !== true);
+  assert.equal(calendarCard.includes(type.name), hidden !== true);
+  assert(card.includes('task-border-ef4444'), 'Type color applies when the name is hidden');
+  assert(calendarCard.includes('task-border-ef4444'));
+}
+const untyped = {...task, task_type: null, task_type_id: null};
+assert(!board.renderTaskCard(untyped, stage).includes(type.name));
+assert(!board.renderCalendarEntry(untyped, '2026-11-05').includes(type.name));
+""")
+
+
 def test_task_card_shows_paperclip_only_when_attachments_exist():
     board_js = ROOT / "static" / "board" / "board.js"
     script = f"""

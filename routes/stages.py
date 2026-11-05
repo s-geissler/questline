@@ -107,6 +107,7 @@ def _task_to_dict(task: models.Task) -> dict:
             "is_epic": task.task_type.is_epic,
             "show_description_on_card": task.task_type.show_description_on_card,
             "show_checklist_on_card": task.task_type.show_checklist_on_card,
+            "hide_name_on_card": task.task_type.hide_name_on_card,
             "custom_fields": [field_to_dict(f) for f in task.task_type.custom_fields],
         }
     display_color = task.color or (task.task_type.color if task.task_type else None)

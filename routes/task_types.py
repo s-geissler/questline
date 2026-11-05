@@ -30,6 +30,7 @@ class TaskTypeCreate(BaseModel):
     color: Optional[str] = Field(default=None, max_length=7)
     show_description_on_card: bool = False
     show_checklist_on_card: bool = False
+    hide_name_on_card: bool = False
 
 
 class TaskTypeUpdate(BaseModel):
@@ -39,6 +40,7 @@ class TaskTypeUpdate(BaseModel):
     color: Optional[str] = Field(default=None, max_length=7)
     show_description_on_card: Optional[bool] = None
     show_checklist_on_card: Optional[bool] = None
+    hide_name_on_card: bool = False
 
 
 class CustomFieldCreate(BaseModel):
@@ -104,6 +106,7 @@ def task_type_to_dict(tt: models.TaskType) -> dict:
         "is_epic": tt.is_epic,
         "show_description_on_card": tt.show_description_on_card,
         "show_checklist_on_card": tt.show_checklist_on_card,
+        "hide_name_on_card": tt.hide_name_on_card,
         "spawn_stage_id": tt.spawn_stage_id,
         "custom_fields": [field_to_dict(f) for f in tt.custom_fields],
     }
@@ -126,6 +129,7 @@ def create_task_type(data: TaskTypeCreate, db: Session = Depends(get_db), reques
         color=_validated_optional_hex_color(data.color, "Task type color must be a valid hex color"),
         show_description_on_card=data.show_description_on_card,
         show_checklist_on_card=data.show_checklist_on_card,
+        hide_name_on_card=data.hide_name_on_card,
     )
     db.add(tt)
     db.commit()
@@ -163,6 +167,8 @@ def update_task_type(type_id: int, data: TaskTypeUpdate, db: Session = Depends(g
         tt.show_description_on_card = data.show_description_on_card
     if "show_checklist_on_card" in data.model_fields_set:
         tt.show_checklist_on_card = data.show_checklist_on_card
+    if "hide_name_on_card" in data.model_fields_set:
+        tt.hide_name_on_card = data.hide_name_on_card
     db.commit()
     db.refresh(tt)
     return task_type_to_dict(tt)
