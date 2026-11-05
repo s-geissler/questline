@@ -7,11 +7,13 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 import models
 from authz import (
     API_TOKEN_PREFIX,
+    _normalize_email,
     _utcnow,
     api_token_to_dict,
     ensure_board_membership,
@@ -34,6 +36,13 @@ MAX_PASSWORD_LENGTH = 4096
 MAX_EMAIL_LENGTH = 255
 MAX_DISPLAY_NAME_LENGTH = 120
 MAX_TOKEN_NAME_LENGTH = 80
+
+
+class AdminUserCreate(BaseModel):
+    email: str = Field(max_length=MAX_EMAIL_LENGTH)
+    password: str = Field(max_length=MAX_PASSWORD_LENGTH)
+    display_name: Optional[str] = Field(default=None, max_length=MAX_DISPLAY_NAME_LENGTH)
+    is_active: bool = True
 
 
 class AdminUserUpdate(BaseModel):
@@ -107,6 +116,43 @@ def _list_boards_internal(db: Session):
         }
         for b in boards
     ]
+
+
+@router.post("/users", status_code=201)
+def create_admin_user(data: AdminUserCreate, request: Request, db: Session = Depends(get_db)):
+    current_user = require_admin(request, db)
+    email = _normalize_email(data.email)
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="A valid email is required")
+    if len(data.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    if db.query(models.User).filter(models.User.email == email).first():
+        raise HTTPException(status_code=400, detail="A user with that email already exists")
+    user = models.User(
+        email=email,
+        password_hash=hash_password(data.password),
+        display_name=(data.display_name or "").strip() or email.split("@", 1)[0],
+        role="user",
+        is_active=data.is_active,
+    )
+    db.add(user)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        if db.query(models.User).filter(models.User.email == email).first():
+            raise HTTPException(status_code=400, detail="A user with that email already exists")
+        raise
+    db.refresh(user)
+    _audit_log(
+        "admin_user_created",
+        request=request,
+        actor_user_id=current_user.id,
+        target_user_id=user.id,
+        email=user.email,
+        details={"role": user.role, "is_active": user.is_active},
+    )
+    return user_to_dict(user)
 
 
 @router.get("/users")

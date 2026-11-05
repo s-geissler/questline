@@ -47,8 +47,11 @@ The default behavior is suitable for `systemd` or container deployments where st
 ### Registration
 
 - Open registration can be toggled by an admin via instance settings.
+- When registration is closed, public registration links are hidden and `/register` displays a registration-closed message.
 - The **first registered user** is automatically promoted to `admin`.
+- First-account setup remains available on an empty instance, including when open registration is disabled.
 - New accounts can be set to inactive by default (configurable by admin).
+- Admins can create regular user accounts from **Admin → Users → Create user** or `POST /api/admin/users`, including when open registration is disabled. Admin-created accounts default to active and can explicitly be created inactive. Passwords are provided by the admin and can be changed by the user from their profile.
 
 ## User Roles (Instance-level)
 

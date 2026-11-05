@@ -992,6 +992,28 @@ Delete an automation. Requires `editor`.
 
 All admin endpoints require the `admin` instance role.
 
+### `POST /api/admin/users`
+
+Creates a regular user account, including when public registration is disabled. Returns HTTP 201 with the same user fields as `GET /api/auth/me`.
+
+```json
+{
+  "email": "alice@example.com",
+  "display_name": "Alice",
+  "password": "initial-password",
+  "is_active": true
+}
+```
+
+- Email addresses are trimmed and lowercased. Duplicate addresses return HTTP 400.
+- Passwords require 8–4096 characters.
+- Display name is optional and defaults to the email's local part. Maximum length is 120 characters. Email maximum length is 255 characters.
+- `is_active` defaults to `true`, independently of the public-registration activation setting.
+- New accounts receive the `user` role. Admins can promote them through the existing user update endpoint.
+- The request keeps the admin's session and records an `admin_user_created` audit event.
+
+---
+
 ### `GET /api/admin/users`
 
 Returns all users with hub membership counts.

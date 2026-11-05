@@ -90,7 +90,13 @@ def login_page(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(
         request,
         "login.html",
-        {"board": None, "boards": [], "current_user": None},
+        {
+            "board": None,
+            "boards": [],
+            "current_user": None,
+            "registration_enabled": get_instance_settings(db)["registration_enabled"]
+            or db.query(models.User.id).first() is None,
+        },
     )
 
 
@@ -98,10 +104,19 @@ def login_page(request: Request, db: Session = Depends(get_db)):
 def register_page(request: Request, db: Session = Depends(get_db)):
     if get_optional_current_user(request, db):
         return RedirectResponse(url="/", status_code=303)
+    registration_enabled = (
+        get_instance_settings(db)["registration_enabled"] or db.query(models.User.id).first() is None
+    )
     return templates.TemplateResponse(
         request,
         "register.html",
-        {"board": None, "boards": [], "current_user": None},
+        {
+            "board": None,
+            "boards": [],
+            "current_user": None,
+            "registration_enabled": registration_enabled,
+        },
+        status_code=200 if registration_enabled else 403,
     )
 
 

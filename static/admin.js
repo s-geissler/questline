@@ -14,6 +14,7 @@ function _createAdmin() {
     boards: [],
     settings: {},
     savingSettings: false,
+    creatingUser: false,
     userSearch: '',
     passwordDialogUserId: null,
     savingPasswordForUserId: null,
@@ -137,6 +138,7 @@ function _createAdmin() {
         }
         event.stopPropagation();
         if (action === 'save-settings') { this.saveSettings(); return; }
+        if (action === 'open-create-user-dialog') { this.openCreateUserDialog(); return; }
         if (action === 'select-board-color') {
           this._selectedBoardColor = target.dataset.color;
           this._renderColorSwatches('settings-default-board-color-swatches', this._selectedBoardColor, 'select-board-color', PRESET_COLORS);
@@ -240,6 +242,24 @@ function _createAdmin() {
       document.getElementById('admin-user-search')?.addEventListener('input', event => {
         this.userSearch = event.target.value || '';
         this.renderUsers();
+      });
+
+      document.getElementById('admin-create-user-form')?.addEventListener('submit', event => {
+        event.preventDefault();
+        this.submitCreateUser();
+      });
+
+      document.getElementById('admin-create-user-cancel')?.addEventListener('click', () => {
+        if (!this.creatingUser) document.getElementById('admin-create-user-dialog')?.close();
+      });
+
+      document.getElementById('admin-create-user-dialog')?.addEventListener('cancel', event => {
+        if (this.creatingUser) event.preventDefault();
+      });
+
+      document.getElementById('admin-create-user-dialog')?.addEventListener('close', () => {
+        document.getElementById('admin-create-user-form')?.reset();
+        this.setCreateUserError('');
       });
 
       document.getElementById('admin-password-form')?.addEventListener('submit', event => {
@@ -446,6 +466,72 @@ function _createAdmin() {
           </div>
         `;
       }).join('');
+    },
+
+    openCreateUserDialog() {
+      const dialog = document.getElementById('admin-create-user-dialog');
+      if (!dialog || typeof dialog.showModal !== 'function') return;
+      this.setCreateUserError('');
+      dialog.showModal();
+      document.getElementById('admin-create-user-display-name')?.focus();
+    },
+
+    setCreateUserError(message) {
+      const el = document.getElementById('admin-create-user-error');
+      if (!el) return;
+      el.textContent = message;
+      el.classList.toggle('hidden', !message);
+    },
+
+    setCreateUserSubmitting(value) {
+      this.creatingUser = value;
+      document.getElementById('admin-create-user-form')?.querySelectorAll('input, button').forEach(el => {
+        el.disabled = value;
+      });
+      const button = document.getElementById('admin-create-user-submit');
+      if (button) button.textContent = value ? 'Creating...' : 'Create user';
+    },
+
+    async submitCreateUser() {
+      if (this.creatingUser) return;
+      const form = document.getElementById('admin-create-user-form');
+      if (!form?.reportValidity()) return;
+      const get = id => document.getElementById(id);
+      const password = get('admin-create-user-password').value;
+      if (password !== get('admin-create-user-confirm-password').value) {
+        this.setCreateUserError('Passwords do not match');
+        return;
+      }
+      const payload = {
+        display_name: get('admin-create-user-display-name').value.trim(),
+        email: get('admin-create-user-email').value.trim(),
+        password,
+        is_active: get('admin-create-user-active').checked,
+      };
+      this.setCreateUserError('');
+      this.setCreateUserSubmitting(true);
+      try {
+        const response = await fetch('/api/admin/users', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          this.setCreateUserError(typeof data.detail === 'string' ? data.detail : 'Unable to create user');
+          return;
+        }
+        this.users.push({...data, board_count: 0});
+        this.userSearch = '';
+        const search = get('admin-user-search');
+        if (search) search.value = '';
+        this.renderUsers();
+        get('admin-create-user-dialog').close();
+      } catch {
+        this.setCreateUserError('Unable to create user. Please try again.');
+      } finally {
+        this.setCreateUserSubmitting(false);
+      }
     },
 
     openPasswordDialog(user) {

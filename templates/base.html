@@ -105,7 +105,9 @@
       </div>
       {% else %}
       <a href="/login" class="nav-pill {% if current_path == '/login' %}nav-pill-active{% endif %}">Login</a>
+      {% if registration_enabled %}
       <a href="/register" class="nav-pill {% if current_path == '/register' %}nav-pill-active{% endif %}">Register</a>
+      {% endif %}
       {% endif %}
       <button
         id="theme-toggle"
