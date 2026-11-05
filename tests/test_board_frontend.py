@@ -17,6 +17,107 @@ def run_board_js(script: str):
     assert result.returncode == 0, result.stderr
 
 
+def test_board_view_toggle_renders_all_positions_and_readonly_settings():
+    run_board_js("""
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const context = {document: {addEventListener() {}}, PRESET_COLORS: []};
+vm.createContext(context);
+vm.runInContext(fs.readFileSync('static/board/board.js', 'utf8'), context);
+const board = context._createBoard();
+const classes = new Set();
+board.viewToggleEl = {dataset: {}, innerHTML: '', classList: {
+  toggle(name, enabled) { if (enabled) classes.add(name); else classes.delete(name); }
+}};
+assert.equal(board.viewTogglePosition, 'north-east');
+for (const position of ['north-east', 'south-east', 'hidden', 'north-east']) {
+  board.viewTogglePosition = position;
+  board.renderViewToggle();
+  assert.equal(board.viewToggleEl.dataset.position, position);
+  assert.equal(classes.has('hidden'), position === 'hidden');
+  assert.equal(board.viewToggleEl.innerHTML.includes('data-action="toggle-board-view"'), position !== 'hidden');
+}
+board.settingsModalEl = {innerHTML: ''};
+board.showSettings = true;
+board.currentBoardRole = 'owner';
+board.settingsViewTogglePosition = 'south-east';
+board.renderSettingsModal();
+assert(board.settingsModalEl.innerHTML.includes('<option value="south-east" selected>'));
+assert(board.settingsModalEl.innerHTML.includes('Applies to everyone using this hub.'));
+function select() {
+  return board.settingsModalEl.innerHTML.match(/<select[^>]+data-field="settings-view-toggle-position"[^>]*>/)[0];
+}
+assert(!select().includes('disabled'));
+board.handleSurfaceChange({target: {dataset: {field: 'settings-view-toggle-position'}, value: 'hidden'}});
+assert.equal(board.settingsViewTogglePosition, 'hidden');
+assert.equal(board.viewTogglePosition, 'north-east', 'A draft choice is applied on save');
+board.currentBoardRole = 'viewer';
+board.renderSettingsModal();
+assert(select().includes('disabled'));
+board.handleSurfaceChange({target: {dataset: {field: 'settings-view-toggle-position'}, value: 'south-east'}});
+assert.equal(board.settingsViewTogglePosition, 'hidden');
+""")
+
+
+def test_board_view_toggle_saves_only_on_success_and_can_retry():
+    run_board_js("""
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const requests = [];
+const colors = [];
+const context = {document: {addEventListener() {}},
+  apiUpdateBoard: (id, settings) => new Promise((resolve, reject) => requests.push({id, settings, resolve, reject})),
+  applyBoardColor: color => colors.push(color)};
+vm.createContext(context);
+vm.runInContext(fs.readFileSync('static/board/board.js', 'utf8'), context);
+const board = context._createBoard();
+board.boardId = 42;
+board.currentBoardRole = 'owner';
+board.showSettings = true;
+board.settingsBoardName = 'My hub';
+board.settingsBoardColor = '#ef4444';
+board.settingsViewTogglePosition = 'south-east';
+board.renderSettingsModal = () => {};
+board.renderBoardSurface = () => {};
+(async () => {
+  const failed = board.saveSettings();
+  assert.equal(board.settingsSaving, true);
+  assert.equal(board.viewTogglePosition, 'north-east');
+  await board.saveSettings();
+  assert.equal(requests.length, 1, 'Repeated Save cannot start a second request');
+  requests[0].resolve({ok: false, json: async () => ({detail: 'Denied'})});
+  await failed;
+  assert.equal(board.viewTogglePosition, 'north-east');
+  assert.equal(board.settingsViewTogglePosition, 'south-east');
+  assert.equal(board.showSettings, true);
+  assert.equal(board.settingsSaving, false);
+  assert(board.settingsError.includes('Unable to save'));
+  const network = board.saveSettings();
+  requests[1].reject(new Error('Offline'));
+  await network;
+  assert.equal(board.viewTogglePosition, 'north-east');
+  assert.equal(board.settingsSaving, false);
+  const saved = board.saveSettings();
+  assert.equal(requests[2].id, 42);
+  assert.deepEqual(JSON.parse(JSON.stringify(requests[2].settings)), {
+    name: 'My hub', color: '#ef4444', view_toggle_position: 'south-east'});
+  requests[2].resolve({ok: true, json: async () => ({id: 42,
+    name: 'My hub', color: '#ef4444', view_toggle_position: 'south-east'})});
+  await saved;
+  assert.equal(board.viewTogglePosition, 'south-east');
+  assert.equal(board.showSettings, false);
+  assert.equal(board.settingsError, '');
+  assert.equal(board.settingsSaving, false);
+  assert.deepEqual(colors, ['#ef4444']);
+  board.currentBoardRole = 'editor';
+  await board.saveSettings();
+  assert.equal(requests.length, 3);
+})().catch(error => {console.error(error); process.exitCode = 1;});
+""")
+
+
 def test_sorted_log_refresh_ignores_stale_responses_and_leaves_source_stages_alone():
     run_board_js("""
 const assert = require('node:assert/strict');

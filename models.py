@@ -32,6 +32,7 @@ class Board(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
     color = Column(String, nullable=True)
+    view_toggle_position = Column(String(10), nullable=False, default="north-east", server_default="north-east")
     position = Column(Integer, default=0)
     stages = relationship(
         "Stage",

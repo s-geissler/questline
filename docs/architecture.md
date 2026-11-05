@@ -44,7 +44,7 @@ user_sessions
   id, user_id → users, token_hash, csrf_token_hash, created_at, expires_at
 
 boards
-  id, name, color, position, owner_user_id → users
+  id, name, color, position, view_toggle_position, owner_user_id → users
 
 board_memberships
   id, board_id → boards, user_id → users, role (viewer|editor|owner), created_at

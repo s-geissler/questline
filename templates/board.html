@@ -14,12 +14,13 @@
   data-boards='{{ boards | tojson }}'
   data-board-name='{{ board.name | tojson }}'
   data-board-color='{{ (board.color or "") | tojson }}'
+  data-view-toggle-position="{{ board.view_toggle_position }}"
   data-board-role='{{ board_role | tojson }}'
 >
 
   <div id="board-readonly-banner" class="hidden mx-auto max-w-5xl px-6 pt-4"></div>
 
-  <div id="board-view-toggle" class="fixed top-16 right-4 z-30 flex flex-col items-end gap-2"></div>
+  <div id="board-view-toggle" data-position="{{ board.view_toggle_position }}" class="fixed top-16 right-4 z-30 flex flex-col items-end gap-2{% if board.view_toggle_position == 'hidden' %} hidden{% endif %}"></div>
 
   <div id="board-calendar-toolbar" class="fixed top-16 left-1/2 -translate-x-1/2 z-20 hidden"></div>
 

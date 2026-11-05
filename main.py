@@ -301,6 +301,7 @@ def _run_column_migrations():
         ("task_types",  "board_id", "INTEGER REFERENCES boards(id)"),
         ("automations", "board_id", "INTEGER REFERENCES boards(id)"),
         ("boards",           "color",   "VARCHAR"),
+        ("boards",           "view_toggle_position", "VARCHAR(10) NOT NULL DEFAULT 'north-east'"),
         ("task_types",       "color",   "VARCHAR"),
         ("task_types",       "show_description_on_card", "BOOLEAN"),
         ("task_types",       "show_checklist_on_card", "BOOLEAN"),

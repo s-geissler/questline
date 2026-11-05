@@ -614,6 +614,10 @@ body {
   background-color: rgba(255, 255, 255, 0.85);
   border-color: rgba(255, 255, 255, 0.25);
 }
+#board-view-toggle[data-position="south-east"] {
+  top: auto;
+  bottom: 1rem;
+}
 .view-toggle-label-active {
   color: #1f2937;
 }

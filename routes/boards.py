@@ -1,7 +1,7 @@
 """Board and membership routes."""
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel, Field
@@ -35,11 +35,13 @@ HEX_COLOR_DETAIL = "Board color must be a valid hex color"
 class BoardCreate(BaseModel):
     name: str = Field(max_length=MAX_NAME_LENGTH)
     color: Optional[str] = Field(default=None, max_length=7)
+    view_toggle_position: Literal["north-east", "south-east", "hidden"] = "north-east"
 
 
 class BoardUpdate(BaseModel):
     name: Optional[str] = Field(default=None, max_length=MAX_NAME_LENGTH)
     color: Optional[str] = Field(default=None, max_length=7)
+    view_toggle_position: Literal["north-east", "south-east", "hidden"] = "north-east"
 
 
 class BoardMemberCreate(BaseModel):
@@ -86,6 +88,7 @@ def get_boards(request: Request = None, db: Session = Depends(get_db)):
             "id": b.id,
             "name": b.name,
             "color": b.color,
+            "view_toggle_position": b.view_toggle_position,
             "position": b.position,
             "role": role_map.get(b.id),
             "is_shared": shared_map.get(b.id, False),
@@ -108,6 +111,7 @@ def create_board(request: Request = None, data: BoardCreate = None, db: Session 
         or None,
         position=pos,
         owner_user_id=owner_user.id if owner_user else None,
+        view_toggle_position=data.view_toggle_position,
     )
     db.add(board)
     db.commit()
@@ -119,6 +123,7 @@ def create_board(request: Request = None, data: BoardCreate = None, db: Session 
         "id": board.id,
         "name": board.name,
         "color": board.color,
+        "view_toggle_position": board.view_toggle_position,
         "position": board.position,
         "role": "owner" if owner_user else None,
         "is_shared": False,
@@ -209,8 +214,15 @@ def update_board(board_id: int, request: Request = None, data: BoardUpdate = Non
         board.name = data.name
     if "color" in data.model_fields_set:
         board.color = _validated_optional_hex_color(data.color, HEX_COLOR_DETAIL)
+    if "view_toggle_position" in data.model_fields_set:
+        board.view_toggle_position = data.view_toggle_position
     db.commit()
-    return {"id": board.id, "name": board.name, "color": board.color}
+    return {
+        "id": board.id,
+        "name": board.name,
+        "color": board.color,
+        "view_toggle_position": board.view_toggle_position,
+    }
 
 
 @router.delete("/{board_id}")

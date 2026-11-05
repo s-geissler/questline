@@ -128,7 +128,12 @@ def board_page(request: Request, board_id: int, db: Session = Depends(get_db)):
     board = _get_board_or_404(board_id, db)
     board_role = require_board_access(board_id, current_user, db, "viewer")
     return templates.TemplateResponse(request, "board.html", {
-        "board": {"id": board.id, "name": board.name, "color": board.color},
+        "board": {
+            "id": board.id,
+            "name": board.name,
+            "color": board.color,
+            "view_toggle_position": board.view_toggle_position,
+        },
         "boards": _boards_for_nav(db, current_user),
         "current_user": current_user,
         "board_role": board_role,

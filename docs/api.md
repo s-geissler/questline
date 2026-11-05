@@ -231,6 +231,7 @@ Returns all hubs accessible to the current user.
     "id": 1,
     "name": "My Hub",
     "color": "#3498db",
+    "view_toggle_position": "north-east",
     "position": 0,
     "role": "owner",
     "is_shared": false,
@@ -248,7 +249,7 @@ Create a hub. Creator is automatically added as owner.
 
 **Body**
 ```json
-{ "name": "Sprint Hub", "color": "#e74c3c" }
+{ "name": "Sprint Hub", "color": "#e74c3c", "view_toggle_position": "north-east" }
 ```
 
 ---
@@ -304,12 +305,16 @@ capped at 10 MiB plus 64 KiB of overhead, including streamed requests.
 
 ### `PUT /api/boards/{board_id}`
 
-Update hub name and/or color. Requires `owner` role.
+Update hub name, color, or Stages/Calendar toggle position. Requires `owner` role.
 
 **Body** (all fields optional)
 ```json
-{ "name": "New Name", "color": "#2ecc71" }
+{ "name": "New Name", "color": "#2ecc71", "view_toggle_position": "south-east" }
 ```
+
+`view_toggle_position` accepts `north-east` (top right), `south-east` (bottom right),
+or `hidden`. It defaults to `north-east` and applies to everyone using the hub.
+Omitting it from an update preserves its saved value.
 
 ---
 

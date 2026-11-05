@@ -41,12 +41,16 @@ function _createBoard() {
     logConfigStage: null,
     settingsBoardName: '',
     settingsBoardColor: null,
+    settingsViewTogglePosition: 'north-east',
+    settingsSaving: false,
+    settingsError: '',
     currentBoardRole: null,
     boardMembers: [],
     shareEmail: '',
     shareRole: 'viewer',
     shareError: '',
     boardView: 'stages',
+    viewTogglePosition: 'north-east',
     calendarCursor: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
     showCalendarCreate: false,
     calendarCreateDate: '',
@@ -415,6 +419,8 @@ function _createBoard() {
       this.boards = _parseBoardPageJson(this._el.dataset.boards, []);
       this.settingsBoardName = _parseBoardPageJson(this._el.dataset.boardName, '');
       this.settingsBoardColor = _parseBoardPageJson(this._el.dataset.boardColor, '') || null;
+      this.viewTogglePosition = this._el.dataset.viewTogglePosition || 'north-east';
+      this.settingsViewTogglePosition = this.viewTogglePosition;
       this.currentBoardRole = _parseBoardPageJson(this._el.dataset.boardRole, null);
       this.boardView = this.getRequestedBoardView();
       this.calendarCursor = this.getInitialCalendarCursor();
@@ -493,6 +499,8 @@ function _createBoard() {
       this._surfaceBound = true;
       const settingsButton = document.getElementById('board-settings-button');
       settingsButton?.addEventListener('click', () => {
+        this.settingsViewTogglePosition = this.viewTogglePosition;
+        this.settingsError = '';
         this.showSettings = true;
         this.renderSettingsModal();
       });
@@ -932,6 +940,10 @@ function _createBoard() {
 
     handleSurfaceChange(event) {
       const field = event.target.dataset.field;
+      if (field === 'settings-view-toggle-position') {
+        if (this.canManageBoard) this.settingsViewTogglePosition = event.target.value;
+        return;
+      }
       if (field === 'modal-attachment-file') {
         const file = event.target.files?.[0];
         this.closeTaskActionMenu();
@@ -1190,6 +1202,13 @@ function _createBoard() {
     },
 
     renderViewToggle() {
+      const hidden = this.viewTogglePosition === 'hidden';
+      this.viewToggleEl.dataset.position = this.viewTogglePosition;
+      this.viewToggleEl.classList.toggle('hidden', hidden);
+      if (hidden) {
+        this.viewToggleEl.innerHTML = '';
+        return;
+      }
       this.viewToggleEl.innerHTML = `
         <button
           type="button"
@@ -1600,11 +1619,12 @@ function _createBoard() {
         this.settingsModalEl.innerHTML = '';
         return;
       }
+      const settingsDisabled = !this.canManageBoard || this.settingsSaving;
       const colorButtons = PRESET_COLORS.map(color => `
         <button
           data-action="select-board-color"
           data-color="${color}"
-          ${this.canManageBoard ? '' : 'disabled'}
+          ${settingsDisabled ? 'disabled' : ''}
           class="w-8 h-8 rounded-full hover:scale-110 transition-transform border-2 border-black/10 ${this.settingsColorSwatchClass(color)}"
         ></button>
       `).join('');
@@ -1662,7 +1682,7 @@ function _createBoard() {
                 <input
                   data-field="settings-board-name"
                   value="${_escapeBoardHtml(this.settingsBoardName)}"
-                  ${this.canManageBoard ? '' : 'disabled'}
+                  ${settingsDisabled ? 'disabled' : ''}
                   class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                 >
               </div>
@@ -1672,17 +1692,32 @@ function _createBoard() {
                   ${colorButtons}
                   <button
                     data-action="clear-board-color"
-                    ${this.canManageBoard ? '' : 'disabled'}
+                    ${settingsDisabled ? 'disabled' : ''}
                     class="w-8 h-8 rounded-full bg-gray-100 border-2 border-dashed border-gray-300 flex items-center justify-center text-gray-400 hover:bg-gray-200 transition-colors ${this.emptyColorSettingsClass(this.settingsBoardColor)}"
                     title="No color"
                   >✕</button>
                 </div>
                 <div class="h-6 rounded-lg transition-colors ${this.settingsBoardColorStyle}"></div>
               </div>
+              <div class="mb-6">
+                <label for="settings-view-toggle-position" class="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Stages / Calendar toggle</label>
+                <select
+                  id="settings-view-toggle-position"
+                  data-field="settings-view-toggle-position"
+                  ${settingsDisabled ? 'disabled' : ''}
+                  class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                >
+                  <option value="north-east"${this.settingsViewTogglePosition === 'north-east' ? ' selected' : ''}>North-east (top right)</option>
+                  <option value="south-east"${this.settingsViewTogglePosition === 'south-east' ? ' selected' : ''}>South-east (bottom right)</option>
+                  <option value="hidden"${this.settingsViewTogglePosition === 'hidden' ? ' selected' : ''}>Hidden</option>
+                </select>
+                <p class="text-xs text-gray-400 mt-2">Applies to everyone using this hub.</p>
+              </div>
               ${shareSection}
+              ${this.settingsError ? `<p class="text-sm text-red-600 mb-3" role="alert">${_escapeBoardHtml(this.settingsError)}</p>` : ''}
               <div class="flex justify-end gap-2 border-t pt-4">
                 <button data-action="close-settings" class="text-gray-500 hover:text-gray-700 px-4 py-2 text-sm">Cancel</button>
-                ${this.canManageBoard ? `<button data-action="save-settings" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">Save</button>` : ''}
+                ${this.canManageBoard ? `<button data-action="save-settings" ${this.settingsSaving ? 'disabled' : ''} class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">${this.settingsSaving ? 'Saving…' : 'Save'}</button>` : ''}
               </div>
             </div>
           </div>
@@ -4083,12 +4118,32 @@ function _createBoard() {
 
     // Settings
     async saveSettings() {
-      if (!this.canManageBoard) return;
-      await apiUpdateBoard(this.boardId, {name: this.settingsBoardName, color: this.settingsBoardColor});
-      this.showSettings = false;
-      document.title = 'questline';
-      applyBoardColor(this.settingsBoardColor);
-      this.renderBoardSurface();
+      if (!this.canManageBoard || this.settingsSaving) return;
+      const settings = {
+        name: this.settingsBoardName,
+        color: this.settingsBoardColor,
+        view_toggle_position: this.settingsViewTogglePosition,
+      };
+      this.settingsSaving = true;
+      this.settingsError = '';
+      this.renderSettingsModal();
+      try {
+        const res = await apiUpdateBoard(this.boardId, settings);
+        const updated = await res.json();
+        if (!res.ok) throw new Error(updated.detail || 'Unable to save hub settings. Please try again.');
+        this.settingsBoardName = updated.name;
+        this.settingsBoardColor = updated.color;
+        this.viewTogglePosition = updated.view_toggle_position;
+        this.settingsViewTogglePosition = this.viewTogglePosition;
+        this.showSettings = false;
+        document.title = 'questline';
+        applyBoardColor(this.settingsBoardColor);
+      } catch {
+        this.settingsError = 'Unable to save hub settings. Please try again.';
+      } finally {
+        this.settingsSaving = false;
+        this.renderBoardSurface();
+      }
     },
 
     async addBoardMember() {
