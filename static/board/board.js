@@ -506,6 +506,7 @@ function _createBoard() {
       this._el.addEventListener('dragover', event => this.handleEmailDragOver(event));
       this._el.addEventListener('dragleave', event => this.handleEmailDragLeave(event));
       this._el.addEventListener('drop', event => this.handleEmailDrop(event));
+      document.addEventListener('paste', event => this.handleTaskAttachmentPaste(event));
       document.addEventListener('click', event => {
         // Stage menu outside click
         if (this.activeStageMenuId) {
@@ -933,8 +934,8 @@ function _createBoard() {
       const field = event.target.dataset.field;
       if (field === 'modal-attachment-file') {
         const file = event.target.files?.[0];
-        this.taskActionMenuOpen = false;
-        if (file) this.uploadTaskAttachment(file);
+        this.closeTaskActionMenu();
+        if (file) this.uploadTaskAttachments([file]);
         return;
       }
       if (field === 'board-member-role') {
@@ -1138,7 +1139,7 @@ function _createBoard() {
       }
     },
 
-    renderBoardSurface() {
+    renderBoardSurface({renderTaskModal = true} = {}) {
       if (!this.readonlyBannerEl) return;
       if (this._stageDragContext) {
         // Do not detach Sortable's active element. Cancel this move if the board
@@ -1154,7 +1155,7 @@ function _createBoard() {
       this.renderCalendarView();
       this.renderCalendarCreateModal();
       this.renderSettingsModal();
-      this.renderTaskModal();
+      if (renderTaskModal) this.renderTaskModal();
       this.renderLogConfigModal();
       this.updateStageDropTargetVisibility();
       this.scheduleSortableInit();
@@ -1763,11 +1764,6 @@ function _createBoard() {
       // --- recurrence ---
       const recurrenceSection = task.recurrence ? this._renderRecurrenceSection(task, canEdit) : '';
       const attachmentsSection = this._renderTaskAttachmentsSection(task, canEdit);
-      const attachmentFeedback = this.taskAttachmentsError
-        ? `<p class="mb-4 text-sm text-red-600" role="alert">${_escapeBoardHtml(this.taskAttachmentsError)}</p>`
-        : this.taskAttachmentsBusy
-          ? '<p class="mb-4 text-sm text-gray-500" role="status">Working with attachment…</p>'
-          : '';
 
       // --- description ---
       const descVis = this.descriptionVisibilityValue(task);
@@ -1870,8 +1866,7 @@ function _createBoard() {
 
               ${customFieldsSection}
               ${checklistSection}
-              ${attachmentFeedback}
-              ${attachmentsSection}
+              <div data-role="task-attachments">${attachmentsSection}</div>
             </div>
             </div>
             ${this.taskHistoryExpanded ? `<aside id="task-history-pane" data-role="task-history-pane" class="task-history-pane" aria-labelledby="task-history-heading">${this.taskHistoryContentHtml()}</aside>` : ''}
@@ -2052,7 +2047,12 @@ function _createBoard() {
 
     _renderTaskAttachmentsSection(task, canEdit) {
       const attachments = this.taskAttachments || [];
-      if (!attachments.length) return '';
+      const feedback = this.taskAttachmentsError
+        ? `<p class="mb-4 text-sm text-red-600" role="alert">${_escapeBoardHtml(this.taskAttachmentsError)}</p>`
+        : this.taskAttachmentsBusy
+          ? '<p class="mb-4 text-sm text-gray-500" role="status">Working with attachment…</p>'
+          : '';
+      if (!attachments.length && !canEdit) return feedback;
 
       const rows = attachments.map(attachment => `
         <li class="flex items-center gap-3 py-2">
@@ -2077,12 +2077,14 @@ function _createBoard() {
         `).join('');
 
       return `
+        ${feedback}
         <section class="mb-5" aria-label="Task attachments">
           <div class="flex items-center justify-between gap-3">
             <h3 class="block text-xs font-semibold uppercase tracking-wide text-gray-400">Attachments</h3>
             <span class="text-xs text-gray-400">${attachments.length}/${TASK_ATTACHMENT_MAX_COUNT}</span>
           </div>
           <ul class="mt-1 divide-y divide-gray-100">${rows}</ul>
+          ${canEdit ? '<p class="mt-2 text-xs text-gray-500">Paste an image or file with Ctrl+V / ⌘V while this objective is open.</p>' : ''}
         </section>
       `;
     },
@@ -3037,9 +3039,31 @@ function _createBoard() {
       } finally {
         if (requestId === this._taskAttachmentRequestId) {
           this.taskAttachmentsLoading = false;
-          this.renderTaskModal();
+          this.renderTaskAttachments();
         }
       }
+    },
+
+    renderTaskAttachments() {
+      if (!this.selectedTask) return;
+      const section = this.taskModalEl?.querySelector('[data-role="task-attachments"]');
+      if (section) section.innerHTML = this._renderTaskAttachmentsSection(this.selectedTask, this.canEditBoard);
+      const pickerDisabled = this.taskAttachmentsLoading
+        || this.taskAttachmentsBusy
+        || this.taskAttachments.length >= TASK_ATTACHMENT_MAX_COUNT;
+      this.taskModalEl?.querySelectorAll('[data-field="modal-attachment-file"], [data-action="modal-attach-file"]')
+        .forEach(element => { element.disabled = pickerDisabled; });
+    },
+
+    handleTaskAttachmentPaste(event) {
+      if (event.defaultPrevented || !this.showModal || !this.selectedTask || !this.canEditBoard) return;
+      const target = event.target;
+      if (target !== document.body && target !== document.documentElement && target !== document
+        && !this.taskModalEl?.contains(target)) return;
+      const files = Array.from(event.clipboardData?.files || []);
+      if (!files.length) return;
+      event.preventDefault();
+      return this.uploadTaskAttachments(files);
     },
 
     openTaskAttachmentPicker() {
@@ -3055,16 +3079,21 @@ function _createBoard() {
       this.taskModalEl?.querySelector('[data-field="modal-attachment-file"]')?.click();
     },
 
-    async uploadTaskAttachment(file) {
-      if (!this.canEditBoard || !this.selectedTask || !file) return;
-      if (file.size > TASK_ATTACHMENT_MAX_SIZE) {
-        this.taskAttachmentsError = 'Each attachment must be 10 MiB or smaller.';
-        this.renderTaskModal();
+    async uploadTaskAttachments(files) {
+      if (!this.canEditBoard || !this.selectedTask || !files.length) return;
+      if (this.taskAttachmentsLoading || this.taskAttachmentsBusy) {
+        this.taskAttachmentsError = 'Wait for the current attachment operation to finish, then paste or select the files again.';
+        this.renderTaskAttachments();
         return;
       }
-      if (this.taskAttachments.length >= TASK_ATTACHMENT_MAX_COUNT) {
+      if (files.some(file => file.size > TASK_ATTACHMENT_MAX_SIZE)) {
+        this.taskAttachmentsError = 'Each attachment must be 10 MiB or smaller.';
+        this.renderTaskAttachments();
+        return;
+      }
+      if (this.taskAttachments.length + files.length > TASK_ATTACHMENT_MAX_COUNT) {
         this.taskAttachmentsError = 'A task can have at most 5 attachments.';
-        this.renderTaskModal();
+        this.renderTaskAttachments();
         return;
       }
 
@@ -3072,21 +3101,23 @@ function _createBoard() {
       const requestId = this._taskAttachmentRequestId;
       this.taskAttachmentsBusy = true;
       this.taskAttachmentsError = '';
-      this.renderTaskModal();
+      this.renderTaskAttachments();
       try {
-        const response = await apiUploadTaskAttachment(taskId, file);
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload.detail || 'Unable to upload attachment.');
-        if (requestId !== this._taskAttachmentRequestId) return;
-        this.taskAttachments.push(payload);
-        this.syncTaskAttachmentCount();
+        for (const file of files) {
+          const response = await apiUploadTaskAttachment(taskId, file);
+          const payload = await response.json();
+          if (requestId !== this._taskAttachmentRequestId) return;
+          if (!response.ok) throw new Error(payload.detail || 'Unable to upload attachment.');
+          this.taskAttachments.push(payload);
+          this.syncTaskAttachmentCount();
+        }
       } catch (error) {
         if (requestId !== this._taskAttachmentRequestId) return;
         this.taskAttachmentsError = error.message || 'Unable to upload attachment.';
       } finally {
         if (requestId === this._taskAttachmentRequestId) {
           this.taskAttachmentsBusy = false;
-          this.renderTaskModal();
+          this.renderTaskAttachments();
         }
       }
     },
@@ -3100,7 +3131,7 @@ function _createBoard() {
       const requestId = this._taskAttachmentRequestId;
       this.taskAttachmentsBusy = true;
       this.taskAttachmentsError = '';
-      this.renderTaskModal();
+      this.renderTaskAttachments();
       try {
         const response = await apiDeleteTaskAttachment(taskId, attachmentId);
         const payload = await response.json();
@@ -3114,7 +3145,7 @@ function _createBoard() {
       } finally {
         if (requestId === this._taskAttachmentRequestId) {
           this.taskAttachmentsBusy = false;
-          this.renderTaskModal();
+          this.renderTaskAttachments();
         }
       }
     },
@@ -3126,7 +3157,7 @@ function _createBoard() {
       const countChanged = Number(this.selectedTask.attachment_count || 0) !== attachmentCount
         || (taskInStage && Number(taskInStage.attachment_count || 0) !== attachmentCount);
       this.selectedTask.attachment_count = attachmentCount;
-      if (countChanged) this._syncTaskInStages(this.selectedTask);
+      if (countChanged) this._syncTaskInStages(this.selectedTask, {renderTaskModal: false});
     },
 
     toggleStageMenu(stageId) {
@@ -4111,7 +4142,7 @@ function _createBoard() {
     },
 
     // Helpers
-    _syncTaskInStages(updated) {
+    _syncTaskInStages(updated, renderOptions) {
       this.refreshTaskHistory();
       const nextTask = this._decorateTask(updated);
       let changed = false;
@@ -4123,7 +4154,7 @@ function _createBoard() {
         tasks.splice(idx, 1, nextTask);
         return {...stage, tasks};
       });
-      if (changed) this.renderBoardSurface();
+      if (changed) this.renderBoardSurface(renderOptions);
       this.refreshSortedLogStages();
     },
 

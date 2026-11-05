@@ -670,7 +670,8 @@ assert(!viewerHtml.includes('data-field="modal-attachment-file"'), viewerHtml);
 assert(!viewerHtml.includes('data-action="modal-delete-attachment"'), viewerHtml);
 
 board.taskAttachments = [];
-assert.equal(board._renderTaskAttachmentsSection({{id: 42}}, true), '');
+assert(board._renderTaskAttachmentsSection({{id: 42}}, true).includes('Ctrl+V'));
+assert.equal(board._renderTaskAttachmentsSection({{id: 42}}, false), '');
 board.taskAttachmentsLoading = false;
 board.taskAttachmentsBusy = false;
 board.taskActionMenuOpen = true;
@@ -712,6 +713,165 @@ vm.runInContext(fs.readFileSync({json.dumps(str(api_js))}, 'utf8'), context);
 """
 
     run_board_js(script)
+
+
+def test_task_attachment_paste_only_handles_files_for_an_editable_open_task():
+    run_board_js("""
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const document = {addEventListener() {}, body: {}, documentElement: {}};
+const context = {document};
+vm.createContext(context);
+vm.runInContext(fs.readFileSync('static/board/board.js', 'utf8'), context);
+const board = context._createBoard();
+const editor = {};
+board.taskModalEl = {contains: target => target === editor};
+board.selectedTask = {id: 42};
+board.showModal = true;
+board.currentBoardRole = 'editor';
+const uploads = [];
+board.uploadTaskAttachments = files => uploads.push(files);
+function paste(files, target = editor, defaultPrevented = false) {
+  const event = {target, defaultPrevented, clipboardData: {files},
+    preventDefault() { this.defaultPrevented = true; }};
+  board.handleTaskAttachmentPaste(event);
+  return event.defaultPrevented;
+}
+assert.equal(paste([]), false, 'Text and HTML paste keep their native behavior');
+const image = {name: 'image.png', type: 'image/png'};
+const documentFile = {name: 'report.pdf', type: 'application/pdf'};
+assert.equal(paste([image, documentFile]), true);
+assert.deepEqual(Array.from(uploads[0]), [image, documentFile]);
+assert.equal(paste([image], document.body), true, 'Paste works without a focused editor');
+assert.equal(paste([image], {}), false, 'Inputs outside the task retain their behavior');
+assert.equal(paste([image], editor, true), true, 'An earlier handler can consume the event');
+board.currentBoardRole = 'viewer';
+assert.equal(paste([image]), false);
+board.currentBoardRole = 'owner';
+board.showModal = false;
+assert.equal(paste([image]), false);
+board.showModal = true;
+board.selectedTask = null;
+assert.equal(paste([image]), false);
+assert.equal(uploads.length, 2);
+""")
+
+
+def test_task_attachment_batches_validate_limits_and_serialize_uploads():
+    run_board_js("""
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const requests = [];
+const context = {document: {addEventListener() {}},
+  apiUploadTaskAttachment: (taskId, file) => new Promise((resolve, reject) => {
+    requests.push({taskId, file, resolve, reject});
+  })};
+vm.createContext(context);
+vm.runInContext(fs.readFileSync('static/board/board.js', 'utf8'), context);
+const board = context._createBoard();
+board.selectedTask = {id: 42};
+board.currentBoardRole = 'owner';
+board.renderTaskAttachments = () => {};
+const syncs = [];
+board._syncTaskInStages = (task, options) => syncs.push({task, options});
+const files = [{name: 'image.png', size: 30}, {name: 'report.pdf', size: 40}];
+const reply = (index, payload, ok = true) => requests[index].resolve({ok,
+  json: async () => payload});
+(async () => {
+  await board.uploadTaskAttachments([files[0], {size: 10 * 1024 * 1024 + 1}]);
+  assert(board.taskAttachmentsError.includes('10 MiB'));
+  assert.equal(requests.length, 0, 'The whole batch is checked before upload');
+  board.taskAttachments = [{id: 1}, {id: 2}, {id: 3}, {id: 4}];
+  await board.uploadTaskAttachments(files);
+  assert(board.taskAttachmentsError.includes('at most 5'));
+  assert.equal(requests.length, 0);
+  board.taskAttachments = [];
+  board.taskAttachmentsLoading = true;
+  await board.uploadTaskAttachments(files);
+  assert(board.taskAttachmentsError.includes('Wait'));
+  assert.equal(requests.length, 0);
+  board.taskAttachmentsLoading = false;
+  const upload = board.uploadTaskAttachments(files);
+  assert.equal(board.taskAttachmentsBusy, true);
+  assert.equal(requests.length, 1);
+  await board.uploadTaskAttachments(files);
+  assert.equal(requests.length, 1, 'Repeated pastes cannot start concurrent uploads');
+  reply(0, {id: 1, filename: files[0].name});
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(requests.length, 2, 'The next file starts after the first is saved');
+  assert.equal(requests[1].taskId, 42);
+  reply(1, {id: 2, filename: files[1].name});
+  await upload;
+  assert.equal(board.taskAttachmentsBusy, false);
+  assert.deepEqual(Array.from(board.taskAttachments, item => item.id), [1, 2]);
+  assert.equal(board.selectedTask.attachment_count, 2);
+  assert(syncs.every(sync => sync.options.renderTaskModal === false), 'Typing drafts survive count updates');
+
+  const failed = board.uploadTaskAttachments([files[0], files[1], files[0]]);
+  reply(2, {id: 3, filename: files[0].name});
+  await new Promise(resolve => setImmediate(resolve));
+  reply(3, {detail: 'Storage unavailable'}, false);
+  await failed;
+  assert.equal(requests.length, 4, 'A failed upload stops the batch');
+  assert.deepEqual(Array.from(board.taskAttachments, item => item.id), [1, 2, 3]);
+  assert.equal(board.taskAttachmentsError, 'Storage unavailable');
+  assert.equal(board.taskAttachmentsBusy, false);
+  const retry = board.uploadTaskAttachments([files[1]]);
+  reply(4, {id: 4, filename: files[1].name});
+  await retry;
+  assert.equal(board.taskAttachmentsError, '');
+  const networkFailure = board.uploadTaskAttachments([files[0]]);
+  requests[5].reject(new Error('Connection lost'));
+  await networkFailure;
+  assert.equal(board.taskAttachmentsError, 'Connection lost');
+  assert.equal(board.taskAttachmentsBusy, false);
+})().catch(error => {console.error(error); process.exitCode = 1;});
+""")
+
+
+def test_task_attachment_batch_stops_when_the_task_is_closed_or_changed():
+    run_board_js("""
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const requests = [];
+const context = {document: {addEventListener() {}},
+  apiUploadTaskAttachment: (taskId, file) => new Promise(resolve => {
+    requests.push({taskId, file, resolve});
+  })};
+vm.createContext(context);
+vm.runInContext(fs.readFileSync('static/board/board.js', 'utf8'), context);
+const board = context._createBoard();
+board.currentBoardRole = 'owner';
+board.renderTaskModal = () => {};
+board.renderTaskAttachments = () => {};
+board.loadTaskAttachments = () => {};
+board.syncTaskAttachmentCount = () => {throw new Error('Stale upload updated the task');};
+const files = [{name: 'one.png', size: 30}, {name: 'two.pdf', size: 40}];
+(async () => {
+  board.selectedTask = {id: 42};
+  const closed = board.uploadTaskAttachments(files);
+  board.closeModal();
+  requests[0].resolve({ok: true, json: async () => ({id: 1})});
+  await closed;
+  assert.equal(requests.length, 1, 'Closing a task stops remaining files');
+  assert.equal(board.taskAttachments.length, 0);
+  assert.equal(board.selectedTask, null);
+  board.selectedTask = {id: 42};
+  const switched = board.uploadTaskAttachments(files);
+  board.selectedTask = {id: 99};
+  board.beginTaskAttachmentLoad(99);
+  requests[1].resolve({ok: true, json: async () => ({id: 2})});
+  await switched;
+  assert.equal(requests.length, 2, 'Files cannot spill into the next task');
+  assert.equal(board.selectedTask.id, 99);
+  assert.equal(board.taskAttachments.length, 0);
+  assert.equal(board.taskAttachmentsLoading, true);
+  assert.equal(board.taskAttachmentsError, '');
+})().catch(error => {console.error(error); process.exitCode = 1;});
+""")
 
 
 def test_task_card_shows_paperclip_only_when_attachments_exist():

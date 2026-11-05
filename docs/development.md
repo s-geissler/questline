@@ -72,6 +72,14 @@ The real-browser attachment upload regression check requires Playwright and Chro
 node tests/browser_task_attachments.cjs
 ```
 
+The clipboard attachment check uses a disposable database and covers native
+image/text pastes, document files, editing drafts, upload limits, and downloads.
+Document files use synthetic paste events to exercise the browser-exposed file data.
+
+```bash
+node tests/browser_task_attachment_paste.cjs
+```
+
 The calendar subscription browser check uses the same Playwright/Chromium setup:
 
 ```bash
