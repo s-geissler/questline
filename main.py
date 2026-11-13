@@ -524,7 +524,7 @@ _backfill_session_expirations()
 _configure_audit_logger()
 configure_calendar_access_logging()
 
-app = FastAPI()
+app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
 
 class _UploadBodyLimitMiddleware:

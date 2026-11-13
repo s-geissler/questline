@@ -47,7 +47,6 @@ The first registered account is automatically promoted to admin.
 | `/admin` | Admin panel (admin-only, includes user management, hub review, and housekeeping actions) |
 | `/login` | Login page |
 | `/register` | Registration page |
-| `/docs` | Auto-generated OpenAPI docs (FastAPI) |
 
 ## Documentation
 

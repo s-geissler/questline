@@ -2,7 +2,7 @@
 
 All API endpoints are prefixed with `/api`. Authentication is via session cookie (browsers) or `Authorization: Bearer <token>` (scripts, CLIs, agents) — see [auth.md](auth.md). Responses are JSON. Errors follow FastAPI's default `{"detail": "..."}` format.
 
-The interactive Swagger UI is available at `/docs` when the server is running.
+Interactive API documentation and the OpenAPI schema endpoints are disabled. This document provides the API reference.
 
 Unsafe `/api/` requests (`POST`, `PUT`, `PATCH`, `DELETE`) made with a session cookie must send `X-Requested-With: XMLHttpRequest` and the session-bound CSRF token in `X-CSRF-Token`. Bearer-authenticated requests are exempt from CSRF. `POST /api/auth/login` is rate-limited and returns `429` after too many failed attempts. Sessions expire after `QUESTLINE_SESSION_MAX_AGE_DAYS` days (30 by default). API tokens do not expire by default; revoke them via `DELETE /api/tokens/{id}`.
 

@@ -113,12 +113,9 @@ To enable DEBUG output during development:
 uvicorn main:app --reload --log-level debug
 ```
 
-## Interactive API Docs
+## API Reference
 
-FastAPI auto-generates OpenAPI docs at:
-
-- `http://localhost:8000/docs` — Swagger UI
-- `http://localhost:8000/redoc` — ReDoc
+See [api.md](api.md) for the REST API reference. The Swagger UI, ReDoc, and OpenAPI schema endpoints are disabled.
 
 Unsafe `/api/` requests must send `X-Requested-With: XMLHttpRequest`, and authenticated writes must also include the session-bound `X-CSRF-Token` header.
 

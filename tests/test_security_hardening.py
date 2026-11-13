@@ -4,6 +4,14 @@ from fastapi.testclient import TestClient
 XHR_HEADERS = {"X-Requested-With": "XMLHttpRequest"}
 
 
+def test_api_documentation_endpoints_are_disabled(app_env):
+    client = TestClient(app_env["main"].app)
+
+    for path in ("/docs", "/docs/oauth2-redirect", "/redoc", "/openapi.json"):
+        response = client.get(path)
+        assert response.status_code == 404, path
+
+
 def test_authenticated_writes_require_csrf_token(app_env):
     main = app_env["main"]
     client = TestClient(main.app)
